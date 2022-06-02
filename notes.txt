@@ -1,0 +1,13 @@
+
+We need to decide whether we want to use a stripped-down AST (without tokens,
+without location information, and with just the strict expression information),
+or if we want to use Sam's austere AST (with all of the above).
+
+To support "stars" (which will denote "holes" in expressions of where the
+computation currently is), it seems we need a new tree.
+
+But if we don't use the austere AST, we lose the existing pretty printer.
+OK, so the existing pretty printer works solely by utilizing the existing
+source, meaning that we can't use the original pretty printer anyways.
+
+Seems to be little reason NOT to just translate to something new.
