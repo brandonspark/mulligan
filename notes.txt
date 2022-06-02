@@ -11,3 +11,6 @@ OK, so the existing pretty printer works solely by utilizing the existing
 source, meaning that we can't use the original pretty printer anyways.
 
 Seems to be little reason NOT to just translate to something new.
+
+to compile:
+mlton -mlb-path-var 'COMPAT mlton' -default-ann 'allowOrPats true' sources.mlb

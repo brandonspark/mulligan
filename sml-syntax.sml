@@ -56,7 +56,7 @@ structure PreSMLSyntax =
 
       (* pats *)
       | Papp of {
-          opp : bool
+          opp : bool,
           id : longid,
           atpat : pat
         }
@@ -105,12 +105,12 @@ structure PreSMLSyntax =
     type typbind = {
         tyvars : symbol list,
         tycon : symbol,
-        ty : ty,
+        ty : ty
       }
     type datbind = {
         tyvars : symbol list,
         tycon : symbol,
-        conbinds : conbind list,
+        conbinds : conbind list
       }
 
     datatype exp =
@@ -145,6 +145,7 @@ structure PreSMLSyntax =
         }
       | Einfix of {
           left : exp,
+          id : symbol,
           right : exp
         }
       | Etyped of {
@@ -194,12 +195,6 @@ structure PreSMLSyntax =
                           , args : pat list
                           }
 
-    and fvalbinds =
-      { fname_args : fname_args
-      , ty : ty option
-      , exp : exp
-      } list list
-
     and dec =
         Dval of {
           tyvars : symbol list,
@@ -240,6 +235,12 @@ structure PreSMLSyntax =
         }
       | Dnonfix of symbol list
 
+    withtype fvalbinds =
+      { fname_args : fname_args
+      , ty : ty option
+      , exp : exp
+      } list list
+
     (****************************)
     (*         MODULES          *)
     (****************************)
@@ -252,7 +253,7 @@ structure PreSMLSyntax =
     type typdesc = {
         tyvars : symbol list,
         tycon : symbol,
-        ty : ty option,
+        ty : ty option
       }
 
     datatype strdec =
@@ -301,14 +302,14 @@ structure PreSMLSyntax =
         SPval of {
           id : symbol,
           ty : ty
-        }
-      | SPtype of typdesc
-      | SPeqtype of typdesc
+        } list
+      | SPtype of typdesc list
+      | SPeqtype of typdesc list
       | SPdatdec of {
           tyvars : symbol list,
           tycon : symbol,
-          condescs : condesc list,
-        }
+          condescs : condesc list
+        } list
       | SPdatrepl of {
           left_tycon : symbol,
           right_tycon : longid
@@ -316,16 +317,20 @@ structure PreSMLSyntax =
       | SPexception of {
           id : symbol,
           ty : ty option
-        }
+        } list
       | SPmodule of {
           id : symbol,
           signat : signat
-        }
+        } list
       | SPinclude of signat
       | SPinclude_ids of symbol list
-      | SPsharing of {
-          spec : spec
+      | SPsharing_type of {
+          spec : spec,
           tycons : longid list (* longtycon1 = .. = longtycon_n *)
+        }
+      | SPsharing of {
+          spec : spec,
+          tycons : longid list (* longstrid1 = .. = longstrid_n *)
         }
       | SPseq of spec list
 
@@ -371,27 +376,17 @@ structure PreSMLSyntax =
 signature SMLSYNTAX =
   sig
     type symbol = PreSMLSyntax.symbol
-    type span = PreSMLSyntax.span
-    type symbol = PreSMLSyntax.symbol
-    type longid = PreSMLSyntax.longid
 
     val map_sym : symbol -> (string -> string) -> symbol
 
-    (* DERIVING *)
-    type setting = symbol * symbol
-    type settings = setting list
-
-    type plugin = symbol * settings
-    type plugins = plugin list
-
     (* TYPES *)
 
-    type ty = PreSMLSyntax.ty
+    datatype ty = datatype PreSMLSyntax.ty
 
     (* PATS *)
 
     datatype patrow = datatype PreSMLSyntax.patrow
-    type pat = PreSMLSyntax.pat
+    datatype pat = datatype PreSMLSyntax.pat
 
     (* EXPS *)
 
@@ -402,8 +397,9 @@ signature SMLSYNTAX =
     type typbind = PreSMLSyntax.typbind
     type datbind = PreSMLSyntax.datbind
 
-    type dec = PreSMLSyntax.dec
-    type exp = PreSMLSyntax.exp
+    datatype dec = datatype PreSMLSyntax.dec
+    datatype exp = datatype PreSMLSyntax.exp
+    datatype fname_args = datatype PreSMLSyntax.fname_args
 
     (* MODULES *)
 
@@ -413,10 +409,10 @@ signature SMLSYNTAX =
     datatype opacity = datatype PreSMLSyntax.opacity
     datatype funarg_app = datatype PreSMLSyntax.funarg_app
 
-    type module = PreSMLSyntax.module
-    type strdec = PreSMLSyntax.strdec
-    type signat = PreSMLSyntax.signat
-    type spec = PreSMLSyntax.spec
+    datatype module = datatype PreSMLSyntax.module
+    datatype strdec = datatype PreSMLSyntax.strdec
+    datatype signat = datatype PreSMLSyntax.signat
+    datatype spec = datatype PreSMLSyntax.spec
 
     type sigbinds = PreSMLSyntax.sigbinds
     type sigdec = PreSMLSyntax.sigdec
@@ -426,7 +422,6 @@ signature SMLSYNTAX =
     datatype funarg = datatype PreSMLSyntax.funarg
 
     type funbind = PreSMLSyntax.funbind
-    type funbinds = PreSMLSyntax.funbinds
     type fundec = PreSMLSyntax.fundec
 
     (* TOPDECS *)
@@ -439,28 +434,19 @@ signature SMLSYNTAX =
 structure SMLSyntax : SMLSYNTAX =
   struct
     type symbol = PreSMLSyntax.symbol
-    type span = PreSMLSyntax.span
     type symbol = PreSMLSyntax.symbol
-    type longid = PreSMLSyntax.longid
 
     fun map_sym sym f =
       Symbol.fromValue (f (Symbol.toValue sym))
 
-    (* DERIVING *)
-    type setting = PreSMLSyntax.setting
-    type settings = PreSMLSyntax.settings
-
-    type plugin = PreSMLSyntax.plugin
-    type plugins = PreSMLSyntax.plugins
-
     (* TYPES *)
 
-    type ty = PreSMLSyntax.ty
+    datatype ty = datatype PreSMLSyntax.ty
 
     (* PATS *)
 
     datatype patrow = datatype PreSMLSyntax.patrow
-    type pat = PreSMLSyntax.pat
+    datatype pat = datatype PreSMLSyntax.pat
 
     (* EXPS *)
 
@@ -471,8 +457,9 @@ structure SMLSyntax : SMLSYNTAX =
     type typbind = PreSMLSyntax.typbind
     type datbind = PreSMLSyntax.datbind
 
-    type dec = PreSMLSyntax.dec
-    type exp = PreSMLSyntax.exp
+    datatype dec = datatype PreSMLSyntax.dec
+    datatype exp = datatype PreSMLSyntax.exp
+    datatype fname_args = datatype PreSMLSyntax.fname_args
 
     (* MODULES *)
 
@@ -482,10 +469,10 @@ structure SMLSyntax : SMLSYNTAX =
     datatype opacity = datatype PreSMLSyntax.opacity
     datatype funarg_app = datatype PreSMLSyntax.funarg_app
 
-    type module = PreSMLSyntax.module
-    type strdec = PreSMLSyntax.strdec
-    type signat = PreSMLSyntax.signat
-    type spec = PreSMLSyntax.spec
+    datatype module = datatype PreSMLSyntax.module
+    datatype strdec = datatype PreSMLSyntax.strdec
+    datatype signat = datatype PreSMLSyntax.signat
+    datatype spec = datatype PreSMLSyntax.spec
 
     type sigbinds = PreSMLSyntax.sigbinds
     type sigdec = PreSMLSyntax.sigdec
@@ -495,7 +482,6 @@ structure SMLSyntax : SMLSYNTAX =
     datatype funarg = datatype PreSMLSyntax.funarg
 
     type funbind = PreSMLSyntax.funbind
-    type funbinds = PreSMLSyntax.funbinds
     type fundec = PreSMLSyntax.fundec
 
     (* TOPDECS *)

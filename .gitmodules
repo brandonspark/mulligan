@@ -1,0 +1,3 @@
+[submodule "parse-sml"]
+	path = parse-sml
+	url = https://github.com/shwestrick/parse-sml.git
