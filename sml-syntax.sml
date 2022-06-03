@@ -178,7 +178,9 @@ structure PreSMLSyntax =
           exp : exp,
           matches : { pat : pat, exp : exp } list
         }
-      | Efn of { pat : pat, exp : exp } list
+      | Efn of { pat : pat, exp : exp } list * Context.t * Context.scope
+
+      | Ehole (* just for debugging purposes *)
 
     and fname_args =
         Fprefix of { opp : bool
@@ -198,7 +200,7 @@ structure PreSMLSyntax =
     and dec =
         Dval of {
           tyvars : symbol list,
-          valbinds : { recc : bool, pat : pat, exp : exp } list
+          valbinds : valbinds
         }
       | Dfun of { (* need to do something about infixed function names *)
           tyvars : symbol list,
@@ -240,6 +242,12 @@ structure PreSMLSyntax =
       , ty : ty option
       , exp : exp
       } list list
+
+    and valbinds =
+      { recc : bool
+      , pat : pat
+      , exp : exp
+      } list
 
     (****************************)
     (*         MODULES          *)
@@ -401,6 +409,9 @@ signature SMLSYNTAX =
     datatype exp = datatype PreSMLSyntax.exp
     datatype fname_args = datatype PreSMLSyntax.fname_args
 
+    type fvalbinds = PreSMLSyntax.fvalbinds
+    type valbinds = PreSMLSyntax.valbinds
+
     (* MODULES *)
 
     type condesc = PreSMLSyntax.condesc
@@ -460,6 +471,9 @@ structure SMLSyntax : SMLSYNTAX =
     datatype dec = datatype PreSMLSyntax.dec
     datatype exp = datatype PreSMLSyntax.exp
     datatype fname_args = datatype PreSMLSyntax.fname_args
+
+    type fvalbinds = PreSMLSyntax.fvalbinds
+    type valbinds = PreSMLSyntax.valbinds
 
     (* MODULES *)
 

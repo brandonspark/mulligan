@@ -5,4 +5,6 @@ parse-sml/src/ast/AstType.sml
 cmlib/cmlib.mlb
 
 sml-syntax.sml
+context.sml
 elaborate.sml
+debugger.sml

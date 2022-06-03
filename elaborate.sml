@@ -435,7 +435,7 @@ structure Elaborate =
         )
         elems
 
-    and elab_dec' (dec, ctx) =
+    and elab_dec (dec, ctx) =
       case dec of
         Exp.DecEmpty => (Dseq [], ctx)
       | Exp.DecVal {tyvars, elems, ...} =>
@@ -500,6 +500,7 @@ structure Elaborate =
           |> expand Dexception ctx
       | Exp.DecLocal {left_dec, right_dec, ...} =>
           let
+
             val (left_dec, ctx) = elab_dec (left_dec, ctx)
             val (right_dec, ctx) = elab_dec (right_dec, ctx)
           in
@@ -542,10 +543,6 @@ structure Elaborate =
           ( Dnonfix (elab_seq tok_to_sym elems)
           , ctx
           )
-
-    and elab_dec (dec, ctx) =
-      (* TODO: update *)
-      elab_dec' (dec, ctx)
 
     and elab_exbind exbind =
       case exbind of
@@ -649,11 +646,23 @@ structure Elaborate =
                         elems
                   }
         | Exp.Fn {elems, ...} =>
-            Efn (elab_seq (fn {pat, exp, ...} =>
-                  { pat = elab_pat (pat, ctx)
-                  , exp = elab_exp exp
-                  }
-                ) elems)
+            (* This is OK to do because any expression fn values which exist in
+             * the original program must have been in the literal text, meaning
+             * that their closure is just what the context is at the time of
+             * evaluation.
+             *
+             * We will fix this later in the debugger.
+             *)
+            Efn ( elab_seq
+                    (fn {pat, exp, ...} =>
+                      { pat = elab_pat (pat, ctx)
+                      , exp = elab_exp exp
+                      }
+                    )
+                    elems
+                , Context.absurd
+                , Context.absurd_scope
+                )
         | Exp.MLtonSpecific _ => raise Fail "mlton not supported rn"
       end
 

@@ -14,3 +14,41 @@ Seems to be little reason NOT to just translate to something new.
 
 to compile:
 mlton -mlb-path-var 'COMPAT mlton' -default-ann 'allowOrPats true' sources.mlb
+
+We have an issue.
+The debugger is founded on the idea that the size of semantic objects (i.e.
+expressions) during the course of runtime will be finite.
+
+Now, this is clearly not true. See:
+fun fact 0 = 1
+  | fact n = n * fact (n - 1)
+We want some kind of "delayed" evaluation where:
+
+fact n =
+
+fun f n = g n
+and g n = f n
+
+f n
+==> g n
+==> f n
+
+IMPORTANT: The pretty printer is contextual.
+
+This means that substitution never actually needs to happen. We know that it's
+equivalent to either eagerly substitute values, or to keep them around as a
+lookup table with an expression with free variables.
+
+The problem is that substitution is hard, and you can't go back. So the pretty
+printer can just take in an un-substituted expression, equipped with its
+closure, and then generate the text as needed.
+
+So we never have to actually do substitution, we can just alter the context.
+
+constructor equivalence when shadowing exceptions or datatypes
+
+replicating datatypes and exceptions warrants a separate thing in context for
+them
+
+users will be able to enter non-typechecking inputs if we have no type
+information...
