@@ -44,8 +44,8 @@ fun checkpoint outer_exp inner_exp ctx =
     exp
   end
 
-(* step only ever throws *)
-fun step exp cont ctx =
+(* eval only ever throws *)
+fun eval exp cont ctx =
   case exp of
     Const b => C.throw cont exp
   | Andalso (exp1, exp2) =>
@@ -67,15 +67,15 @@ fun step exp cont ctx =
         | _ => C.throw cont (Const true)
       end
 
-fun run exp cont ctx =
+fun step exp cont ctx =
   let
-    val exp = step exp cont ctx
+    val exp = eval exp cont ctx
   in
     Go exp
   end
   handle Surface (ctx, exp, cont, flag) =>
     if flag then
-      Stop (ctx, exp, fn () => run exp cont ctx)
+      Stop (ctx, exp, fn () => step exp cont ctx)
     else
       Stop (ctx, exp, fn () => C.throw cont exp)
 
@@ -96,7 +96,7 @@ fun interact () =
     val final_exp =
       C.callcc (fn cont =>
         let
-          val f : (unit -> exp status) ref = ref (fn () => run (!exp) cont (!ctx))
+          val f : (unit -> exp status) ref = ref (fn () => step (!exp) cont (!ctx))
         in
           ( while true do
             (case (print "\n"; TextIO.input TextIO.stdIn) of

@@ -1,5 +1,53 @@
 
-structure Debugger =
+structure Debugger :
+  sig
+    val eval_program : SMLSyntax.ast -> Context.t -> Context.t
+
+    datatype location =
+      (* EXP hole *)
+        EHOLE of SMLSyntax.exp
+      | DVALBINDS of
+           SMLSyntax.symbol list
+         * SMLSyntax.pat
+         * { recc : bool, pat : SMLSyntax.pat, exp : SMLSyntax.exp } list
+      (* DEC hole *)
+      | ELET of SMLSyntax.exp list
+      | DLOCAL of SMLSyntax.dec list * SMLSyntax.dec
+      | DSEQ of SMLSyntax.dec list
+      | DMLOCAL of SMLSyntax.strdec list * SMLSyntax.strdec
+      | DMSEQ of SMLSyntax.strdec list
+      | MLET of SMLSyntax.module
+      (* MODULE hole *)
+      | MSTRUCT
+      | MSEAL of { opacity : SMLSyntax.opacity, signat : SMLSyntax.signat }
+      | MAPP of SMLSyntax.symbol
+      | STRUCTS of
+           SMLSyntax.symbol
+         * { opacity : SMLSyntax.opacity, signat : SMLSyntax.signat } option
+         * { id : SMLSyntax.symbol
+           , seal : {opacity : SMLSyntax.opacity, signat : SMLSyntax.signat } option
+           , module : SMLSyntax.module
+           } list
+        (* special: just meant to say wtf is going on *)
+      | FBODY of SMLSyntax.symbol
+      (* TOPDEC hole *)
+      | PROG of SMLSyntax.topdec list
+
+    val eval :
+         location list
+      -> SMLSyntax.exp
+      -> Context.t
+      -> Context.value MLton.Cont.t
+      -> unit
+
+    exception Perform of
+      { context : Context.t
+      , location : location list
+      , exp : SMLSyntax.exp
+      , cont : Context.value MLton.Cont.t
+      , continue : bool
+      }
+  end =
   struct
     open SMLSyntax
     open Context
@@ -366,6 +414,7 @@ structure Debugger =
                       )
                    |> #value
                    |> throw
+              | (Vbasis f, v) => throw (f v)
               | _ => raise Fail "impossible app redex"
             end
         | Einfix {left, id, right} =>
@@ -392,6 +441,7 @@ structure Debugger =
                   end
               | Vconstr {id = [sym], arg = NONE} =>
                   throw (Vinfix {left = left, id = sym, right = right})
+              | Vbasis f => throw (f (Vtuple [left, right]))
               | _ => raise Fail "applied value is not a function or constr"
             end
         | Etyped {exp, ...} => eval location exp ctx cont

@@ -52,6 +52,7 @@ structure Context :
     | Vfn of { pat : SMLSyntax.pat, exp : SMLSyntax.exp } list
            * t
            * scope
+    | Vbasis of value -> value
 
     and sigval =
       Sigval of
@@ -100,6 +101,8 @@ structure Context :
 
     val add_bindings : t -> (SMLSyntax.symbol * value) list -> t
     val add_rec_bindings : t -> (SMLSyntax.symbol * value) list -> t
+
+    val initial : t
 
     (* Value stuff. *)
 
@@ -199,6 +202,7 @@ structure Context :
         , right : value
         }
     | Vfn of { pat : pat, exp : exp } list * t * scope
+    | Vbasis of value -> value
 
     and sigval =
       Sigval of
@@ -569,8 +573,7 @@ structure Context :
       |> scope_set_valdict scope
 
     fun map_module f (ctx as {sigdict, functordict, ...} : t) id =
-      raise Fail "lol"
-      (* lift (fn (scope, ctx) =>
+      lift (fn (scope, ctx) =>
         let
           fun map_module' scope id =
             case id of
@@ -597,7 +600,7 @@ structure Context :
           | (SOME mapped_scope, _) => (mapped_scope, ctx)
           | (NONE, scope::rest) =>
               let
-                val (inner_scope, rest) =
+                val { scope = inner_scope, outer_scopes = rest, ...} =
                   map_module f
                     { scope = scope
                     , outer_scopes = rest
@@ -609,7 +612,6 @@ structure Context :
               end
         end
       ) ctx
-      *)
 
 
     fun drop_last l = List.nth (l, List.length l - 1)
@@ -1148,6 +1150,8 @@ structure Context :
                  , right = value_to_exp right
                  }
       | Vfn (matches, E, VE) => Efn matches
+      (* For basis values *)
+      | Vbasis f => raise Fail "TODO"
 
     exception Mismatch of string
 
@@ -1281,5 +1285,134 @@ structure Context :
                 sigbindings
             )
       , functordict = functordict
+      }
+
+    val sym = Symbol.fromValue
+
+
+
+    (* TODO: word stuff *)
+    val initial_values =
+      [ ( "+"
+        , Vbasis (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 + i2))
+                 | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 + r2))
+                 | _ => raise Fail "invalid args to +"
+                 )
+        )
+      , ( "-"
+        , Vbasis (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 - i2))
+                 | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 - r2))
+                 | _ => raise Fail "invalid args to -"
+                 )
+        )
+      , ( "*"
+        , Vbasis (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 * i2))
+                 | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 * r2))
+                 | _ => raise Fail "invalid args to *"
+                 )
+        )
+      , ( "div"
+        , Vbasis (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 div i2))
+                 | _ => raise Fail "invalid args to div"
+                 )
+        )
+      ]
+      |> List.map (fn (x, y) => (sym x, y))
+
+    val initial_cons =
+      [ "SOME", "NONE", "true", "false", "::", "LESS", "EQUAL", "GREATER", "nil" ]
+      |> List.map sym
+
+    val initial_exns =
+      [ "Fail", "Bind", "Match", "Div" ]
+      |> List.map sym
+
+    val initial_mods = []
+
+    val initial_infix =
+      [ ( "div", (LEFT, 7) )
+      , ( "mod", (LEFT, 7) )
+      , ( "*", (LEFT, 7) )
+      , ( "/", (LEFT, 7) )
+      , ( "+", (LEFT, 6) )
+      , ( "-", (LEFT, 6) )
+      , ( "<", (LEFT, 4) )
+      , ( ">", (LEFT, 4) )
+      , ( "<=", (LEFT, 4) )
+      , ( ">=", (LEFT, 4) )
+
+      , ( "::", (RIGHT, 5) )
+      , ( "=", (LEFT, 4) )
+      , ( ":=", (LEFT, 3) )
+      ]
+      |> List.map (fn (x, y) => (sym x, y))
+
+      (* TODO: write code for this
+      , ( sym "^", (LEFT, 5) )
+      , ( sym "o", (LEFT, 4) )
+      , ( sym "@", (RIGHT, 3) )
+       *)
+
+    val initial_tys =
+      [ ( "order"
+        , ( 0
+          , [ ("LESS", NONE)
+            , ("GREATER", NONE)
+            , ("EQUAL", NONE)
+            ]
+          )
+        )
+      , ( "option"
+        , ( 1
+          , [ ("SOME", SOME (Ttyvar (sym "'a")))
+            , ("NONE", NONE)
+            ]
+          )
+        )
+      , ( "list"
+        , ( 1
+          , [ ("::", SOME ( Tprod [ Ttyvar (sym "'a")
+                                  , Tapp ([Ttyvar (sym "'a")], [sym "list"])
+                                  ]
+                          )
+              )
+            , ("nil", NONE)
+            ]
+          )
+        )
+      ]
+      |> List.map
+           (fn (tycon, (arity, cons)) =>
+             (sym tycon
+             , { arity = arity
+               , cons = List.map (fn (x, y) => { id = sym x, ty = y }) cons
+               }
+             )
+           )
+
+    fun sym_from_list l =
+      List.foldl
+        (fn (x, acc) =>
+          SymSet.insert acc x
+        )
+        SymSet.empty
+        l
+
+    val initial_scope =
+      Scope
+        { valdict = dict_from_list initial_values
+        , condict = sym_from_list initial_cons
+        , exndict = sym_from_list initial_exns
+        , moddict = dict_from_list initial_mods
+        , infixdict = dict_from_list initial_infix
+        , tydict = dict_from_list initial_tys
+        }
+
+
+    val initial =
+      { scope = initial_scope
+      , outer_scopes = []
+      , sigdict = SymDict.empty
+      , functordict = SymDict.empty
       }
   end

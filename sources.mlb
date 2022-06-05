@@ -1,6 +1,7 @@
 parse-sml/src/base/sources.mlb
 parse-sml/src/ast/sources.mlb
 parse-sml/src/ast/AstType.sml
+parse-sml/src/parse/sources.mlb
 
 cmlib/cmlib.mlb
 
@@ -10,3 +11,5 @@ sml-syntax.sml
 context.sml
 elaborate.sml
 debugger.sml
+
+top.sml

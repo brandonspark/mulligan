@@ -88,7 +88,7 @@ structure Ast =
 
     and datbind = { tyvars: symbol list, elems: {opp: bool, arg: ty option} list } list
 
-    open AstType
+    open Ast
 
     local
       open Exp

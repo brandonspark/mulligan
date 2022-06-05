@@ -3,9 +3,12 @@
  *
  * All type information is not important. Assume a type-checking AST.
  *)
-structure Elaborate =
+structure Elaborate :
+  sig
+    val elab_ast : Ast.ast * 'a -> SMLSyntax.ast * 'a
+  end =
   struct
-    open AstType
+    open Ast
     open SMLSyntax
 
     infix <<| |> >>|
