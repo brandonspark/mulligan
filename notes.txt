@@ -52,3 +52,10 @@ them
 
 users will be able to enter non-typechecking inputs if we have no type
 information...
+
+The first pass (elaboration) is supposed to be contextual, but this duplicates a
+lot of annoying code, so I've decided to make it non-contextual.
+
+This means we can't do things like put the context into the Efn, change Eidents
+to Econstrs, etc, but this can be done in a later pass.
+

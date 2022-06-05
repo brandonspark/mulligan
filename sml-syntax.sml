@@ -127,10 +127,6 @@ structure PreSMLSyntax =
           opp : bool,
           id : longid
         }
-      | Econstr of {
-          opp : bool,
-          id : longid
-        }
       | Etuple of exp list
       | Elist of exp list
       | Eseq of exp list
@@ -178,7 +174,7 @@ structure PreSMLSyntax =
           exp : exp,
           matches : { pat : pat, exp : exp } list
         }
-      | Efn of { pat : pat, exp : exp } list * Context.t * Context.scope
+      | Efn of { pat : pat, exp : exp } list
 
       | Ehole (* just for debugging purposes *)
 
@@ -384,6 +380,7 @@ structure PreSMLSyntax =
 signature SMLSYNTAX =
   sig
     type symbol = PreSMLSyntax.symbol
+    type longid = PreSMLSyntax.symbol list
 
     val map_sym : symbol -> (string -> string) -> symbol
 
@@ -445,7 +442,7 @@ signature SMLSYNTAX =
 structure SMLSyntax : SMLSYNTAX =
   struct
     type symbol = PreSMLSyntax.symbol
-    type symbol = PreSMLSyntax.symbol
+    type longid = PreSMLSyntax.symbol list
 
     fun map_sym sym f =
       Symbol.fromValue (f (Symbol.toValue sym))

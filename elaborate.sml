@@ -660,8 +660,6 @@ structure Elaborate =
                       }
                     )
                     elems
-                , Context.absurd
-                , Context.absurd_scope
                 )
         | Exp.MLtonSpecific _ => raise Fail "mlton not supported rn"
       end

@@ -8,21 +8,11 @@ structure SymbolOrdered =
   end
 structure SymDict = RedBlackDict(structure Key = SymbolOrdered)
 
+structure SymSet = SymbolRedBlackSet
+
 structure Context :
   sig
     type symbol = SMLSyntax.symbol
-
-    type 'a dict = 'a SymDict.dict
-
-    datatype data =
-        SIG of SMLSyntax.signat
-      | VAL of SMLSyntax.exp
-      | TY of { tyvars : symbol list
-              , tycon : symbol
-              }
-      | CON
-      | EXN of symbol
-      | MOD of data dict
 
     datatype infixity = LEFT | RIGHT
 
@@ -30,149 +20,239 @@ structure Context :
      * Each scope maps to the stuff in it, and all things in scope are within
      * the current value of outer_scopes.
      *)
+
+    type 'a dict = 'a SymDict.dict
+
     type t
 
-    (* Use when entering the scope of a module. *)
+    type scope
+
+    datatype value =
+      Vnumber of SMLSyntax.number
+    | Vstring of symbol
+    | Vchar of char
+    | Vrecord of
+        { lab : symbol
+        , value : value
+        } list
+    | Vunit
+    | Vident of SMLSyntax.longid
+    | Vconstr of
+        { id : SMLSyntax.longid
+        , arg : value option
+        }
+    | Vselect of SMLSyntax.symbol
+    | Vtuple of value list
+    | Vlist of value list
+    | Vinfix of
+        { left : value
+        , id : SMLSyntax.symbol
+        , right : value
+        }
+    | Vfn of { pat : SMLSyntax.pat, exp : SMLSyntax.exp } list
+           * t
+           * scope
+
+    and sigval =
+      Sigval of
+        { valspecs : SymSet.set
+        , dtyspecs : { arity : int
+                     , cons : { id : SMLSyntax.symbol, ty : SMLSyntax.ty option } list
+                     } dict
+        (* TODO: type stuff , tyspecs : ty option dict *)
+        , exnspecs : SymSet.set
+        , modspecs : sigval dict
+        }
+
+
+    and functorval =
+      Functorval of
+        { arg_seal : { id : SMLSyntax.symbol option, sigval : sigval }
+        , seal : { opacity : SMLSyntax.opacity, sigval : sigval } option
+        , body : SMLSyntax.module
+        }
+
+    (* Context stuff. *)
+
+    val scope_empty : scope
+
+    val get_val : t -> SMLSyntax.longid -> value
+    val get_module : t -> SMLSyntax.longid -> scope
+    val get_sig : t -> SMLSyntax.symbol -> sigval
+    val get_functor : t -> SMLSyntax.symbol -> functorval
+
+    val add_exn : t -> SMLSyntax.symbol -> t
+    val add_con : t -> SMLSyntax.symbol -> t
+    val add_infix : t -> (SMLSyntax.symbol * infixity * int) -> t
+    val add_module : t -> SMLSyntax.symbol -> scope -> t
+
+    val add_funbind : t -> SMLSyntax.funbind -> t
+
+    val remove_infix : t -> SMLSyntax.symbol -> t
+
     val enter_scope : t -> t
+    val exit_scope : SMLSyntax.symbol -> t -> t
+    val pop_scope : t -> scope
+    val pop_penultimate : t -> t
 
-    (* Use when exiting the scope of a module. *)
-    val exit_scope : string -> t -> t
+    val open_scope : t -> scope -> t
+    val open_path : t -> SMLSyntax.symbol list -> t
 
-    (* Add a signature to the current scope. *)
-    val add_topdec : t -> SMLSyntax.topdec -> t
-    val add_dec : t -> SMLSyntax.dec -> t
+    val add_bindings : t -> (SMLSyntax.symbol * value) list -> t
+    val add_rec_bindings : t -> (SMLSyntax.symbol * value) list -> t
 
-    val add_bindings : t -> (SMLSyntax.symbol * SMLSyntax.exp) list -> t
+    (* Value stuff. *)
 
-    val add_rec_valbinds : t -> SMLSyntax.valbinds -> t
+    val value_to_exp : value -> SMLSyntax.exp
 
-    val add_fvalbinds : t -> SMLSyntax.fvalbinds -> t
+    val apply_fn :
+           {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list * t * scope
+        -> value
+        -> t * SMLSyntax.exp
 
     val match_against :
-      t -> {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list ->
-        (t * scope) option -> SMLSyntax.exp -> SMLSyntax.exp * t
+         t
+      -> {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list
+      -> value
+      -> t * SMLSyntax.exp
+
+    val match_pat : SMLSyntax.pat -> value -> (SMLSyntax.symbol * value) list
+
+    val evaluate_signat : t -> SMLSyntax.signat -> sigval
+
+    val generate_sigbinding :
+         t
+      -> {id : SMLSyntax.symbol, signat : SMLSyntax.signat}
+      -> SMLSyntax.symbol * sigval
+
+    val add_sigbindings :
+         t
+      -> (SMLSyntax.symbol * sigval) list
+      -> t
+
+    (* Type stuff. *)
+
+    val add_typbinds : t -> SMLSyntax.typbind list -> t
+    val replicate_datatype : t -> SMLSyntax.symbol * SMLSyntax.symbol list -> t
+    val replicate_exception : t -> SMLSyntax.symbol * SMLSyntax.symbol list -> t
+
+    val add_datatype : t -> SMLSyntax.datbind -> t
+
+    val ascribe : scope -> { opacity : SMLSyntax.opacity
+                           , sigval : sigval
+                           } option -> scope
+
+
   end =
   struct
     open SMLSyntax
+
+    (* Helpers *)
 
     infix |>
     fun x |> f = f x
 
     fun concatMap f = List.concat o List.map f
 
-    type symbol = symbol
-
-    type 'a dict = 'a SymDict.dict
-
-    datatype data =
-        SIG of signat
-      | VAL of exp
-      | TY of { tyvars : symbol list
-              , tycon : symbol
-              }
-      | CON
-      | EXN of symbol
-      | MOD of scope
-    withtype scope = data dict
-
-    (* TODO: separate namespaces *)
-    type t = scope * scope list
-
-    datatype infixity = LEFT | RIGHT
-
-    fun get_last l =
-      List.nth (l, List.length l - 1)
-
+    fun snoc l =
+      ( List.take (l, List.length l - 1)
+      , List.nth (l, List.length l - 1)
+      )
 
     fun longid_eq (l1, l2) =
       ListPair.allEq Symbol.eq (l1, l2)
 
-    exception Mismatch of string
+    fun dict_from_list l =
+      List.foldl
+        (fn ((key, elem), dict) =>
+          SymDict.insert dict key elem
+        )
+        SymDict.empty
+        l
 
-    fun match_pat pat v =
-      case (pat, v) of
-        (Pnumber i1, Enumber (Int i2)) =>
-          if i1 = i2 then
-            []
-          else
-            raise Mismatch "num pats did not match"
-      | (Pword s, Enumber (Word s')) =>
-          if Symbol.toValue s = s' then
-            []
-          else
-            raise Mismatch "word pats did not match"
-      | (Pstring s, Estring s') =>
-          if Symbol.eq (s, s') then
-            []
-          else
-            raise Mismatch "string pats did not match"
-      | (Pchar c, Echar c') =>
-          if c = c' then
-            []
-          else
-            raise Mismatch "char pats did not match"
-      | (Pwild, _) => []
-      | (Pident {opp, id}, _) => [(id, v)]
-      | (Pconstr {opp, id}, Econstr {opp = _, id = id'}) =>
-          if longid_eq (id, id') then
-            []
-          else
-            raise Mismatch "constr pats did not match"
-      | (Precord patrows, Erecord fields) =>
-          List.foldl
-            (fn (patrow, acc) =>
-              case patrow of
-                PRellipsis => acc
-              | PRlab {lab, pat} =>
-                  (case
-                    List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields
-                  of
-                    NONE => raise Mismatch "exp did not match patrow"
-                  | SOME {lab, exp} => match_pat pat exp @ acc
-                  )
-              | PRas {id, ty, aspat} =>
-                  (case aspat of
-                    NONE => (id, v) :: acc
-                  | SOME pat => (id, v) :: match_pat pat v @ acc
-                  )
-            )
-            []
-            patrows
-      | (Pparens pat, v) => match_pat pat v
-      | (Punit, Eunit) => []
-      | (Ptuple pats, Etuple exps) =>
-          ListPair.zipEq (pats, exps)
-          |> concatMap (fn (x, y) => match_pat x y)
-      | (Plist pats, Elist exps) =>
-          ListPair.zipEq (pats, exps)
-          |> concatMap (fn (x, y) => match_pat x y)
-      | (Por pats, _) =>
-          ( case
-              List.foldl
-                (fn (pat, NONE) =>
-                  SOME (match_pat pat v)
-                  handle Mismatch _ => NONE
-                )
-                NONE
-                pats
-            of
-              NONE => raise Mismatch "failed to match any or cases"
-            | SOME res => res
-          )
-      | (Papp {opp, id, atpat}, Eapp {left = Econstr {opp = _, id = id'}, right}) =>
-          if longid_eq (id, id') then
-            match_pat atpat right
-          else
-            raise Mismatch "failed to match constructors with args"
-      | (Pinfix {left, id, right}, Einfix {left = left', id = id', right = right'}) =>
-          (* TODO: constructors need more than just name equality *)
-          if Symbol.eq (id, id') then
-            match_pat left left' @ match_pat right right'
-          else
-            raise Mismatch "idents not equal"
-      | (Ptyped {pat, ty}, _) => match_pat pat v
-      | (Playered {opp, id, ty, aspat}, _) =>
-          (id, v) :: match_pat aspat v
+    (* Some types *)
+
+    type symbol = symbol
+
+    type 'a dict = 'a SymDict.dict
+
+    datatype value =
+      Vnumber of number
+    | Vstring of symbol
+    | Vchar of char
+    | Vrecord of
+        { lab : symbol
+        , value : value
+        } list
+    | Vunit
+    | Vident of longid
+    | Vconstr of
+        { id : longid
+        , arg : value option
+        }
+    | Vselect of symbol
+    | Vtuple of value list
+    | Vlist of value list
+    | Vinfix of
+        { left : value
+        , id : symbol
+        , right : value
+        }
+    | Vfn of { pat : pat, exp : exp } list * t * scope
+
+    and sigval =
+      Sigval of
+        { valspecs : SymSet.set
+        , dtyspecs : { arity : int
+                     , cons : { id : symbol, ty : ty option } list
+                     } dict
+        (* TODO: type stuff , tyspecs : ty option dict *)
+        , exnspecs : SymSet.set
+        , modspecs : sigval dict
+        }
+
+    and functorval =
+      Functorval of
+        { arg_seal : { id : symbol option, sigval : sigval }
+        , seal : { opacity : opacity, sigval : sigval } option
+        , body : module
+        }
+
+    and scope =
+      Scope of
+        { valdict : value dict
+        , condict : SymSet.set
+        , exndict : SymSet.set
+        , moddict : scope dict
+        , infixdict : (infixity * int) dict
+        , tydict : { arity : int
+                   , cons : { id : symbol, ty : ty option } list
+                   } dict
+        }
+
+    and infixity = LEFT | RIGHT
+
+    withtype t =
+      { scope : scope
+      , outer_scopes : scope list
+      , sigdict : sigval dict
+      , functordict : functorval dict
+      }
+
+    fun lift f {scope, outer_scopes, sigdict, functordict} =
+      let
+        val (scope, outer_scopes) = f (scope, outer_scopes)
+      in
+        { scope = scope
+        , outer_scopes = outer_scopes
+        , sigdict = sigdict
+        , functordict = functordict
+        }
+      end
+
+    (* Evaluate each expression to a "normal form" for the value.
+
+    exception Raise of exp
 
     fun find_match matches v =
       List.foldl
@@ -185,15 +265,7 @@ structure Context :
         NONE
         matches
 
-    exception Raise of exp
 
-    fun ctx_rec scope =
-      SymDict.map
-        (fn VAL (Efn (matches, E, VE)) => VAL (Efn (matches, E, scope))
-        | other => other
-        )
-
-    (* Evaluate each expression to a "normal form" for the value.
     fun evaluate ctx exp =
       case exp of
         ( Enumber _
@@ -334,14 +406,6 @@ structure Context :
       | Efn _ => exp
     *)
 
-    fun enter_scope (scope, ctx) = (SymDict.empty, scope :: ctx)
-
-    fun exit_scope name (scope, ctx) =
-      case ctx of
-        [] => raise Fail "exiting scope without outer scope"
-      | outer'::scopes =>
-          (SymDict.insert outer' name (MOD scope), scopes)
-
     (* fun match_ctx ctx pat exp =
       let
         val substs = match_pat pat (evaluate ctx exp)
@@ -354,21 +418,6 @@ structure Context :
           substs
       end
     *)
-
-    fun dict_from_list l =
-      List.foldl
-        (fn ((key, elem), dict) =>
-          SymDict.insert dict key elem
-        )
-        SymDict.empty
-        l
-
-    fun merge_scope (cur_scope, ctx) scope =
-      ( SymDict.union cur_scope scope
-          (fn (key, val1, val2) => val2)
-      , ctx
-      )
-
 
     (*
     fun add_dec ctx dec =
@@ -400,4 +449,837 @@ structure Context :
       case topdec of
         Strdec strdec => raise Fail "TODO"
     *)
+
+    (* CONTEXT STUFF *)
+
+    val scope_empty =
+      Scope
+        { valdict = SymDict.empty
+        , condict = SymSet.empty
+        , exndict = SymSet.empty
+        , moddict = SymDict.empty
+        , infixdict = SymDict.empty
+        , tydict = SymDict.empty
+        }
+
+    fun scope_valdict (Scope {valdict, ...}) = valdict
+    fun scope_condict (Scope {condict, ...}) = condict
+    fun scope_exndict (Scope {exndict, ...}) = exndict
+    fun scope_moddict (Scope {moddict, ...}) = moddict
+    fun scope_infixdict (Scope {infixdict, ...}) = infixdict
+    fun scope_tydict (Scope {tydict, ...}) = tydict
+
+    fun scope_set_valdict (Scope { valdict, condict, exndict, moddict
+                                 , infixdict, tydict}) new =
+      Scope { valdict = new
+            , condict = condict
+            , exndict = exndict
+            , moddict = moddict
+            , infixdict = infixdict
+            , tydict = tydict
+            }
+    fun scope_set_condict (Scope { valdict, condict, exndict, moddict
+                                 , infixdict, tydict}) new =
+      Scope { valdict = valdict
+            , condict = new
+            , exndict = exndict
+            , moddict = moddict
+            , infixdict = infixdict
+            , tydict = tydict
+            }
+    fun scope_set_exndict (Scope { valdict, condict, exndict, moddict
+                                 , infixdict, tydict}) new =
+      Scope { valdict = valdict
+            , condict = condict
+            , exndict = new
+            , moddict = moddict
+            , infixdict = infixdict
+            , tydict = tydict
+            }
+    fun scope_set_moddict (Scope { valdict, condict, exndict, moddict
+                                 , infixdict, tydict}) new =
+      Scope { valdict = valdict
+            , condict = condict
+            , exndict = exndict
+            , moddict = new
+            , infixdict = infixdict
+            , tydict = tydict
+            }
+    fun scope_set_infixdict (Scope { valdict, condict, exndict, moddict
+                                   , infixdict, tydict}) new =
+      Scope { valdict = valdict
+            , condict = condict
+            , exndict = exndict
+            , moddict = moddict
+            , infixdict = new
+            , tydict = tydict
+            }
+    fun scope_set_tydict (Scope { valdict, condict, exndict, moddict
+                                   , infixdict, tydict}) new =
+      Scope { valdict = valdict
+            , condict = condict
+            , exndict = exndict
+            , moddict = moddict
+            , infixdict = infixdict
+            , tydict = new
+            }
+
+    fun merge_scope ctx scope =
+      lift (fn (cur_scope, ctx) =>
+        ( Scope
+            { valdict =
+                SymDict.union
+                  (scope_valdict cur_scope)
+                  (scope_valdict scope)
+                  (fn (_, _, snd) => snd)
+            , condict =
+                SymSet.union
+                  (scope_condict cur_scope)
+                  (scope_condict scope)
+            , moddict =
+                SymDict.union
+                  (scope_moddict cur_scope)
+                  (scope_moddict scope)
+                  (fn (_, _, snd) => snd)
+            , exndict =
+                SymSet.union
+                  (scope_exndict cur_scope)
+                  (scope_exndict scope)
+            , infixdict =
+                SymDict.union
+                  (scope_infixdict cur_scope)
+                  (scope_infixdict scope)
+                  (fn (_, _, snd) => snd)
+            , tydict =
+                SymDict.union
+                  (scope_tydict cur_scope)
+                  (scope_tydict scope)
+                  (fn (_, _, snd) => snd)
+            }
+        , ctx
+        )
+      ) ctx
+
+    fun ctx_rec (scope as Scope { valdict, ... }) =
+      SymDict.map
+        (fn Vfn (matches, E, VE) => Vfn (matches, E, scope)
+        | other => other
+        )
+        valdict
+      |> scope_set_valdict scope
+
+    fun map_module f (ctx as {sigdict, functordict, ...} : t) id =
+      raise Fail "lol"
+      (* lift (fn (scope, ctx) =>
+        let
+          fun map_module' scope id =
+            case id of
+              [] => raise Fail "looking for empty id"
+            | [name] => f scope
+            | mod_name::path =>
+                (* look for the outer module *)
+                case SymDict.find (scope_moddict scope) mod_name of
+                  NONE => NONE
+                | SOME mod_scope =>
+                    Option.map
+                      (fn new_scope =>
+                        (* recursively modify the outer module *)
+                        SymDict.insert
+                          (SymDict.remove (scope_moddict scope) mod_name)
+                          mod_name
+                          new_scope
+                        |> scope_set_moddict scope
+                      )
+                      (map_module' mod_scope path)
+        in
+          case (map_module' scope id, ctx) of
+            (NONE, []) => raise Fail "could not find module"
+          | (SOME mapped_scope, _) => (mapped_scope, ctx)
+          | (NONE, scope::rest) =>
+              let
+                val (inner_scope, rest) =
+                  map_module f
+                    { scope = scope
+                    , outer_scopes = rest
+                    , sigdict = sigdict
+                    , functordict = functordict
+                    } id
+              in
+                (scope, inner_scope :: rest)
+              end
+        end
+      ) ctx
+      *)
+
+
+    fun drop_last l = List.nth (l, List.length l - 1)
+
+    fun get_module (ctx as {scope, ...} : t) id =
+      let
+        exception Return of scope
+      in
+        ( map_module
+            (fn scope =>
+              raise Return scope
+            )
+            ctx
+            id
+        ; raise Fail "shouldn't get here"
+        )
+        handle Return scope => scope
+      end
+
+    fun get_base f orig_ctx id =
+      let
+        val (xs, x) = snoc id
+      in
+        SymDict.lookup
+          (f (get_module orig_ctx xs))
+          x
+      end
+
+    val get_val = get_base scope_valdict
+
+    val get_datatype = get_base scope_tydict
+
+    val get_infixdict = get_base scope_infixdict
+
+    fun get_sig ({sigdict, ...} : t) id =
+      SymDict.lookup sigdict id
+
+    fun get_functor ({functordict, ...} : t) id =
+      SymDict.lookup functordict id
+
+    fun add_exn ctx id =
+      lift (fn (scope, rest) =>
+        let
+          val exndict = scope_exndict scope
+        in
+          ( scope_set_exndict scope (SymSet.insert exndict id)
+          , rest
+          )
+        end
+      ) ctx
+
+    fun add_con ctx id =
+      lift (fn (scope, rest) =>
+        let
+          val condict = scope_condict scope
+        in
+          ( scope_set_condict scope (SymSet.insert condict id)
+          , rest
+          )
+        end
+      ) ctx
+
+    fun add_infix ctx (id, infixity, precedence) =
+      lift (fn (scope, rest) =>
+        let
+          val infixdict = scope_infixdict scope
+        in
+          ( scope_set_infixdict
+              scope
+              (SymDict.insert infixdict id (infixity, precedence))
+          , rest
+          )
+        end
+      ) ctx
+
+    fun merge_sigvals (Sigval {valspecs, dtyspecs, exnspecs, modspecs})
+                      (Sigval { valspecs = valspecs'
+                              , dtyspecs = dtyspecs'
+                              , exnspecs = exnspecs'
+                              , modspecs = modspecs'
+                              }) =
+      Sigval
+        { valspecs = SymSet.union valspecs valspecs'
+        , dtyspecs = SymDict.union dtyspecs dtyspecs' (fn (_, _, snd) => snd)
+        , exnspecs = SymSet.union exnspecs exnspecs'
+        , modspecs = SymDict.union modspecs modspecs' (fn (_, _, snd) => snd)
+        }
+
+    val empty_sigval =
+      Sigval
+        { valspecs = SymSet.empty
+        , dtyspecs = SymDict.empty
+        , exnspecs = SymSet.empty
+        , modspecs = SymDict.empty
+        }
+
+
+    fun evaluate_spec ctx spec (sigval as Sigval {valspecs, dtyspecs, exnspecs, modspecs}) =
+      case spec of
+        SPval valbinds =>
+          { valspecs =
+              List.foldl
+                (fn ({id, ...}, valspecs) =>
+                  SymSet.insert valspecs id
+                )
+                valspecs
+                valbinds
+          , dtyspecs = dtyspecs
+          , exnspecs = exnspecs
+          , modspecs = modspecs
+          }
+          |> Sigval
+      (* TODO: type stuff *)
+      | SPtype typdescs => sigval
+      | SPeqtype typdescs => sigval
+      | SPdatdec datbinds =>
+          { valspecs = valspecs
+          , dtyspecs =
+              List.foldl
+                (fn ({tyvars, tycon, condescs}, dtyspecs) =>
+                  SymDict.insert
+                    dtyspecs
+                    tycon
+                    { arity = List.length tyvars
+                    , cons = condescs
+                    }
+                )
+                dtyspecs
+                datbinds
+          , exnspecs = exnspecs
+          , modspecs = modspecs
+          }
+          |> Sigval
+      | SPdatrepl {left_tycon, right_tycon} =>
+          { valspecs = valspecs
+          , dtyspecs =
+              SymDict.insert
+                dtyspecs
+                left_tycon
+                (get_datatype ctx right_tycon)
+          , exnspecs = exnspecs
+          , modspecs = modspecs
+          }
+          |> Sigval
+      | SPexception exbinds =>
+          { valspecs = valspecs
+          , dtyspecs = dtyspecs
+          , exnspecs =
+              List.foldl
+                (fn ({id, ...}, exnspecs) =>
+                  SymSet.insert exnspecs id
+                )
+                exnspecs
+                exbinds
+          , modspecs = modspecs
+          }
+          |> Sigval
+      | SPmodule modules =>
+          { valspecs = valspecs
+          , dtyspecs = dtyspecs
+          , exnspecs = exnspecs
+          , modspecs =
+              List.foldl
+                (fn ({signat, id}, modspecs) =>
+                  SymDict.insert
+                    modspecs
+                    id
+                    (evaluate_signat ctx signat)
+                )
+                modspecs
+                modules
+          }
+          |> Sigval
+      | SPinclude signat =>
+          merge_sigvals sigval (evaluate_signat ctx signat)
+      | SPinclude_ids ids =>
+          List.map (fn id => get_sig ctx id) ids
+          |> List.foldl
+               (fn (sigval, acc_sigval) =>
+                 merge_sigvals acc_sigval sigval
+               )
+               sigval
+      (* TODO: type stuff *)
+      | SPsharing_type _ => sigval
+      | SPsharing _ => sigval
+      | SPseq specs =>
+          List.foldl
+            (fn (spec, acc) =>
+              evaluate_spec ctx spec acc
+            )
+            sigval
+            specs
+
+    and evaluate_signat ctx signat =
+      case signat of
+        Sident sym =>
+          get_sig ctx sym
+      | Sspec spec => evaluate_spec ctx spec empty_sigval
+      | Swhere {signat, wheretypee} =>
+          (* TODO: type stuff *)
+          evaluate_signat ctx signat
+
+
+    fun add_module ctx id new_scope =
+      lift (fn (scope, rest) =>
+        let
+          val moddict = scope_moddict scope
+        in
+          ( scope_set_moddict
+              scope
+              (SymDict.insert moddict id new_scope)
+          , rest
+          )
+        end
+      ) ctx
+
+    fun add_funbind (ctx as {scope, outer_scopes, sigdict, functordict})
+                    {id, funarg, seal, body} =
+      { scope = scope
+      , outer_scopes = outer_scopes
+      , sigdict = sigdict
+      , functordict =
+          SymDict.insert
+            functordict
+            id
+            ( Functorval
+              { arg_seal =
+                  case funarg of
+                    Normal {id, signat} =>
+                      { id = SOME id, sigval = evaluate_signat ctx signat }
+                  | Sugar spec =>
+                      { id = NONE, sigval = evaluate_signat ctx (Sspec spec) }
+              , seal =
+                  Option.map
+                    (fn {signat, opacity} =>
+                      { opacity = opacity, sigval = evaluate_signat ctx signat }
+                    )
+                    seal
+              , body = body
+              }
+            )
+      }
+
+    fun remove_infix ctx id =
+      lift (fn (scope, rest) =>
+        let
+          val infixdict = scope_infixdict scope
+        in
+          ( scope_set_infixdict scope (SymDict.remove infixdict id)
+          , rest
+          )
+        end
+      ) ctx
+
+
+    fun enter_scope ctx =
+      lift (fn (scope, ctx) =>
+        (scope_empty, scope :: ctx)
+      ) ctx
+
+    fun exit_scope name ctx =
+      lift (fn (scope, ctx) =>
+        case ctx of
+          [] => raise Fail "exiting scope without outer scope"
+        | outer'::scopes =>
+            let
+              val moddict = scope_moddict outer'
+            in
+              (scope_set_moddict outer' (SymDict.insert moddict name scope), scopes)
+            end
+      ) ctx
+
+    fun pop_scope ({scope, ...} : t) = scope
+
+    fun pop_penultimate ctx =
+      lift (fn (scope, rest) =>
+        case rest of
+          [] => raise Fail "pop penultimate on single contextX"
+        | scope'::rest =>
+            (scope, rest)
+      ) ctx
+
+    fun open_scope ctx new_scope =
+      merge_scope ctx new_scope
+
+    fun open_path ctx path =
+      merge_scope
+        ctx
+        (get_module ctx path)
+
+    fun add_bindings ctx bindings =
+      lift (fn (scope, rest) =>
+        let
+          val valdict = scope_valdict scope
+        in
+          List.foldl
+            (fn ((id, value), valdict) =>
+              SymDict.insert valdict id value
+            )
+            valdict
+            bindings
+          |> scope_set_valdict scope
+          |> (fn scope => (scope, rest))
+        end
+      ) ctx
+
+    fun add_rec_bindings ctx bindings =
+      lift (fn (scope, rest) =>
+        let
+          val valdict = scope_valdict scope
+
+          val rec_valdict =
+            List.foldl
+              (fn ((id, value), valdict) =>
+                SymDict.insert valdict id value
+              )
+              SymDict.empty
+              bindings
+            |> scope_set_valdict scope
+            |> ctx_rec
+            |> scope_valdict
+        in
+          ( scope_set_valdict scope
+              (SymDict.union valdict rec_valdict (fn (_, _, snd) => snd))
+          , rest
+          )
+        end
+      ) ctx
+
+    (* TYPE STUFF *)
+
+    fun add_datatype ctx {tyvars, tycon, conbinds} =
+      lift (fn (scope, rest) =>
+        let
+          val condict = scope_condict scope
+          val tydict = scope_tydict scope
+          val cons =
+            List.map
+              (fn {id, ty, opp} => {id = id, ty = ty})
+              conbinds
+
+          val new_condict =
+            List.foldl
+              (fn ({id, ty}, condict) =>
+                SymSet.insert condict id
+              )
+              condict
+              cons
+
+          val new_tydict =
+            SymDict.insert tydict tycon { arity = List.length tyvars
+                                        , cons = cons
+                                        }
+        in
+          ( scope_set_tydict
+              (scope_set_condict scope new_condict)
+              new_tydict
+          , rest
+          )
+        end
+      ) ctx
+
+    (* TODO: implement type stuff *)
+    fun add_typbinds ctx typbinds = ctx
+
+    fun replicate_datatype orig_ctx (left_id, right_id) =
+      lift (fn ctx as (scope, rest) =>
+        let
+          val tydict = scope_tydict scope
+          val condict= scope_condict scope
+          val {arity, cons} = get_datatype orig_ctx right_id
+          val new_condict =
+            List.foldl
+              (fn ({id, ty}, condict) =>
+                SymSet.insert condict id
+              )
+              condict
+              cons
+          val new_tydict =
+              SymDict.insert tydict left_id { arity = arity
+                                            , cons = cons
+                                            }
+        in
+          ( scope_set_condict
+              ( scope_set_tydict
+                scope
+                new_tydict
+              )
+              new_condict
+          , rest
+          )
+        end
+      ) orig_ctx
+
+
+    fun replicate_exception ctx (left_id, right_id) =
+      lift (fn (scope, rest) =>
+        (* TODO: type stuff, and exception generativity *)
+        let
+          val (xs, x) = snoc right_id
+        in
+          ( scope_set_exndict
+              scope
+              (SymSet.insert (scope_exndict scope) x)
+          , rest
+          )
+        end
+      ) ctx
+
+    fun ascribe scope seal =
+      case seal of
+        NONE => scope
+      | SOME {opacity, sigval = Sigval { valspecs, dtyspecs, exnspecs, modspecs }} =>
+          let
+            val valdict = scope_valdict scope
+            val tydict = scope_tydict scope
+            val exndict = scope_exndict scope
+            val moddict = scope_moddict scope
+
+            val new_valdict =
+              SymSet.foldl
+                (fn (id, acc_valdict) =>
+                  SymDict.insert
+                    acc_valdict
+                    id
+                    (SymDict.lookup valdict id)
+                )
+                SymDict.empty
+                valspecs
+
+            (* TODO: vals here too *)
+            val (cons, new_tydict) =
+              SymDict.foldl
+                (fn (id, {arity, cons}, (acc_cons, acc_tydict)) =>
+                  let
+                    val {arity = arity', cons = cons'} =
+                      SymDict.lookup tydict id
+
+                  in
+                    (* TODO: type stuff *)
+                    if arity' = arity
+                       andalso
+                        ListPair.allEq
+                          Symbol.eq
+                          (List.map #id cons, List.map #id cons') then
+                      ( List.map #id cons @ acc_cons
+                      , SymDict.insert
+                          acc_tydict
+                          id
+                          {arity = arity, cons = cons}
+                      )
+                    else
+                      raise Fail "failure to ascribe datatypes"
+                  end
+                )
+                ([], SymDict.empty)
+                dtyspecs
+
+            val new_exndict =
+              SymSet.foldl
+                (fn (id, acc_exndict) =>
+                  if SymSet.member exndict id then
+                    SymSet.insert
+                      acc_exndict
+                      id
+                  else
+                    raise Fail "failure to ascribe exns"
+                )
+                SymSet.empty
+                exnspecs
+
+            val new_moddict =
+              SymDict.foldl
+                (fn (id, sigval, acc_moddict) =>
+                  SymDict.insert
+                    acc_moddict
+                    id
+                    ( ascribe
+                        (SymDict.lookup moddict id)
+                        ( SOME
+                            { opacity = Transparent
+                            , sigval = sigval
+                            }
+                        )
+                    )
+                )
+                SymDict.empty
+                modspecs
+          in
+            Scope
+              { valdict = new_valdict
+              , condict =
+                  List.foldl
+                    (fn (id, acc) =>
+                      SymSet.insert acc id
+                    )
+                    SymSet.empty
+                    cons
+              , exndict = new_exndict
+              , moddict = new_moddict
+              , infixdict = SymDict.empty
+              , tydict = new_tydict
+              }
+          end
+
+    (* VALUE STUFF *)
+
+    fun value_to_exp value =
+      case value of
+        Vnumber num => Enumber num
+      | Vstring s => Estring s
+      | Vchar c => Echar c
+      | Vrecord fields =>
+          Erecord
+            (List.map
+              (fn {lab, value} =>
+                { lab = lab, exp = value_to_exp value }
+              )
+              fields
+            )
+      | Vunit => Eunit
+      | Vident id => Eident {opp = false, id = id}
+      | Vconstr {id, arg} =>
+          (case arg of
+            NONE => Eident {opp = false, id = id}
+          | SOME arg => Eapp { left = Eident {opp = false, id = id}
+                             , right = value_to_exp arg
+                             }
+          )
+      | Vselect sym => Eselect sym
+      | Vtuple values => Etuple (List.map value_to_exp values)
+      | Vlist values => Elist (List.map value_to_exp values)
+      | Vinfix {left, id, right} =>
+          Einfix { left = value_to_exp left
+                 , id = id
+                 , right = value_to_exp right
+                 }
+      | Vfn (matches, E, VE) => Efn matches
+
+    exception Mismatch of string
+
+    fun match_pat pat v =
+      case (pat, v) of
+        (Pnumber i1, Vnumber (Int i2)) =>
+          if i1 = i2 then
+            []
+          else
+            raise Mismatch "num pats did not match"
+      | (Pword s, Vnumber (Word s')) =>
+          if Symbol.toValue s = s' then
+            []
+          else
+            raise Mismatch "word pats did not match"
+      | (Pstring s, Vstring s') =>
+          if Symbol.eq (s, s') then
+            []
+          else
+            raise Mismatch "string pats did not match"
+      | (Pchar c, Vchar c') =>
+          if c = c' then
+            []
+          else
+            raise Mismatch "char pats did not match"
+      | (Pwild, _) => []
+      | (Pident {opp, id}, _) => [(id, v)]
+      | (Pconstr {opp, id}, Vconstr {id = id', arg = NONE}) =>
+          if longid_eq (id, id') then
+            []
+          else
+            raise Mismatch "constr pats did not match"
+      | (Precord patrows, Vrecord fields) =>
+          List.foldl
+            (fn (patrow, acc) =>
+              case patrow of
+                PRellipsis => acc
+              | PRlab {lab, pat} =>
+                  (case
+                    List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields
+                  of
+                    NONE => raise Mismatch "val did not match patrow"
+                  | SOME {lab, value} => match_pat pat value @ acc
+                  )
+              | PRas {id, ty, aspat} =>
+                  (case aspat of
+                    NONE => (id, v) :: acc
+                  | SOME pat => (id, v) :: match_pat pat v @ acc
+                  )
+            )
+            []
+            patrows
+      | (Pparens pat, v) => match_pat pat v
+      | (Punit, Vunit) => []
+      | (Ptuple pats, Vtuple vals) =>
+          ListPair.zipEq (pats, vals)
+          |> concatMap (fn (x, y) => match_pat x y)
+      | (Plist pats, Vlist vals) =>
+          ListPair.zipEq (pats, vals)
+          |> concatMap (fn (x, y) => match_pat x y)
+      | (Por pats, _) =>
+          ( case
+              List.foldl
+                (fn (pat, NONE) =>
+                  ( SOME (match_pat pat v)
+                    handle Mismatch _ => NONE
+                  )
+                | (_, SOME ans) => SOME ans
+                )
+                NONE
+                pats
+            of
+              NONE => raise Mismatch "failed to match any or cases"
+            | SOME res => res
+          )
+      | (Papp {opp, id, atpat}, Vconstr {id = id', arg = SOME v}) =>
+          if longid_eq (id, id') then
+            match_pat atpat v
+          else
+            raise Mismatch "failed to match constructors with args"
+      | (Pinfix {left, id, right}, Vinfix {left = left', id = id', right = right'}) =>
+          (* TODO: constructors need more than just name equality *)
+          if Symbol.eq (id, id') then
+            match_pat left left' @ match_pat right right'
+          else
+            raise Mismatch "idents not equal"
+      | (Ptyped {pat, ty}, _) => match_pat pat v
+      | (Playered {opp, id, ty, aspat}, _) =>
+          (id, v) :: match_pat aspat v
+      | _ => raise Fail "does not match pat"
+
+
+    fun match_against orig_ctx matches value =
+      let
+        val (bindings, exp) =
+          case
+            List.foldl
+              (fn ({exp, pat}, NONE) =>
+                ( SOME (match_pat pat value, exp)
+                  handle Mismatch _ => NONE
+                )
+              | ({exp, pat}, SOME ans) => SOME ans
+              )
+              NONE
+              matches
+          of
+            NONE => raise Mismatch "failed to match against any"
+          | SOME ans => ans
+      in
+        (add_bindings orig_ctx bindings, exp)
+      end
+
+    fun apply_fn (matches, E, VE) value =
+      match_against
+        (merge_scope E (ctx_rec VE))
+        matches
+        value
+
+    fun generate_sigbinding ctx {id, signat} =
+      (id, evaluate_signat ctx signat)
+
+    fun add_sigbindings {scope, outer_scopes, sigdict, functordict} sigbindings =
+      { scope = scope
+      , outer_scopes = outer_scopes
+      , sigdict =
+            ( List.foldl
+                (fn ((id, sigval), sigdict) =>
+                  SymDict.insert sigdict id sigval
+                )
+                sigdict
+                sigbindings
+            )
+      , functordict = functordict
+      }
   end
