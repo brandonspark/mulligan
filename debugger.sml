@@ -589,7 +589,7 @@ structure Debugger :
                     exp
                     ctx
               in
-                Context.match_pat pat new_value @ pairs
+                Context.match_pat ctx pat new_value @ pairs
               end
             )
             []
@@ -637,7 +637,7 @@ structure Debugger :
                    ( id
                    , List.foldr
                        (fn (id, exp) =>
-                         Efn ( [ { pat = Pident {opp = false, id = id}
+                         Efn ( [ { pat = Pident {opp = false, id = [id]}
                                  , exp = exp
                                  }
                                ]

@@ -44,9 +44,8 @@ structure PreSMLSyntax =
       | Pwild
       | Pident of {
           opp : bool,
-          id : symbol
+          id : longid
         }
-      | Pconstr of { opp : bool, id : longid }
       | Precord of patrow list
       | Pparens of pat
       | Punit

@@ -567,8 +567,11 @@ structure Elaborate :
         case exp of
           Exp.Const tok => elab_constant tok
         | Exp.Ident {opp, id} =>
-            raise Fail "TODO"
-            (* TODO: check if it is a constructor *)
+            Eident {opp = opt_to_bool opp, id = ml_tok_to_longid id}
+            (* TODO: check if it is a constructor
+             * Re earlier, we have decided to make elaboration noncontextual, so
+             * there will not be any Econstrs. So no checking.
+             *)
         | Exp.Record {elems, ...} =>
             elab_seq
               (fn {lab, exp, ...} =>
@@ -727,7 +730,12 @@ structure Elaborate :
             elab_constant_pat tok
         | Pat.Unit _ => Punit
         | Pat.Ident {opp, id} =>
-            raise Fail "TODO"
+            if MaybeLongToken.isLong id then
+              Pident {opp = opt_to_bool opp, id = ml_tok_to_longid id}
+            else
+              Pident { opp = opt_to_bool opp
+                     , id = [tok_to_sym (MaybeLongToken.getToken id)]
+                     }
             (* TODO: constr or not *)
         | Pat.List {elems, ...} =>
             Plist (elab_seq elab_pat elems)

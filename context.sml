@@ -119,7 +119,7 @@ structure Context :
       -> value
       -> t * SMLSyntax.exp
 
-    val match_pat : SMLSyntax.pat -> value -> (SMLSyntax.symbol * value) list
+    val match_pat : t -> SMLSyntax.pat -> value -> (SMLSyntax.symbol * value) list
 
     val evaluate_signat : t -> SMLSyntax.signat -> sigval
 
@@ -620,15 +620,18 @@ structure Context :
       let
         exception Return of scope
       in
-        ( map_module
-            (fn scope =>
-              raise Return scope
-            )
-            ctx
-            id
-        ; raise Fail "shouldn't get here"
-        )
-        handle Return scope => scope
+        case id of
+          [] => scope
+        | _ =>
+          ( map_module
+              (fn scope =>
+                raise Return scope
+              )
+              ctx
+              id
+          ; raise Fail "shouldn't get here"
+          )
+          handle Return scope => scope
       end
 
     fun get_base f orig_ctx id =
@@ -637,6 +640,15 @@ structure Context :
       in
         SymDict.lookup
           (f (get_module orig_ctx xs))
+          x
+      end
+
+    fun is_con ctx id =
+      let
+        val (xs, x) = snoc id
+      in
+        SymSet.member
+          (scope_condict (get_module ctx xs))
           x
       end
 
@@ -1155,7 +1167,7 @@ structure Context :
 
     exception Mismatch of string
 
-    fun match_pat pat v =
+    fun match_pat ctx pat v =
       case (pat, v) of
         (Pnumber i1, Vnumber (Int i2)) =>
           if i1 = i2 then
@@ -1178,12 +1190,22 @@ structure Context :
           else
             raise Mismatch "char pats did not match"
       | (Pwild, _) => []
-      | (Pident {opp, id}, _) => [(id, v)]
-      | (Pconstr {opp, id}, Vconstr {id = id', arg = NONE}) =>
-          if longid_eq (id, id') then
-            []
+      | (Pident {opp, id}, Vconstr {id = id', arg = NONE}) =>
+          if is_con ctx id then
+            if longid_eq (id, id') then
+              []
+            else
+              raise Mismatch "constructors did not match"
           else
-            raise Mismatch "constr pats did not match"
+            (case id of
+              [id] => [(id, v)]
+            | _ => raise Fail "nonexistent con"
+            )
+      | (Pident {opp, id}, _) =>
+          (case id of
+            [id] => [(id, v)]
+          | _ => raise Fail "nonexistent con"
+          )
       | (Precord patrows, Vrecord fields) =>
           List.foldl
             (fn (patrow, acc) =>
@@ -1194,29 +1216,29 @@ structure Context :
                     List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields
                   of
                     NONE => raise Mismatch "val did not match patrow"
-                  | SOME {lab, value} => match_pat pat value @ acc
+                  | SOME {lab, value} => match_pat ctx pat value @ acc
                   )
               | PRas {id, ty, aspat} =>
                   (case aspat of
                     NONE => (id, v) :: acc
-                  | SOME pat => (id, v) :: match_pat pat v @ acc
+                  | SOME pat => (id, v) :: match_pat ctx pat v @ acc
                   )
             )
             []
             patrows
-      | (Pparens pat, v) => match_pat pat v
+      | (Pparens pat, v) => match_pat ctx pat v
       | (Punit, Vunit) => []
       | (Ptuple pats, Vtuple vals) =>
           ListPair.zipEq (pats, vals)
-          |> concatMap (fn (x, y) => match_pat x y)
+          |> concatMap (fn (x, y) => match_pat ctx x y)
       | (Plist pats, Vlist vals) =>
           ListPair.zipEq (pats, vals)
-          |> concatMap (fn (x, y) => match_pat x y)
+          |> concatMap (fn (x, y) => match_pat ctx x y)
       | (Por pats, _) =>
           ( case
               List.foldl
                 (fn (pat, NONE) =>
-                  ( SOME (match_pat pat v)
+                  ( SOME (match_pat ctx pat v)
                     handle Mismatch _ => NONE
                   )
                 | (_, SOME ans) => SOME ans
@@ -1229,28 +1251,28 @@ structure Context :
           )
       | (Papp {opp, id, atpat}, Vconstr {id = id', arg = SOME v}) =>
           if longid_eq (id, id') then
-            match_pat atpat v
+            match_pat ctx atpat v
           else
             raise Mismatch "failed to match constructors with args"
       | (Pinfix {left, id, right}, Vinfix {left = left', id = id', right = right'}) =>
           (* TODO: constructors need more than just name equality *)
           if Symbol.eq (id, id') then
-            match_pat left left' @ match_pat right right'
+            match_pat ctx left left' @ match_pat ctx right right'
           else
             raise Mismatch "idents not equal"
-      | (Ptyped {pat, ty}, _) => match_pat pat v
+      | (Ptyped {pat, ty}, _) => match_pat ctx pat v
       | (Playered {opp, id, ty, aspat}, _) =>
-          (id, v) :: match_pat aspat v
+          (id, v) :: match_pat ctx aspat v
       | _ => raise Fail "does not match pat"
 
 
-    fun match_against orig_ctx matches value =
+    fun match_against ctx matches value =
       let
         val (bindings, exp) =
           case
             List.foldl
               (fn ({exp, pat}, NONE) =>
-                ( SOME (match_pat pat value, exp)
+                ( SOME (match_pat ctx pat value, exp)
                   handle Mismatch _ => NONE
                 )
               | ({exp, pat}, SOME ans) => SOME ans
@@ -1261,7 +1283,7 @@ structure Context :
             NONE => raise Mismatch "failed to match against any"
           | SOME ans => ans
       in
-        (add_bindings orig_ctx bindings, exp)
+        (add_bindings ctx bindings, exp)
       end
 
     fun apply_fn (matches, E, VE) value =

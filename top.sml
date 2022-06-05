@@ -98,3 +98,5 @@ structure Top =
       end
 
   end
+
+val _ = Top.run "test2.sml"
