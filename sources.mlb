@@ -4,12 +4,17 @@ parse-sml/src/ast/AstType.sml
 parse-sml/src/parse/sources.mlb
 
 cmlib/cmlib.mlb
-
 util/sources.mlb
+parse/sources.mlb
+
+PrettyPrintContext.sml
 
 sml-syntax.sml
 context.sml
 elaborate.sml
+location.sml
+PrettyPrintAst.sml
 debugger.sml
+
 
 top.sml

@@ -11,12 +11,27 @@ structure Top =
         derived_ast
       end
 
+    (*
+    datatype kind =
+        EXP of SMLSyntax.exp
+      | VAL of Context.value
+
+    val print_fn = fn () =>
+      case kind of
+        EXP exp =>
+          PrettyPrintAst.pretty_exp ctx exp true
+      | VAL value =>
+          PrettyPrintAst.pretty_value ctx value value true
+    *)
+
     datatype result =
       Result of
         Context.t
-      * Debugger.location list
+      * Location.location list
       * SMLSyntax.exp
       * (unit -> result)
+
+
 
     (* The initiate function takes in an AST and gets us into the main loop, via
      * Perform being raised on the first expression redex.
@@ -27,66 +42,93 @@ structure Top =
          * a Perform upon the first redex, it passes a continuation
          * (second-class) to the interactive loop, pausing the evaluation.
          *)
-        fun step location exp ctx cont =
-          ( Debugger.eval location exp ctx cont
-          ; raise Fail "shouldn't get here"
+
+        fun get_focus_exp focus =
+          case focus of
+            Debugger.EXP exp => exp
+          | Debugger.VAL (exp, _) => exp
+
+        fun get_focus_package (ctx, location, exp, cont) focus =
+          ( ctx
+          , location
+          , exp
+          , case focus of
+              Debugger.EXP exp => (fn () => step (ctx, location, exp, cont))
+            | Debugger.VAL (exp, value) => (fn () => MLton.Cont.throw (cont,
+              value))
           )
+
+        and step (ctx, location, exp, cont) =
+          (Debugger.eval location exp ctx cont)
           handle
             Debugger.Perform
-              { context
+              { context = ctx
               , location
-              , exp
+              , focus
               , cont
-              , continue
               } =>
-                Result (context, location, exp, fn () => step location exp context cont)
-              (* if continue then
-              else
-                (context, location, exp, fn () => MLton.Cont.throw (cont, exp))
-              *)
+              let
+                val exp = get_focus_exp focus
+              in
+                Result
+                  (get_focus_package (ctx, location, exp, cont) focus)
+              end
 
         (* The main loop is responsible for accepting user input and controlling
          * what is done by the program.
          *)
-        fun main_loop location exp ctx f =
+        fun main_loop (ctx, location, exp, f) =
           let
+            val output = TextIO.output (TextIO.stdOut, "- ")
+            val _ = TextIO.flushOut TextIO.stdOut
             val input = TextIO.input TextIO.stdIn
           in
-            case input of
-              "go\n" =>
+            case DirectiveParser.parse_exn input of
+              Directive.Step =>
                 let
-                  val Result (context, location, exp, f) =
+                  val Result (ctx, location, exp, f) =
                     f ()
+
+                  val _ = print ("3=> " ^ PrettyPrintAst.report ctx exp 0 location ^ "\n")
                 in
-                  print ("stepped\n");
-                  main_loop location exp context f
+                  main_loop (ctx, location, exp, f)
                 end
-            | "stop\n" =>
+            | Directive.Stop =>
                 raise Fail "stop"
-            | _ => raise Fail "unrecognized command"
+            | Directive.Reveal i =>
+                ( print ("revealing:\n "
+                        ^ PrettyPrintAst.report ctx exp (Option.getOpt (i, 0)) location
+                        ^ "\n")
+                ; main_loop (ctx, location, exp, f)
+                )
           end
-        in
+      in
         (* This call will result in entering the interactive loop.
+         *
+         * This handler gets entered at any point that we checkpoint _after_ a
+         * throw.
          *)
         Debugger.eval_program ast Context.initial
           handle
             Debugger.Perform
-              { context
+              { context = ctx
               , location
-              , exp
+              , focus
               , cont
-              , continue
               } =>
-              main_loop
-                location
-                exp
-                context
-                (fn () => step location exp context cont)
-            (*
-            if continue then
-            else
-              (context, location, exp, fn () => MLton.Cont.throw (cont, exp))
-            *)
+              let
+                val exp =  get_focus_exp focus
+              in
+                print ("1=> " ^
+                  PrettyPrintAst.report
+                    ctx
+                    exp
+                    0
+                    location ^ "\n"
+                );
+                main_loop
+                    (get_focus_package (ctx, location, exp, cont) focus)
+              end
       end
 
     fun run filename =

@@ -1,0 +1,22 @@
+sml
+name ParserFun
+
+terminal NUM of int
+terminal SYMBOL of symbol
+terminal STEP
+terminal REVEAL
+terminal STOP
+terminal EQUAL
+terminal SET
+terminal EOF
+
+nonterminal Directive : directive =
+  STEP => step
+  STOP => stop
+  REVEAL => bare_reveal
+  REVEAL 1:NUM => num_reveal
+
+nonterminal Main : directive =
+  1:Directive EOF => main
+
+start Main

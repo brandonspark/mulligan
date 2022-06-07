@@ -1,4 +1,7 @@
 ../cmlib/cmlib.mlb
 ../sml-syntax.sml
 
+ListUtils.sml
+TerminalColors.sml
+PrettySimpleDoc.sml
 temp_id.sml

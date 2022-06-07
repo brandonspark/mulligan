@@ -231,6 +231,7 @@ structure PreSMLSyntax =
           ids : symbol list
         }
       | Dnonfix of symbol list
+      | Dhole
 
     withtype fvalbinds =
       { fname_args : fname_args
@@ -271,6 +272,7 @@ structure PreSMLSyntax =
           right_dec : strdec
         }
       | DMseq of strdec list
+      | DMhole
 
     and module =
         Mident of longid
@@ -288,6 +290,7 @@ structure PreSMLSyntax =
           dec : strdec,
           module : module
         }
+      | Mhole
 
     and signat =
         Sspec of spec
@@ -372,6 +375,7 @@ structure PreSMLSyntax =
         Strdec of strdec
       | Sigdec of sigdec
       | Fundec of fundec
+      | Thole
 
     type ast = topdec list
   end

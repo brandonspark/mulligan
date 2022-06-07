@@ -1,0 +1,91 @@
+
+type result = Directive.t * DToken.t list
+signature PARSER =
+  sig
+    val parse : char StreamStreamable.t -> (string list, result) Directive.either
+
+    val parse_string : string -> (string list, result) Directive.either
+
+    val parse_file : string -> (string list, result) Directive.either
+
+    val parse_exn : string -> Directive.t
+  end
+
+structure DirectiveParser :> PARSER =
+  struct
+    open Directive
+
+    structure S = Stream
+
+    type symbol = Symbol.symbol
+
+    fun identity x = x
+    fun null x = fn () => x
+    fun sing x = [x]
+    fun pair (x, y) = [x, y]
+
+    val option_to_bool = fn
+      SOME _ => true
+    | NONE => false
+
+    fun nyi () = ()
+    fun assert_fvalbinds_valid _ = nyi ()
+    fun assert_valbinds_valid _ _ = nyi ()
+    fun assert_valid_precedence _ = nyi ()
+
+    structure Arg =
+      struct
+        open Directive
+
+        datatype terminal = datatype DToken.t
+
+        type int = int
+        type symbol = symbol
+        type directive = Directive.t
+
+        val main = identity
+
+        fun num_reveal i = Reveal (SOME i)
+        val bare_reveal = null (Reveal NONE)
+        val stop = null Stop
+        val step = null Step
+
+        exception Error of DToken.t StreamStreamable.t
+        fun error x = Error x
+      end
+
+    (* Sidestepping the NJ extension so it can parse itself. *)
+    structure Input =
+      struct
+        structure Streamable = StreamStreamable
+        structure Arg = Arg
+      end
+
+    structure ParseMain =
+      ParserFun (Input)
+
+    fun parse cs =
+      let
+        val (elems, stream) = ParseMain.parse (Lexer.lex cs)
+      in
+        INR (elems, Stream.toList stream)
+      end
+        handle Arg.Error x => INL (List.map DToken.to_string
+        (Stream.toList x))
+
+    fun parse_string s = parse (Stream.fromList (String.explode s))
+
+    fun parse_file s =
+      let
+        val instream = TextIO.openIn s
+        val input = TextIO.inputAll instream
+      in
+        parse_string input
+      end
+
+    fun parse_exn cs =
+      case parse (Stream.fromList (String.explode cs)) of
+        INL _ => raise Fail "parse error"
+      | INR (elems, []) => elems
+      | INR _ => raise Fail "parse error, tokens left"
+  end

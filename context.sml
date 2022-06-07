@@ -12,6 +12,7 @@ structure SymSet = SymbolRedBlackSet
 
 structure Context :
   sig
+
     type symbol = SMLSyntax.symbol
 
     datatype infixity = LEFT | RIGHT
@@ -78,6 +79,7 @@ structure Context :
     val scope_empty : scope
 
     val get_val : t -> SMLSyntax.longid -> value
+    val get_val_opt : t -> SMLSyntax.longid -> value option
     val get_module : t -> SMLSyntax.longid -> scope
     val get_sig : t -> SMLSyntax.symbol -> sigval
     val get_functor : t -> SMLSyntax.symbol -> functorval
@@ -88,6 +90,8 @@ structure Context :
     val add_module : t -> SMLSyntax.symbol -> scope -> t
 
     val add_funbind : t -> SMLSyntax.funbind -> t
+    val add_hole_print_fn : t -> (unit -> PrettySimpleDoc.t) -> t
+    val get_hole_print_fn : t -> (unit -> PrettySimpleDoc.t)
 
     val remove_infix : t -> SMLSyntax.symbol -> t
 
@@ -95,6 +99,7 @@ structure Context :
     val exit_scope : SMLSyntax.symbol -> t -> t
     val pop_scope : t -> scope
     val pop_penultimate : t -> t
+    val exit_local : t -> t
 
     val open_scope : t -> scope -> t
     val open_path : t -> SMLSyntax.symbol list -> t
@@ -103,10 +108,12 @@ structure Context :
     val add_rec_bindings : t -> (SMLSyntax.symbol * value) list -> t
 
     val initial : t
+    val empty : t
 
     (* Value stuff. *)
 
     val value_to_exp : value -> SMLSyntax.exp
+    val exp_to_value : t -> SMLSyntax.exp -> value option
 
     val apply_fn :
            {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list * t * scope
@@ -120,6 +127,13 @@ structure Context :
       -> t * SMLSyntax.exp
 
     val match_pat : t -> SMLSyntax.pat -> value -> (SMLSyntax.symbol * value) list
+
+    val get_pat_bindings : t -> SMLSyntax.pat -> PrettyPrintContext.MarkerSet.set
+    val get_fname_args_bindings :
+      t -> SMLSyntax.fname_args -> PrettyPrintContext.MarkerSet.set
+    val remove_bound_ids : t -> PrettyPrintContext.MarkerSet.set -> t
+    val open_bound_ids : t -> (SMLSyntax.symbol list) list -> PrettyPrintContext.MarkerSet.set
+    val get_funarg_bound_ids : t -> SMLSyntax.funarg -> PrettyPrintContext.MarkerSet.set
 
     val evaluate_signat : t -> SMLSyntax.signat -> sigval
 
@@ -148,7 +162,18 @@ structure Context :
 
   end =
   struct
+    open PrettyPrintContext
     open SMLSyntax
+
+    val empty_set = MarkerSet.empty
+
+    fun union_sets l =
+      List.foldl
+        (fn (set, acc) =>
+          MarkerSet.union set acc
+        )
+        MarkerSet.empty
+        l
 
     (* Helpers *)
 
@@ -241,9 +266,10 @@ structure Context :
       , outer_scopes : scope list
       , sigdict : sigval dict
       , functordict : functorval dict
+      , hole_print_fn : unit -> PrettySimpleDoc.t
       }
 
-    fun lift f {scope, outer_scopes, sigdict, functordict} =
+    fun lift f {scope, outer_scopes, sigdict, functordict, hole_print_fn} =
       let
         val (scope, outer_scopes) = f (scope, outer_scopes)
       in
@@ -251,6 +277,7 @@ structure Context :
         , outer_scopes = outer_scopes
         , sigdict = sigdict
         , functordict = functordict
+        , hole_print_fn = hole_print_fn
         }
       end
 
@@ -466,6 +493,14 @@ structure Context :
         , tydict = SymDict.empty
         }
 
+    val empty =
+      { scope = scope_empty
+      , outer_scopes = []
+      , sigdict = SymDict.empty
+      , functordict = SymDict.empty
+      , hole_print_fn = fn () => PrettySimpleDoc.text TerminalColors.white "<hole>"
+      }
+
     fun scope_valdict (Scope {valdict, ...}) = valdict
     fun scope_condict (Scope {condict, ...}) = condict
     fun scope_exndict (Scope {exndict, ...}) = exndict
@@ -572,7 +607,9 @@ structure Context :
         valdict
       |> scope_set_valdict scope
 
-    fun map_module f (ctx as {sigdict, functordict, ...} : t) id =
+    exception CouldNotFind
+
+    fun map_module f (ctx as {sigdict, functordict, hole_print_fn, ...} : t) id =
       lift (fn (scope, ctx) =>
         let
           fun map_module' scope id =
@@ -596,7 +633,7 @@ structure Context :
                       (map_module' mod_scope path)
         in
           case (map_module' scope id, ctx) of
-            (NONE, []) => raise Fail "could not find module"
+            (NONE, []) => raise CouldNotFind
           | (SOME mapped_scope, _) => (mapped_scope, ctx)
           | (NONE, scope::rest) =>
               let
@@ -606,6 +643,7 @@ structure Context :
                     , outer_scopes = rest
                     , sigdict = sigdict
                     , functordict = functordict
+                    , hole_print_fn = hole_print_fn
                     } id
               in
                 (scope, inner_scope :: rest)
@@ -641,6 +679,7 @@ structure Context :
         SymDict.lookup
           (f (get_module orig_ctx xs))
           x
+        handle SymDict.Absent => raise CouldNotFind
       end
 
     fun is_con ctx id =
@@ -653,6 +692,9 @@ structure Context :
       end
 
     val get_val = get_base scope_valdict
+
+    fun get_val_opt ctx id =
+      SOME (get_val ctx id) handle CouldNotFind => NONE
 
     val get_datatype = get_base scope_tydict
 
@@ -840,7 +882,7 @@ structure Context :
         end
       ) ctx
 
-    fun add_funbind (ctx as {scope, outer_scopes, sigdict, functordict})
+    fun add_funbind (ctx as {scope, outer_scopes, sigdict, functordict, hole_print_fn})
                     {id, funarg, seal, body} =
       { scope = scope
       , outer_scopes = outer_scopes
@@ -865,6 +907,7 @@ structure Context :
               , body = body
               }
             )
+      , hole_print_fn = hole_print_fn
       }
 
     fun remove_infix ctx id =
@@ -905,6 +948,14 @@ structure Context :
         | scope'::rest =>
             (scope, rest)
       ) ctx
+
+    fun exit_local ctx =
+      let
+        val new_ctx = pop_penultimate ctx
+        val scope = pop_scope new_ctx
+      in
+        merge_scope new_ctx scope
+      end
 
     fun open_scope ctx new_scope =
       merge_scope ctx new_scope
@@ -952,6 +1003,17 @@ structure Context :
           )
         end
       ) ctx
+
+    fun add_hole_print_fn
+        {scope, outer_scopes, sigdict, functordict, hole_print_fn} f =
+      { scope = scope
+      , outer_scopes = outer_scopes
+      , sigdict = sigdict
+      , functordict = functordict
+      , hole_print_fn = f
+      }
+
+    fun get_hole_print_fn ({hole_print_fn, ...} : t) = hole_print_fn
 
     (* TYPE STUFF *)
 
@@ -1129,6 +1191,14 @@ structure Context :
               }
           end
 
+    fun is_constr ctx id =
+      let
+        val (xs, x) = snoc id
+        val condict = scope_condict (get_module ctx xs)
+      in
+        SymSet.member condict x
+      end
+
     (* VALUE STUFF *)
 
     fun value_to_exp value =
@@ -1164,6 +1234,86 @@ structure Context :
       | Vfn (matches, E, VE) => Efn matches
       (* For basis values *)
       | Vbasis f => raise Fail "TODO"
+
+    fun opt_all_list l =
+      List.foldr
+        (fn (elem, NONE) => NONE
+        | (NONE, _) => NONE
+        | (SOME elem, SOME acc) => SOME (elem::acc)
+        )
+        (SOME [])
+        l
+
+    fun exp_to_value ctx exp =
+      case exp of
+        Enumber num => SOME (Vnumber num)
+      | Estring s => SOME (Vstring s)
+      | Echar c => SOME (Vchar c)
+      | Eselect sym => SOME (Vselect sym)
+      | Eunit => SOME Vunit
+      | Eident {id, ...} =>
+          if is_constr ctx id then
+            SOME (Vconstr {id = id, arg = NONE})
+          else
+            SOME (get_val ctx id)
+      | Efn matches => SOME (Vfn (matches, ctx, scope_empty))
+      | Erecord fields =>
+          List.map
+            (fn {lab, exp} =>
+              Option.map
+                (fn value => {lab = lab, value = value})
+                (exp_to_value ctx exp)
+            )
+            fields
+          |> opt_all_list
+          |> Option.map (fn fields => Vrecord fields)
+      | Elist exps =>
+          List.map
+            (exp_to_value ctx)
+            exps
+          |> opt_all_list
+          |> Option.map (fn fields => Vlist fields)
+      | Etuple exps =>
+          List.map
+            (exp_to_value ctx)
+            exps
+          |> opt_all_list
+          |> Option.map (fn fields => Vtuple fields)
+
+      | Eparens exp => exp_to_value ctx exp
+      | Eapp {left = Eident {opp, id}, right} =>
+          if is_constr ctx id then
+            Option.map
+              (fn exp => Vconstr {id = id, arg = SOME exp})
+              (exp_to_value ctx right)
+          else
+            NONE
+      | Einfix {left, id, right} =>
+          if is_constr ctx [id] then
+            exp_to_value ctx left
+            |> Option.map (fn left =>
+                 exp_to_value ctx right
+                 |> Option.map (fn right =>
+                    Vinfix {left = left, id = id, right = right}
+                  )
+               )
+            |> Option.join
+          else
+            NONE
+      | Etyped {exp, ...} => exp_to_value ctx exp
+      | ( Eseq _
+        | Eapp _
+        | Elet _
+        | Eandalso _
+        | Eorelse _
+        | Ehandle _
+        | Eraise _
+        | Eif _
+        | Ewhile _
+        | Ecase _ ) => NONE
+      | Ehole => raise Fail "shouldn't happen?"
+
+
 
     exception Mismatch of string
 
@@ -1265,6 +1415,192 @@ structure Context :
           (id, v) :: match_pat ctx aspat v
       | _ => raise Fail "does not match pat"
 
+    fun marker_set_of_list l =
+      List.foldl
+        (fn (x, acc) =>
+          MarkerSet.insert acc x
+        )
+        MarkerSet.empty
+        l
+
+    fun get_patrow_bindings ctx patrow =
+      case patrow of
+        PRellipsis => MarkerSet.empty
+      | PRlab {pat, ...} => get_pat_bindings ctx pat
+      | PRas {id, aspat, ...} =>
+          MarkerSet.union
+            (MarkerSet.singleton (VAL id))
+            (case aspat of
+              NONE => MarkerSet.empty
+            | SOME pat => get_pat_bindings ctx pat
+            )
+
+    and get_pat_bindings ctx pat =
+      case pat of
+        ( Pnumber _
+        | Pword _
+        | Pstring _
+        | Pchar _
+        | Pwild
+        | Punit ) => MarkerSet.empty
+      | Pident {id, ...} =>
+          if is_constr ctx id then
+            MarkerSet.empty
+          else
+            (case id of
+              [id] => MarkerSet.singleton (VAL id)
+            | _ => raise Fail "shouldn't be possible, constructor not found"
+            )
+      | Precord patrows => List.map (get_patrow_bindings ctx) patrows |> union_sets
+      | Pparens pat => get_pat_bindings ctx pat
+      | Ptuple pats => List.map (get_pat_bindings ctx) pats |> union_sets
+      | Plist pats => List.map (get_pat_bindings ctx) pats |> union_sets
+      | Por pats => List.map (get_pat_bindings ctx) pats |> union_sets
+      | Papp {id, atpat, ...} =>
+          if is_constr ctx id then
+            get_pat_bindings ctx atpat
+          else
+            (case id of
+              [id] =>
+                MarkerSet.union
+                  (MarkerSet.singleton (VAL id))
+                  (get_pat_bindings ctx atpat)
+            | _ => raise Fail "shouldn't happen, constructor not found"
+            )
+      | Pinfix {left, id, right} =>
+          if is_constr ctx [id] then
+            MarkerSet.union
+              (get_pat_bindings ctx left)
+              (get_pat_bindings ctx right)
+          else
+            union_sets
+              [ MarkerSet.singleton (VAL id)
+              , get_pat_bindings ctx left
+              , get_pat_bindings ctx right
+              ]
+      | Ptyped {pat, ...} => get_pat_bindings ctx pat
+      | Playered {id, aspat, ...} =>
+          MarkerSet.union
+            (MarkerSet.singleton (VAL id))
+            (get_pat_bindings ctx aspat)
+
+    fun get_fname_args_bindings ctx fname_args =
+      case fname_args of
+        Fprefix {id, args, ...} =>
+          union_sets
+            ( [ MarkerSet.singleton (VAL id) ]
+              @ List.map (get_pat_bindings ctx) args
+            )
+      | Finfix {left, id, right} =>
+          union_sets
+            [ get_pat_bindings ctx left
+            , MarkerSet.singleton (VAL id)
+            , get_pat_bindings ctx right
+            ]
+      | Fcurried_infix {left, id, right, args} =>
+          union_sets
+            ( [ get_pat_bindings ctx left
+              , MarkerSet.singleton (VAL id)
+              , get_pat_bindings ctx right
+              ]
+              @ List.map (get_pat_bindings ctx) args
+            )
+
+    fun remove_val_scope_bound_id scope id =
+      let
+        val valdict = scope_valdict scope
+      in
+        scope_set_valdict scope (SymDict.remove valdict id)
+      end
+
+    fun remove_mod_scope_bound_id scope id =
+      let
+        val moddict = scope_moddict scope
+      in
+        scope_set_moddict scope (SymDict.remove moddict id)
+      end
+
+    fun remove_bound_id_base f ({scope, outer_scopes, sigdict, functordict, hole_print_fn} : t) id =
+      let
+        val scope = f scope id
+        val outer_scopes =
+          List.map
+            (fn scope => f scope id)
+            outer_scopes
+      in
+        { scope = scope
+        , outer_scopes = outer_scopes
+        , sigdict = sigdict
+        , functordict = functordict
+        , hole_print_fn = hole_print_fn
+        }
+      end
+
+    fun remove_bound_ids ctx ids =
+      MarkerSet.foldl
+        (fn (VAL id, ctx) =>
+          remove_bound_id_base remove_val_scope_bound_id ctx id
+        | (MOD id, ctx) =>
+          remove_bound_id_base remove_mod_scope_bound_id ctx id
+        )
+        ctx
+        ids
+
+    fun get_sigval_bound_ids ctx (Sigval {valspecs, modspecs, ...})=
+      marker_set_of_list
+        ( List.map VAL (SymSet.toList valspecs)
+        @ List.map MOD (SymDict.domain modspecs)
+        )
+
+    and get_signat_bound_ids ctx signat =
+      case signat of
+        Sspec spec => get_spec_bound_ids ctx spec
+      | Sident sym =>
+          get_sigval_bound_ids ctx (get_sig ctx sym)
+      | Swhere {signat, ...} => get_signat_bound_ids ctx signat
+
+    and get_spec_bound_ids ctx spec =
+      case spec of
+        SPval valdescs =>
+          List.map (VAL o #id) valdescs |> marker_set_of_list
+      | ( SPtype _
+        | SPeqtype _
+        | SPdatdec _
+        | SPdatrepl _
+        | SPexception _ ) => MarkerSet.empty
+      | SPmodule moddescs =>
+          List.map (MOD o #id) moddescs |> marker_set_of_list
+      | SPinclude signat =>
+          get_signat_bound_ids ctx signat
+      | SPinclude_ids syms =>
+          List.map (get_signat_bound_ids ctx) (List.map Sident syms)
+          |> union_sets
+      | SPsharing_type {spec, ...} => get_spec_bound_ids ctx spec
+      | SPsharing {spec, ...} => get_spec_bound_ids ctx spec
+      | SPseq specs =>
+          List.map (get_spec_bound_ids ctx) specs
+          |> union_sets
+
+    fun get_funarg_bound_ids ctx funarg =
+      case funarg of
+        Normal {id, ...} => MarkerSet.singleton (MOD id)
+      | Sugar spec => get_spec_bound_ids ctx spec
+
+    fun open_bound_id ctx longid =
+      let
+        val valdict = scope_valdict (get_module ctx longid)
+        val moddict = scope_moddict (get_module ctx longid)
+      in
+        marker_set_of_list
+          (List.map VAL (SymDict.domain valdict)
+          @
+          List.map MOD (SymDict.domain moddict)
+          )
+      end
+
+    fun open_bound_ids ctx longids =
+      union_sets
+        (List.map (open_bound_id ctx) longids)
 
     fun match_against ctx matches value =
       let
@@ -1295,7 +1631,7 @@ structure Context :
     fun generate_sigbinding ctx {id, signat} =
       (id, evaluate_signat ctx signat)
 
-    fun add_sigbindings {scope, outer_scopes, sigdict, functordict} sigbindings =
+    fun add_sigbindings {scope, outer_scopes, sigdict, functordict, hole_print_fn} sigbindings =
       { scope = scope
       , outer_scopes = outer_scopes
       , sigdict =
@@ -1307,6 +1643,7 @@ structure Context :
                 sigbindings
             )
       , functordict = functordict
+      , hole_print_fn = hole_print_fn
       }
 
     val sym = Symbol.fromValue
@@ -1436,5 +1773,8 @@ structure Context :
       , outer_scopes = []
       , sigdict = SymDict.empty
       , functordict = SymDict.empty
+      , hole_print_fn = fn () => PrettySimpleDoc.text TerminalColors.white "<hole>"
       }
+
+
   end

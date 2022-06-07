@@ -3,54 +3,30 @@ structure Debugger :
   sig
     val eval_program : SMLSyntax.ast -> Context.t -> Context.t
 
-    datatype location =
-      (* EXP hole *)
-        EHOLE of SMLSyntax.exp
-      | DVALBINDS of
-           SMLSyntax.symbol list
-         * SMLSyntax.pat
-         * { recc : bool, pat : SMLSyntax.pat, exp : SMLSyntax.exp } list
-      (* DEC hole *)
-      | ELET of SMLSyntax.exp list
-      | DLOCAL of SMLSyntax.dec list * SMLSyntax.dec
-      | DSEQ of SMLSyntax.dec list
-      | DMLOCAL of SMLSyntax.strdec list * SMLSyntax.strdec
-      | DMSEQ of SMLSyntax.strdec list
-      | MLET of SMLSyntax.module
-      (* MODULE hole *)
-      | MSTRUCT
-      | MSEAL of { opacity : SMLSyntax.opacity, signat : SMLSyntax.signat }
-      | MAPP of SMLSyntax.symbol
-      | STRUCTS of
-           SMLSyntax.symbol
-         * { opacity : SMLSyntax.opacity, signat : SMLSyntax.signat } option
-         * { id : SMLSyntax.symbol
-           , seal : {opacity : SMLSyntax.opacity, signat : SMLSyntax.signat } option
-           , module : SMLSyntax.module
-           } list
-        (* special: just meant to say wtf is going on *)
-      | FBODY of SMLSyntax.symbol
-      (* TOPDEC hole *)
-      | PROG of SMLSyntax.topdec list
-
     val eval :
-         location list
+         Location.location list
       -> SMLSyntax.exp
       -> Context.t
       -> Context.value MLton.Cont.t
-      -> unit
+      -> 'a
+
+    datatype focus =
+       VAL of SMLSyntax.exp * Context.value
+     | EXP of SMLSyntax.exp
 
     exception Perform of
       { context : Context.t
-      , location : location list
-      , exp : SMLSyntax.exp
+      , location : Location.location list
+      , focus : focus
       , cont : Context.value MLton.Cont.t
-      , continue : bool
       }
+
+    val plug_hole : Context.value -> Location.location -> SMLSyntax.exp * bool
   end =
   struct
     open SMLSyntax
     open Context
+    open Location
 
     val sym_true = Symbol.fromValue "true"
     val sym_false = Symbol.fromValue "false"
@@ -74,7 +50,6 @@ structure Debugger :
     infix |>
     fun x |> f = f x
 
-
     (* We want to be able to reconstruct the location of the evaler, once we
      * focus in on a particular area.
      *
@@ -87,43 +62,16 @@ structure Debugger :
      *
      * If we're in a topdec, we must be at the top-level program.
      *)
-    datatype location =
-      (* EXP hole *)
-        EHOLE of exp
-      | DVALBINDS of symbol list * pat * { recc : bool, pat : pat, exp : exp } list
-      (* DEC hole *)
-      | ELET of exp list
-      | DLOCAL of dec list * dec
-      | DSEQ of dec list
-      | DMLOCAL of strdec list * strdec
-      | DMSEQ of strdec list
-      | MLET of module
-      (* MODULE hole *)
-      | MSTRUCT
-      | MSEAL of { opacity : opacity, signat : signat }
-      | MAPP of symbol
-      | STRUCTS of
-           symbol
-         * { opacity : opacity, signat : signat } option
-         * { id : symbol
-           , seal : {opacity : opacity, signat : signat } option
-           , module : module
-           } list
-        (* special: just meant to say wtf is going on *)
-      | FBODY of symbol
-      (* TOPDEC hole *)
-      | PROG of topdec list
 
-   datatype 'acc status =
-        VAL of exp
-      | STEP of 'acc * (unit -> exp status)
+   datatype focus =
+      VAL of SMLSyntax.exp * Context.value
+    | EXP of SMLSyntax.exp
 
     exception Perform of
       { context : Context.t
-      , location : location list
-      , exp : exp
+      , location : Location.location list
+      , focus : focus
       , cont : value Cont.t
-      , continue : bool
       }
 
     fun iter_list f z l =
@@ -132,145 +80,76 @@ structure Debugger :
       | x::xs =>
           iter_list f (f (x, xs, z)) xs
 
-    (*
-
-    fun plug_hole_dec e dec_hole =
-      case dec_hole of
-        Dval {tyvars, valbinds} =>
-          Dval { tyvars = tyvars
-               , valbinds =
-                  List.map (fn {recc, pat, exp} => { recc = recc
-                                                 , pat = pat
-                                                 , exp = plug_hole e exp
-                                                 }
-                           ) valbinds
-               }
-      | Dlocal {left_dec, right_dec} =>
-           Dlocal { left_dec = plug_hole_dec e left_dec
-                  , right_dec = plug_hole_dec e right_dec
-                  }
-      | Dseq decs =>
-          Dseq (List.map (plug_hole_dec e) decs)
-      | ( Dfun _
-        | Dtype _
-        | Ddatdec _
-        | Ddatrepl _
-        | Dabstype _
-        | Dexception _
-        | Dopen _
-        | Dinfix _
-        | Dinfixr _
-        | Dnonfix _ ) => dec_hole
-
-
-    and plug_value_hole v location =
-      case location of
-        ( ELET _
-        | DVALBINDS
-      case exp_hole of
-        ( Enumber _
-        | Estring _
-        | Echar _
-        | Eselect _
-        | Eunit
-        | Eident _
-        ) => exp_hole
-      | Erecord fields =>
-          Erecord
-            (List.map (fn {lab, exp} => {lab = lab, exp = plug_hole e exp}) fields)
-      | Etuple exps =>
-          Etuple (List.map (plug_hole v) exps)
-      | Elist exps =>
-          Elist (List.map (plug_hole v) exps)
-      | Eseq exps =>
-          Eseq (List.map (plug_hole v) exps)
-      | Elet {dec, exps} =>
-          (* Shouldn't be any holes in exps. *)
-          Elet { dec = plug_hole_dec e dec
-               , exps = exps
-               }
-      | Eparens exp => Eparens (plug_hole v exp)
-      | Eapp {left, right} =>
-          Eapp { left = plug_hole v left
-               , right = plug_hole v right
-               }
-      | Einfix {left, id, right} =>
-          Einfix { left = plug_hole v left
-                 , id = id
-                 , right = plug_hole v right
-                 }
-      | Etyped {exp, ty} =>
-          Etyped { exp = plug_hole v exp, ty = ty }
-      | Eandalso {left, right} =>
-          Eandalso { left = plug_hole v left
-                   , right = plug_hole v right
-                   }
-      | Eorelse {left, right} =>
-          Eorelse { left = plug_hole v left
-                   , right = plug_hole v right
-                   }
-      | Ehandle {exp, matches} =>
-          (* Shouldn't be any holes in matches. *)
-          Ehandle { exp = plug_hole v exp
-                  , matches = matches
-                  }
-      | Eraise exp => Eraise (plug_hole v exp)
-      | Eif {exp1, exp2, exp3} =>
-          (* Shouldn't be any holes in exp2 or exp3. *)
-          Eif { exp1 = plug_hole e exp1, exp2 = exp2, exp3 = exp3 }
-      | Ewhile {exp1, exp2} =>
-          (* Shouldn't be any holes in exp2. *)
-          Ewhile { exp1 = plug_hole v exp1, exp2 = exp2}
-      | Ecase {exp, matches} =>
-          (* Shouldn't be any holes in matches. *)
-          Ecase { exp = plug_hole v exp, matches = matches }
-      | Efn _ => (* Shouldn't be any in a function. *) exp_hole
-      | Ehole => v
-    *)
-
     (* Given an expression with a hole (Ehole) in it, checkpoint will signal to
      * the handler that we have focused on this expression, within that hole
      * context. We will evaluate that expression to a value, and then signal
      * that we are done.
      *)
-    fun checkpoint location exp ctx =
+    fun checkpoint location exp ctx override =
       let
-        (* This first callcc is a `true` continue, meaning that it will simply
-         * recurse evaling.
-         *
-         * We essentially change focus to this sub-expression, until it returns a
-         * value.
-         *)
-        val new_value =
-          Cont.callcc
-            (fn cont =>
-              raise
-                Perform { context = ctx
-                        , location = location
-                        , exp = exp (* Add the focused expression *)
-                        , cont = cont (* Add the continuation to get back here *)
-                        , continue = true (* We want to continue to focus *)
-                        }
-            )
-      in
-        (* This second callcc is _just_ to trigger the outer handler, and to show
-         * that we have returned to the original outer context.
-         *)
-         (* for now, disable *)
-        ( (* Cont.callcc
-          (fn cont =>
-            raise
-              Perform { context = ctx (* Our context is the outer context *)
-                      , location = location
-                      , exp = plug_hole new_value location
-                        (* Use the exp wiht a hole  to compute the new total expression *)
-                      , cont = cont (* Continuation to get back here *)
-                      , continue = false (* We don't want to continue *)
-                      }
-          )
-        ; *) new_value
-        )
+        fun go () =
+          let
 
+            (*
+            val _ = print
+              ("checkpointing an " ^
+                (PrettyPrintAst.report_doc ctx (PrettyPrintAst.show_exp ctx
+                exp) 0 location) ^ "\n"
+              )
+            *)
+
+            (* This first callcc is a `true` EXP, meaning that it will simply
+             * recurse evaling.
+             *
+             * We essentially change focus to this sub-expression, until it returns a
+             * value.
+             *)
+            val new_value =
+              Cont.callcc
+                (fn cont =>
+                  raise
+                    Perform { context = ctx
+                            , location = location
+                            , focus = EXP exp (* Add the focused expression *)
+                            , cont = cont (* Add the continuation to get back here *)
+                            }
+                )
+
+            (* val _ = print
+              ("we are here now with val " ^
+                (PrettyPrintAst.report_doc ctx (PrettyPrintAst.show_value ctx
+                new_value) 0 location) ^ "\n")
+            *)
+
+            val (new_location, new_focus) =
+              case plug_hole new_value (List.nth (location, 0)) of
+                (exp, true) => (location, VAL (exp, new_value))
+              | (exp, false) => (List.drop (location, 1), VAL (exp, new_value))
+          in
+            (* This second callcc is _just_ to trigger the outer handler, and to show
+             * that we have returned to the original outer context.
+             *)
+             (* for now, disable *)
+            ( (*Cont.callcc
+              (fn cont =>
+                raise
+                  Perform { context = ctx (* Our context is the outer context *)
+                          , location = new_location
+                          , focus = new_focus
+                            (* Use the exp wiht a hole  to compute the new total expression *)
+                          , cont = cont (* Continuation to get back here *)
+                          }
+              )
+            ; *)new_value
+            )
+          end
+      in
+        if override then
+          go ()
+        else
+          case Context.exp_to_value ctx exp of
+            SOME value => value
+          | NONE => go ()
       end
 
     exception Raise of value
@@ -285,7 +164,16 @@ structure Debugger :
         fun eval' ehole exp ctx =
           eval (ehole :: location) exp ctx cont
         fun checkpoint' ehole exp ctx =
-          checkpoint (EHOLE ehole :: location) exp ctx
+          (* checkpoint (EHOLE ehole :: location) exp ctx false *)
+          MLton.Cont.callcc (fn cont =>
+            ( eval (EHOLE ehole :: location) exp ctx cont
+            ; raise Fail "can't get here"
+            )
+          )
+          (*
+            Changing to this makes it so that all expressions are evaluated at
+            once, to values.
+          *)
         (* Needs to be given a function which can construct the desired current
          * exp from the left and right halves of the list.
          *)
@@ -299,8 +187,8 @@ structure Debugger :
                     val left_exps =
                       List.map Context.value_to_exp left
                     val new_value =
-                      checkpoint
-                        (EHOLE (mk_exp (List.rev left_exps, right')) :: location)
+                      checkpoint'
+                        ((mk_exp (List.rev left_exps, right')))
                         exp
                         ctx
                   in
@@ -358,16 +246,20 @@ structure Debugger :
             |> Vlist
             |> throw
         | Eseq exps =>
-            iter_list
-              (fn (exp, rest, ()) =>
-                (case rest of
-                  [] => eval location exp ctx cont
-                | _ =>
-                  eval' (EHOLE (Eseq (Ehole :: rest))) exp ctx
+            ( iter_list
+                (fn (exp, rest, ()) =>
+                  (case rest of
+                    [] => (eval location exp ctx cont; ())
+                  | _ =>
+                    ( eval' (EHOLE (Eseq (Ehole :: rest))) exp ctx
+                    ; ()
+                    )
+                  )
                 )
-              )
-              ()
-              exps
+                ()
+                exps
+            ; raise Fail "will not reach here"
+            )
         | Elet {dec, exps} =>
             let
               val new_ctx = eval_dec (ELET (exps) :: location) dec ctx
@@ -403,7 +295,7 @@ structure Debugger :
                     val (new_ctx, new_exp) =
                       Context.apply_fn (matches, E, VE) v
                   in
-                    eval location new_exp new_ctx cont
+                    redex location new_exp new_ctx cont
                   end
               | (Vselect sym, Vrecord fields) =>
                    List.find
@@ -413,8 +305,8 @@ structure Debugger :
                       | SOME ans => ans
                       )
                    |> #value
-                   |> throw
-              | (Vbasis f, v) => throw (f v)
+                   |> (fn value => redex_value location value ctx cont)
+              | (Vbasis f, v) => redex_value location (f v) ctx cont
               | _ => raise Fail "impossible app redex"
             end
         | Einfix {left, id, right} =>
@@ -429,6 +321,7 @@ structure Debugger :
                   (Einfix {left = value_to_exp left, id = id, right = Ehole})
                   right
                   ctx
+
               val value = Context.get_val ctx [id]
             in
               case value of
@@ -437,11 +330,15 @@ structure Debugger :
                     val (new_ctx, new_exp) =
                       Context.apply_fn (matches, E, VE) (Vtuple [left, right])
                   in
-                    eval location new_exp new_ctx cont
+                    redex location new_exp new_ctx cont
                   end
               | Vconstr {id = [sym], arg = NONE} =>
-                  throw (Vinfix {left = left, id = sym, right = right})
-              | Vbasis f => throw (f (Vtuple [left, right]))
+                  redex_value
+                    location
+                    (Vinfix {left = left, id = sym, right = right})
+                    ctx
+                    cont
+              | Vbasis f => redex_value location (f (Vtuple [left, right])) ctx cont
               | _ => raise Fail "applied value is not a function or constr"
             end
         | Etyped {exp, ...} => eval location exp ctx cont
@@ -462,9 +359,17 @@ structure Debugger :
                 (Vconstr {id = [x], arg = NONE}, Vconstr {id = [y], arg = NONE}) =>
                   if is_bool x andalso is_bool y then
                     if Symbol.eq (x, sym_true) andalso Symbol.eq (x, sym_true) then
-                      throw (Vconstr { id = [sym_true], arg = NONE })
+                      redex_value
+                        location
+                        (Vconstr { id = [sym_true], arg = NONE })
+                        ctx
+                        cont
                     else
-                      throw (Vconstr { id = [sym_false], arg = NONE })
+                      redex_value
+                        location
+                        (Vconstr { id = [sym_false], arg = NONE })
+                        ctx
+                        cont
                   else
                     raise Fail "invalid inputs to andalso"
               | _ => raise Fail "invalid inputs to andalso"
@@ -486,9 +391,17 @@ structure Debugger :
                 (Vconstr {id = [x], arg = NONE}, Vconstr {id = [y], arg = NONE}) =>
                   if is_bool x andalso is_bool y then
                     if Symbol.eq (x, sym_false) andalso Symbol.eq (x, sym_false) then
-                      throw (Vconstr { id = [sym_false], arg = NONE })
+                      redex_value
+                        location
+                        (Vconstr { id = [sym_false], arg = NONE })
+                        ctx
+                        cont
                     else
-                      throw (Vconstr { id = [sym_true], arg = NONE })
+                      redex_value
+                        location
+                        (Vconstr { id = [sym_true], arg = NONE })
+                        ctx
+                        cont
                   else
                     raise Fail "invalid inputs to orelse"
               | _ => raise Fail "invalid inputs to orelse"
@@ -500,7 +413,7 @@ structure Debugger :
                 let
                   val (new_ctx, exp) = Context.match_against ctx matches value
                 in
-                  eval location exp new_ctx cont
+                  redex location exp new_ctx cont
                 end
             )
         | Eraise exp =>
@@ -518,9 +431,9 @@ structure Debugger :
              of
               Vconstr {id = [x], arg = NONE} =>
                 if Symbol.eq (x, sym_true) then
-                  eval location exp2 ctx cont
+                  redex location exp2 ctx cont
                 else if Symbol.eq (x, sym_false) then
-                  eval location exp3 ctx cont
+                  redex location exp3 ctx cont
                 else
                   raise Fail "if given non-bools"
             | _ => raise Fail "if given non-bools"
@@ -544,7 +457,7 @@ structure Debugger :
                   | _ => raise Fail "nonb-ool given to while"
                   )
                 do
-                  eval location exp2 ctx cont
+                  redex location exp2 ctx cont
               ; Cont.throw (cont, Vunit)
               )
             end
@@ -555,7 +468,7 @@ structure Debugger :
               val (new_ctx, new_exp) =
                 Context.match_against ctx matches value
             in
-              eval location new_exp new_ctx cont
+              redex location new_exp new_ctx cont
             end
           (* If we are evaluating an `Efn`, it must have already existed.
            * As in, it was an anonymous function value, and its closure is just
@@ -566,6 +479,35 @@ structure Debugger :
         | Efn matches => throw (Vfn (matches, ctx, Context.scope_empty))
         | Ehole => raise Fail "shouldn't happen, evaling Ehole"
       end
+
+    (* This function is used on the expression resulting immediately from
+     * evaluating a redex.
+     *)
+    and redex location exp ctx cont =
+      MLton.Cont.throw (cont, checkpoint location exp ctx true)
+
+    and redex_value location value ctx cont =
+      let
+        val (new_location, new_focus) =
+          case plug_hole value (List.nth (location, 0)) of
+            (exp, true) => (location, VAL (exp, value))
+          | (exp, false) => (List.drop (location, 1), VAL (exp, value))
+      in
+        ( Cont.callcc
+          (fn cont =>
+            raise
+              Perform { context = ctx (* Our context is the outer context *)
+                      , location = new_location
+                      , focus = new_focus
+                        (* Use the exp wiht a hole  to compute the new total expression *)
+                      , cont = cont (* Continuation to get back here *)
+                      }
+          )
+        ; MLton.Cont.throw (cont, value)
+        )
+      end
+
+
 
     and eval_dec location dec ctx =
       case dec of
@@ -580,29 +522,42 @@ structure Debugger :
           (* Iterate on them and evaluate each valbinding
            * sequentially, in the original context.
            *)
-          iter_list
-            (fn ({recc, pat, exp}, rest, pairs) =>
-              let
-                val new_value =
-                  checkpoint
-                    ( DVALBINDS (tyvars, pat, rest) :: location)
-                    exp
-                    ctx
-              in
-                Context.match_pat ctx pat new_value @ pairs
-              end
-            )
-            []
-            valbinds
-          |> (fn bindings =>
-              (* If any say rec, then we must recursively make all the lambda
-               * expressions contain the others in their closure.
-               *)
-              if List.foldl (fn (x, y) => x orelse y) false (List.map #recc valbinds) then
-                Context.add_rec_bindings ctx bindings
-              else
-                Context.add_bindings ctx bindings
-             )
+          let
+            val recc_flag =
+              List.foldl
+                (fn ({recc, ...}, acc) => recc orelse acc)
+                false
+                valbinds
+          in
+            iter_list
+              (fn ({recc, pat, exp}, rest, pairs) =>
+                let
+                  val new_value =
+                    checkpoint
+                      ( DVALBINDS (recc_flag, tyvars, pat, rest) :: location)
+                      exp
+                      ctx
+                      true
+                  (* This flag needs to be true, or else val bindings of values
+                   * won't trigger a step at all.
+                   * For instance, `val _ = fn x => x`
+                   *)
+                in
+                  Context.match_pat ctx pat new_value @ pairs
+                end
+              )
+              []
+              valbinds
+            |> (fn bindings =>
+                (* If any say rec, then we must recursively make all the lambda
+                 * expressions contain the others in their closure.
+                 *)
+                if List.foldl (fn (x, y) => x orelse y) false (List.map #recc valbinds) then
+                  Context.add_rec_bindings ctx bindings
+                else
+                  Context.add_bindings ctx bindings
+               )
+          end
       | Dfun {fvalbinds, ...} =>
           let
             fun get_id_pats fname_args =
@@ -718,7 +673,7 @@ structure Debugger :
                   decs
                 |> Context.enter_scope
                 |> (fn ctx => eval_dec location right_dec ctx)
-                |> Context.pop_penultimate
+                |> Context.exit_local
             | _ =>
                 eval_dec
                   (DLOCAL ([], right_dec) :: location)
@@ -726,7 +681,7 @@ structure Debugger :
                   (Context.enter_scope ctx)
                 |> Context.enter_scope
                 |> (fn ctx => eval_dec location right_dec ctx)
-                |> Context.pop_penultimate
+                |> Context.exit_local
           )
       | Dopen ids =>
           List.foldl
@@ -762,6 +717,7 @@ structure Debugger :
             )
             ctx
             ids
+      | Dhole => raise Fail "shouldn't eval dhole"
 
     (* Should put all of the resulting bindings into the top-most scope.
      *)
@@ -861,7 +817,8 @@ structure Debugger :
           eval_strdec (MLET module :: location) dec (Context.enter_scope ctx)
           |> Context.enter_scope
           |> eval_module location module
-          |> Context.pop_penultimate
+          |> Context.exit_local
+      | Mhole => raise Fail "shouldn't eval mhole"
 
 
     and eval_strdec location strdec ctx =
@@ -920,7 +877,7 @@ structure Debugger :
                   strdecs
                 |> Context.enter_scope
                 |> (fn ctx => eval_strdec location right_dec ctx)
-                |> Context.pop_penultimate
+                |> Context.exit_local
             | _ =>
                 eval_strdec
                   (DMLOCAL ([], right_dec) :: location)
@@ -928,8 +885,9 @@ structure Debugger :
                   (Context.enter_scope ctx)
                 |> Context.enter_scope
                 |> (fn ctx => eval_strdec location right_dec ctx)
-                |> Context.pop_penultimate
+                |> Context.exit_local
           )
+      | DMhole => raise Fail "shouldn't eval dmhole"
 
     fun eval_topdec location topdec ctx =
       case topdec of
@@ -953,6 +911,7 @@ structure Debugger :
             (fn (funbind, ctx) => Context.add_funbind ctx funbind)
             ctx
             fundec
+      | Thole => raise Fail "shouldn't eval thole"
 
     fun eval_program ast ctx =
       iter_list
