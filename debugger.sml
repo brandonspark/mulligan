@@ -7,7 +7,7 @@ structure Debugger :
          Location.location list
       -> SMLSyntax.exp
       -> Context.t
-      -> Context.value MLton.Cont.t
+      -> Context.value Cont.t
       -> 'a
 
     datatype focus =
@@ -18,7 +18,7 @@ structure Debugger :
       { context : Context.t
       , location : Location.location list
       , focus : focus
-      , cont : Context.value MLton.Cont.t
+      , cont : Context.value Cont.t
       }
 
     val plug_hole : Context.value -> Location.location -> SMLSyntax.exp * bool
@@ -44,8 +44,6 @@ structure Debugger :
     fun is_bool sym =
       Symbol.eq (sym, sym_false) orelse
       Symbol.eq (sym, sym_true)
-
-    structure Cont = MLton.Cont
 
     infix |>
     fun x |> f = f x
@@ -107,12 +105,15 @@ structure Debugger :
             val new_value =
               Cont.callcc
                 (fn cont =>
+                  ( (* print ("checkpoint spawned cont " ^ Int.toString
+                  (Cont.get_id cont) ^ "\n"); *)
                   raise
                     Perform { context = ctx
                             , location = location
                             , focus = EXP exp (* Add the focused expression *)
                             , cont = cont (* Add the continuation to get back here *)
                             }
+                  )
                 )
 
             (* val _ = print
@@ -161,12 +162,20 @@ structure Debugger :
      *)
     fun eval location exp ctx cont =
       let
+        (*
+        val _ =
+          print ("  sup ya knobs, im here to evaluate " ^ PrettyPrintAst.report
+          ctx exp 0 location ^ " with continuation " ^ Int.toString (Cont.get_id
+          cont) ^ "\n")
+        *)
         fun eval' ehole exp ctx =
           eval (ehole :: location) exp ctx cont
         fun checkpoint' ehole exp ctx =
           (* checkpoint (EHOLE ehole :: location) exp ctx false *)
-          MLton.Cont.callcc (fn cont =>
-            ( eval (EHOLE ehole :: location) exp ctx cont
+          Cont.callcc (fn cont =>
+            ( (* print (" checkpoint' spawning cont " ^ Int.toString (Cont.get_id
+            cont) ^ " for exp " ^ PrettyPrintAst.report ctx exp 0 (EHOLE ehole
+            :: location) ^ "\n"); *) eval (EHOLE ehole :: location) exp ctx cont
             ; raise Fail "can't get here"
             )
           )
@@ -198,7 +207,7 @@ structure Debugger :
             eval_list' [] l
           end
 
-        fun throw value = Cont.throw (cont, value)
+        fun throw value = Cont.throw cont value
       in
         case exp of
           Enumber num => throw (Vnumber num)
@@ -316,6 +325,7 @@ structure Debugger :
                   (Einfix {left = Ehole, id = id, right = right})
                   left
                   ctx
+
               val right =
                 checkpoint'
                   (Einfix {left = value_to_exp left, id = id, right = Ehole})
@@ -458,7 +468,7 @@ structure Debugger :
                   )
                 do
                   redex location exp2 ctx cont
-              ; Cont.throw (cont, Vunit)
+              ; Cont.throw cont Vunit
               )
             end
         | Ecase {exp, matches} =>
@@ -482,28 +492,47 @@ structure Debugger :
 
     (* This function is used on the expression resulting immediately from
      * evaluating a redex.
+     * This will cause a checkpoint, which will trigger a pause.
      *)
     and redex location exp ctx cont =
-      MLton.Cont.throw (cont, checkpoint location exp ctx true)
+      let
+        val new_value = checkpoint location exp ctx true
+      in
+        Cont.throw cont (checkpoint location exp ctx true)
+      end
 
+    (* This function is used on the expression resulting from evaluating a redex
+     * into a value.
+     * We use this so that we report the value that was evaluated to, rather
+     * than just immediately throwing.
+     *)
     and redex_value location value ctx cont =
       let
+        (*val _ = print ("redexing value!! on " ^ (PrettySimpleDoc.toString true
+        (PrettyPrintAst.show_value ctx value) ^ " with cont " ^ Int.toString
+        (Cont.get_id cont) ^ "\n"))
+         *)
         val (new_location, new_focus) =
           case plug_hole value (List.nth (location, 0)) of
             (exp, true) => (location, VAL (exp, value))
           | (exp, false) => (List.drop (location, 1), VAL (exp, value))
       in
         ( Cont.callcc
-          (fn cont =>
-            raise
-              Perform { context = ctx (* Our context is the outer context *)
-                      , location = new_location
-                      , focus = new_focus
-                        (* Use the exp wiht a hole  to compute the new total expression *)
-                      , cont = cont (* Continuation to get back here *)
-                      }
-          )
-        ; MLton.Cont.throw (cont, value)
+            (fn cont =>
+              ( (*print ("redex value spawned cont " ^ Int.toString (Cont.get_id
+              cont) ^ "\n"); *)
+              raise
+                Perform { context = ctx (* Our context is the outer context *)
+                        , location = new_location
+                        , focus = new_focus
+                          (* Use the exp wiht a hole  to compute the new total expression *)
+                        , cont = cont (* Continuation to get back here *)
+                        }
+              )
+            )
+        (*; print ("redex throwing to cont " ^ Int.toString (Cont.get_id cont) ^
+        "\n") *)
+        ; Cont.throw cont value
         )
       end
 

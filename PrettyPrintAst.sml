@@ -1439,13 +1439,14 @@ struct
                 n
                 rest
             end
-        | (0, _) => doc
-        | (n, []) => doc
-        (* | (n, EHOLE exp :: rest) =>
+         | (0, _) => doc
+         | (n, []) => doc
+         (*| (n, EHOLE exp :: rest) =>
             report
               ctx
+              empty_set
               (show_exp new_ctx exp)
-              n (* eagerly go until you find a non-ehole *)
+              (n - 1) (* eagerly go until you find a non-ehole *)
               rest
         | (n, DVALBINDS (recc, tyvars, pat, valbinds) :: rest) =>
             let
@@ -1457,7 +1458,8 @@ struct
                 show_dec' new_ctx (Dval { tyvars = tyvars, valbinds = valbinds })
             in
               report
-                (Context.remove_bound_ids ctx bound_ids)
+                ctx
+                bound_ids
                 doc
                 (n - 1)
                 rest

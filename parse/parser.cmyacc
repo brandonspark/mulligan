@@ -8,11 +8,13 @@ terminal REVEAL
 terminal STOP
 terminal EQUAL
 terminal SET
+terminal PREV
 terminal EOF
 
 nonterminal Directive : directive =
   STEP => step
   STOP => stop
+  PREV => prev
   REVEAL => bare_reveal
   REVEAL 1:NUM => num_reveal
 

@@ -6,6 +6,7 @@ parse-sml/src/parse/sources.mlb
 cmlib/cmlib.mlb
 util/sources.mlb
 parse/sources.mlb
+cont.sml
 
 PrettyPrintContext.sml
 

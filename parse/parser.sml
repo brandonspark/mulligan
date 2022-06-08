@@ -24,15 +24,6 @@ structure DirectiveParser :> PARSER =
     fun sing x = [x]
     fun pair (x, y) = [x, y]
 
-    val option_to_bool = fn
-      SOME _ => true
-    | NONE => false
-
-    fun nyi () = ()
-    fun assert_fvalbinds_valid _ = nyi ()
-    fun assert_valbinds_valid _ _ = nyi ()
-    fun assert_valid_precedence _ = nyi ()
-
     structure Arg =
       struct
         open Directive
@@ -49,6 +40,7 @@ structure DirectiveParser :> PARSER =
         val bare_reveal = null (Reveal NONE)
         val stop = null Stop
         val step = null Step
+        val prev = null Prev
 
         exception Error of DToken.t StreamStreamable.t
         fun error x = Error x

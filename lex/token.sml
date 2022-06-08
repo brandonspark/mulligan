@@ -7,6 +7,7 @@ structure Token =
       | STEP
       | REVEAL
       | STOP
+      | PREV
 
       | EQUAL
       | SET
@@ -22,6 +23,7 @@ structure Token =
       | STOP => "STOP"
       | EQUAL => "EQUAL"
       | SET => "SET"
+      | PREV => "PREV"
       | EOF => "EOF"
 
   end
