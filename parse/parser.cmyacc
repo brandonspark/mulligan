@@ -15,6 +15,7 @@ nonterminal Directive : directive =
   STEP => step
   STOP => stop
   PREV => prev
+  PREV 1:NUM => num_prev
   REVEAL => bare_reveal
   REVEAL 1:NUM => num_reveal
 

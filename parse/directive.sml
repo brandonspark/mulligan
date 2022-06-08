@@ -5,7 +5,7 @@ structure Directive =
         Step
       | Reveal of int option
       | Stop
-      | Prev
+      | Prev of int option
 
     datatype ('a, 'b) either = INL of 'a | INR of 'b
   end

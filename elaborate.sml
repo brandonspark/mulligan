@@ -748,7 +748,7 @@ structure Elaborate :
         | Pat.Con {opp, id, atpat} =>
             Papp { opp = opt_to_bool opp
                  , id = ml_tok_to_longid id
-                 , atpat = elab_pat pat
+                 , atpat = elab_pat atpat
                  }
         | Pat.Infix {left, id, right} =>
             Pinfix { left = elab_pat left

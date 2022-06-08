@@ -5,24 +5,14 @@ structure Top =
       let
         val filepath = FilePath.fromUnixPath filename
         val source = Source.loadFromFile filepath
+        val _ = print "parsing...\n"
         val ast = Parser.parse source (* may err *)
+        val _ = print "done parsing, elaborating...\n"
         val (derived_ast, _) = Elaborate.elab_ast (ast, Context.initial)
+        val _ = print "done elaborating"
       in
         derived_ast
       end
-
-    (*
-    datatype kind =
-        EXP of SMLSyntax.exp
-      | VAL of Context.value
-
-    val print_fn = fn () =>
-      case kind of
-        EXP exp =>
-          PrettyPrintAst.pretty_exp ctx exp true
-      | VAL value =>
-          PrettyPrintAst.pretty_value ctx value value true
-    *)
 
     datatype result =
       Result of
@@ -63,15 +53,14 @@ structure Top =
            *)
 
         and step (ctx, location, focus, cont) =
-          ( (* print ("going into eval for " ^ PrettyPrintAst.report ctx
+          ( print ("going into eval for " ^ PrettyPrintAst.report ctx
             (get_focus_exp focus) 0
             location ^ "\n");
-             *)
             case Context.exp_to_value ctx (get_focus_exp focus) of
-              SOME value => ((* print ("throwing " ^ PrettySimpleDoc.toString true
+              SOME value => (print ("throwing " ^ PrettySimpleDoc.toString true
               (PrettyPrintAst.show_value ctx value) ^ " value cont " ^ Int.toString
               (Cont.get_id cont)
-              ^ "\n"); *) Cont.throw cont value)
+              ^ "\n"); Cont.throw cont value)
             | _ => Debugger.eval location (get_focus_exp focus) ctx cont
           ; raise Fail "asdsas"
           )
@@ -84,46 +73,40 @@ structure Top =
               } =>
               let
                 val exp = get_focus_exp focus
-                (* val _ = print ("step returned with " ^ PrettyPrintAst.report ctx
+                val _ = print ("step returned with " ^ PrettyPrintAst.report ctx
                 exp 0 location ^ " and cont " ^ Int.toString (Cont.get_id cont)
                 ^ "\n")
-                 *)
               in
                 (ctx, location, focus, cont)
               end
-
-          (*
-        fun iter (info as (i, prev_cont, ctx, location, exp, _)) =
-          (i, prev_cont, ctx, location, exp, fn () => step info)
-           *)
 
         (* The main loop is responsible for accepting user input and controlling
          * what is done by the program.
          *)
 
         val store : ( Context.t
-                    * Debugger.focus
                     * Location.location list
+                    * Debugger.focus
                     * Context.value Cont.t) list ref = ref []
+
+        val breaks : SymSet.set ref = ref SymSet.empty
 
         fun main_loop (info as (ctx, location, focus, cont)) =
           let
-            (*val _ = print ("current exp is " ^ PrettyPrintAst.report ctx
+             val _ = print ("current exp is " ^ PrettyPrintAst.report ctx
             (get_focus_exp focus) 0 location ^ "\n")
-             *)
             val output = TextIO.output (TextIO.stdOut, "- ")
             val _ = TextIO.flushOut TextIO.stdOut
             val input = TextIO.input TextIO.stdIn
           in
-            case DirectiveParser.parse_exn input of
-              Directive.Step =>
+            case DirectiveParser.parse_opt input of
+              SOME Directive.Step =>
                 let
                   val _ =
-                    (store := (ctx, focus, location, cont) :: !store)
-                  (*val num = Cont.get_id cont
+                    (store := (ctx, location, focus, cont) :: !store)
+                  val num = Cont.get_id cont
                   val _ = print ("enter context " ^ Int.toString num ^ "\n")
-                   *)
-                  (* After this call, it seems the value of `i` changes. *)
+
                   (* It appears that after the call to `f`, we throw back into
                    * another context, namely the first context where we were
                    * evaluating the original expression.
@@ -133,46 +116,58 @@ structure Top =
                   val new_info as (ctx, location, focus, cont) =
                     case focus of
                       Debugger.VAL (_, value) =>
-                        ((* print ("throwing val to cont " ^ Int.toString
-                        (Cont.get_id cont) ^ "\n"); *)Cont.throw cont value
+                        ( print ("throwing val to cont " ^ Int.toString
+                        (Cont.get_id cont) ^ "\n"); Cont.throw cont value
                         )
                     | _ => step info
 
-                  (*val _ = print ("end context " ^ Int.toString num ^ "\n")
-                   **)
+                  val _ = print ("end context " ^ Int.toString num ^ "\n")
                 in
                   ( print ("3=> " ^ PrettyPrintAst.report ctx
                   (get_focus_exp focus) 0 location ^ "\n")
                   ; main_loop (ctx, location, focus, cont)
                   )
                 end
-            | Directive.Stop =>
+            | SOME Directive.Stop =>
                 raise Fail "stop"
-            | Directive.Reveal i' =>
+            | SOME (Directive.Reveal i') =>
                 ( print ("revealing:\n "
                         ^ PrettyPrintAst.report ctx (get_focus_exp focus) (Option.getOpt (i', 0)) location
                         ^ "\n")
                 ; main_loop info
                 )
-            | Directive.Prev =>
-                ( case !store of
-                    [] =>
-                      ( print ("2=> " ^ PrettyPrintAst.report ctx (get_focus_exp
-                      focus) 0 location ^ "\n")
-                      ; main_loop info
-                      )
-                  | (ctx, focus, location, cont) :: rest =>
-                      ( print ("2=> " ^ PrettyPrintAst.report ctx (get_focus_exp
-                      focus) 0 location ^ "\n")
-                      ; store := rest
-                      ; main_loop (ctx, location, focus, cont)
-                      )
+            | SOME (Directive.Prev num_opt) =>
+                let
+                  fun print_report (ctx, location, focus, cont) =
+                    print ("2=> " ^ PrettyPrintAst.report ctx (get_focus_exp focus)
+                      0 location ^ "\n")
+
+                  fun rewind n =
+                    case (n, !store) of
+                      (_, []) =>
+                        ( print_report info; main_loop info)
+                    | (0, _) =>
+                        ( print_report info; main_loop info)
+                    | (1, (ctx, location, focus, cont) :: rest) =>
+                        ( print_report (ctx, location, focus, cont)
+                        ; store := rest
+                        ; main_loop (ctx, location, focus, cont))
+                    | (_, (ctx, location, focus, cont) :: rest) =>
+                        ( store := rest
+                        ; rewind (n - 1)
+                        )
+                in
+                  rewind (Option.getOpt (num_opt, 1))
+                end
+            | NONE =>
+                ( print "Unrecognized command.\n"
+                ; main_loop info
                 )
           end
 
         fun entry_point {context = ctx, location, focus, cont} =
           let
-            val exp =  get_focus_exp focus
+            val exp = get_focus_exp focus
           in
             print ("1=> " ^
               PrettyPrintAst.report

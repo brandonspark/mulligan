@@ -9,6 +9,7 @@ signature PARSER =
     val parse_file : string -> (string list, result) Directive.either
 
     val parse_exn : string -> Directive.t
+    val parse_opt : string -> Directive.t option
   end
 
 structure DirectiveParser :> PARSER =
@@ -37,10 +38,11 @@ structure DirectiveParser :> PARSER =
         val main = identity
 
         fun num_reveal i = Reveal (SOME i)
+        fun num_prev i = Prev (SOME i)
         val bare_reveal = null (Reveal NONE)
         val stop = null Stop
         val step = null Step
-        val prev = null Prev
+        val prev = null (Prev NONE)
 
         exception Error of DToken.t StreamStreamable.t
         fun error x = Error x
@@ -75,9 +77,14 @@ structure DirectiveParser :> PARSER =
         parse_string input
       end
 
-    fun parse_exn cs =
+    fun parse_opt cs =
       case parse (Stream.fromList (String.explode cs)) of
-        INL _ => raise Fail "parse error"
-      | INR (elems, []) => elems
-      | INR _ => raise Fail "parse error, tokens left"
+        INL _ => NONE
+      | INR (elems, []) => SOME elems
+      | INR _ => NONE
+
+    fun parse_exn cs =
+      case parse_opt cs of
+        NONE => raise Fail "failed to parse"
+      | SOME ans => ans
   end

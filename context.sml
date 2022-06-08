@@ -37,7 +37,6 @@ structure Context :
         , value : value
         } list
     | Vunit
-    | Vident of SMLSyntax.longid
     | Vconstr of
         { id : SMLSyntax.longid
         , arg : value option
@@ -50,9 +49,11 @@ structure Context :
         , id : SMLSyntax.symbol
         , right : value
         }
-    | Vfn of { pat : SMLSyntax.pat, exp : SMLSyntax.exp } list
-           * t
-           * scope
+    | Vfn of
+        { matches : { pat : SMLSyntax.pat, exp : SMLSyntax.exp } list
+        , env : t
+        , rec_env : scope option
+        }
     | Vbasis of value -> value
 
     and sigval =
@@ -83,6 +84,9 @@ structure Context :
     val get_module : t -> SMLSyntax.longid -> scope
     val get_sig : t -> SMLSyntax.symbol -> sigval
     val get_functor : t -> SMLSyntax.symbol -> functorval
+
+    val is_con : t -> SMLSyntax.longid -> bool
+    val is_exn : t -> SMLSyntax.longid -> bool
 
     val add_exn : t -> SMLSyntax.symbol -> t
     val add_con : t -> SMLSyntax.symbol -> t
@@ -116,10 +120,11 @@ structure Context :
     val exp_to_value : t -> SMLSyntax.exp -> value option
 
     val apply_fn :
-           {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list * t * scope
+           {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list * t * scope option
         -> value
         -> t * SMLSyntax.exp
 
+    exception Mismatch of string
     val match_against :
          t
       -> {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list
@@ -213,7 +218,6 @@ structure Context :
         , value : value
         } list
     | Vunit
-    | Vident of longid
     | Vconstr of
         { id : longid
         , arg : value option
@@ -226,7 +230,11 @@ structure Context :
         , id : symbol
         , right : value
         }
-    | Vfn of { pat : pat, exp : exp } list * t * scope
+    | Vfn of
+        { matches : { pat : pat, exp : exp } list
+        , env : t
+        , rec_env : scope option
+        }
     | Vbasis of value -> value
 
     and sigval =
@@ -601,7 +609,8 @@ structure Context :
 
     fun ctx_rec (scope as Scope { valdict, ... }) =
       SymDict.map
-        (fn Vfn (matches, E, VE) => Vfn (matches, E, scope)
+        (fn Vfn {matches, env, rec_env} =>
+              Vfn {matches = matches, env = env, rec_env = SOME scope}
         | other => other
         )
         valdict
@@ -688,6 +697,15 @@ structure Context :
       in
         SymSet.member
           (scope_condict (get_module ctx xs))
+          x
+      end
+
+    fun is_exn ctx id =
+      let
+        val (xs, x) = snoc id
+      in
+        SymSet.member
+          (scope_exndict (get_module ctx xs))
           x
       end
 
@@ -1215,7 +1233,6 @@ structure Context :
               fields
             )
       | Vunit => Eunit
-      | Vident id => Eident {opp = false, id = id}
       | Vconstr {id, arg} =>
           (case arg of
             NONE => Eident {opp = false, id = id}
@@ -1231,7 +1248,7 @@ structure Context :
                  , id = id
                  , right = value_to_exp right
                  }
-      | Vfn (matches, E, VE) => Efn matches
+      | Vfn {matches, env, rec_env} => Efn matches
       (* For basis values *)
       | Vbasis f => raise Fail "TODO"
 
@@ -1256,7 +1273,7 @@ structure Context :
             SOME (Vconstr {id = id, arg = NONE})
           else
             SOME (get_val ctx id)
-      | Efn matches => SOME (Vfn (matches, ctx, scope_empty))
+      | Efn matches => SOME (Vfn {matches = matches, env = ctx, rec_env = NONE})
       | Erecord fields =>
           List.map
             (fn {lab, exp} =>
@@ -1352,10 +1369,13 @@ structure Context :
             | _ => raise Fail "nonexistent con"
             )
       | (Pident {opp, id}, _) =>
-          (case id of
-            [id] => [(id, v)]
-          | _ => raise Fail "nonexistent con"
-          )
+          if is_con ctx id then
+            raise Mismatch "cannot match nullary constructor"
+          else
+            (case id of
+              [id] => [(id, v)]
+            | _ => raise Fail "nonexistent con"
+            )
       | (Precord patrows, Vrecord fields) =>
           List.foldl
             (fn (patrow, acc) =>
@@ -1624,7 +1644,7 @@ structure Context :
 
     fun apply_fn (matches, E, VE) value =
       match_against
-        (merge_scope E (ctx_rec VE))
+        (merge_scope E (ctx_rec (Option.getOpt (VE, scope_empty))))
         matches
         value
 
@@ -1679,7 +1699,8 @@ structure Context :
       |> List.map (fn (x, y) => (sym x, y))
 
     val initial_cons =
-      [ "SOME", "NONE", "true", "false", "::", "LESS", "EQUAL", "GREATER", "nil" ]
+      [ "SOME", "NONE", "true", "false", "::", "LESS", "EQUAL", "GREATER",
+         "nil", "Match", "Bind", "Div", "Fail"]
       |> List.map sym
 
     val initial_exns =

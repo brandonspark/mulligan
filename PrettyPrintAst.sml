@@ -444,18 +444,26 @@ struct
           text_syntax "#" ++ show_symbol_node blue lab
       | Eunit => text "()"
       | Eident {opp, id} =>
-          let
-            fun show_val_ident id =
-              (case Context.get_val_opt ctx id of
-                NONE => show_longid id
-              | SOME value => show_value ctx value
-              )
-          in
-            if opp then
-              text_syntax "op" +-+ show_val_ident id
-            else
-              show_val_ident id
-          end
+          if Context.is_con ctx id then
+            show_constr id
+          else
+            let
+              fun show_val_ident id =
+                (case Context.get_val_opt ctx id of
+                  NONE => show_longid id
+                  (* If it's a recursive function, don't substitute its definition
+                   * in.
+                   *)
+                | SOME (Context.Vfn {rec_env = SOME _, ...}) =>
+                    show_longid id
+                | SOME value => show_value ctx value
+                )
+            in
+              if opp then
+                text_syntax "op" +-+ show_val_ident id
+              else
+                show_val_ident id
+            end
       | Etuple exps =>
           group (parensAround (show_list_after show_exp ", " exps))
       | Elist exps =>
@@ -605,6 +613,7 @@ struct
 
     and show_value ctx value =
       let
+        val _ = print "show value\n"
         open Context
         val show_value = show_value ctx
         val color = white
@@ -633,27 +642,22 @@ struct
       | Vselect lab =>
           text_syntax "#" ++ show_symbol_node blue lab
       | Vunit => text "()"
-      | Vident id =>
-          ( case Context.get_val_opt ctx id of
-              NONE => show_longid id
-            | SOME value => show_value value
-          )
       | Vconstr {id, arg} =>
           ( case arg of
               NONE => show_constr id
             | SOME value => parensAround (show_constr id +-+ show_value value)
           )
-      | Vtuple exps =>
-          group (parensAround (show_list_after show_value ", " exps))
-      | Vlist exps =>
-          group (text_syntax "[" ++ show_list_after show_value ", " exps ++ text_syntax "]")
+      | Vtuple values =>
+          group (parensAround (show_list_after show_value ", " values))
+      | Vlist values =>
+          group (text_syntax "[" ++ show_list_after show_value ", " values ++ text_syntax "]")
       | Vinfix {left, id, right} =>
           group (
             parensAround (
               show_value left $$ (show_id id +-+ show_value right)
             )
           )
-      | Vfn (matches, _, _) =>
+      | Vfn {matches, ...} =>
           let
             val inner = group (text_syntax "fn" +-+ (show_match ctx) (List.nth (matches, 0)))
           in
@@ -1441,14 +1445,14 @@ struct
             end
          | (0, _) => doc
          | (n, []) => doc
-         (*| (n, EHOLE exp :: rest) =>
+         (* | (n, EHOLE exp :: rest) =>
             report
               ctx
               empty_set
               (show_exp new_ctx exp)
               (n - 1) (* eagerly go until you find a non-ehole *)
               rest
-        | (n, DVALBINDS (recc, tyvars, pat, valbinds) :: rest) =>
+         | (n, DVALBINDS (recc, tyvars, pat, valbinds) :: rest) =>
             let
               val valbinds =
                 { recc = recc, pat = pat, exp = Ehole }
@@ -1464,7 +1468,7 @@ struct
                 (n - 1)
                 rest
             end
-        *)
+                       *)
         | (n, ELET exps :: rest) =>
             let
               val exp = Elet {dec = Dhole, exps = exps}

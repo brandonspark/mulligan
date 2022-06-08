@@ -88,13 +88,11 @@ structure Debugger :
         fun go () =
           let
 
-            (*
             val _ = print
               ("checkpointing an " ^
                 (PrettyPrintAst.report_doc ctx (PrettyPrintAst.show_exp ctx
                 exp) 0 location) ^ "\n"
               )
-            *)
 
             (* This first callcc is a `true` EXP, meaning that it will simply
              * recurse evaling.
@@ -105,8 +103,8 @@ structure Debugger :
             val new_value =
               Cont.callcc
                 (fn cont =>
-                  ( (* print ("checkpoint spawned cont " ^ Int.toString
-                  (Cont.get_id cont) ^ "\n"); *)
+                  ( print ("checkpoint spawned cont " ^ Int.toString
+                  (Cont.get_id cont) ^ "\n");
                   raise
                     Perform { context = ctx
                             , location = location
@@ -116,11 +114,12 @@ structure Debugger :
                   )
                 )
 
-            (* val _ = print
+            val _ = print "Returnign!\n"
+
+            val _ = print
               ("we are here now with val " ^
                 (PrettyPrintAst.report_doc ctx (PrettyPrintAst.show_value ctx
                 new_value) 0 location) ^ "\n")
-            *)
 
             val (new_location, new_focus) =
               case plug_hole new_value (List.nth (location, 0)) of
@@ -162,20 +161,20 @@ structure Debugger :
      *)
     fun eval location exp ctx cont =
       let
-        (*
         val _ =
           print ("  sup ya knobs, im here to evaluate " ^ PrettyPrintAst.report
           ctx exp 0 location ^ " with continuation " ^ Int.toString (Cont.get_id
           cont) ^ "\n")
-        *)
+
         fun eval' ehole exp ctx =
           eval (ehole :: location) exp ctx cont
+
         fun checkpoint' ehole exp ctx =
           (* checkpoint (EHOLE ehole :: location) exp ctx false *)
           Cont.callcc (fn cont =>
-            ( (* print (" checkpoint' spawning cont " ^ Int.toString (Cont.get_id
+            ( print (" checkpoint' spawning cont " ^ Int.toString (Cont.get_id
             cont) ^ " for exp " ^ PrettyPrintAst.report ctx exp 0 (EHOLE ehole
-            :: location) ^ "\n"); *) eval (EHOLE ehole :: location) exp ctx cont
+            :: location) ^ "\n"); eval (EHOLE ehole :: location) exp ctx cont
             ; raise Fail "can't get here"
             )
           )
@@ -207,6 +206,8 @@ structure Debugger :
             eval_list' [] l
           end
 
+        val _ = print "about to case\n"
+
         fun throw value = Cont.throw cont value
       in
         case exp of
@@ -216,7 +217,10 @@ structure Debugger :
         | Eunit => throw Vunit
         | Eselect sym => throw (Vselect sym)
         | Eident {opp, id} => (* special stuff here *)
-            throw (Context.get_val ctx id)
+            if Context.is_con ctx id then
+              throw (Vconstr {id = id, arg = NONE})
+            else
+              throw (Context.get_val ctx id)
         | Erecord fields =>
             let
               val labs = List.map #lab fields
@@ -254,20 +258,11 @@ structure Debugger :
               exps
             |> Vlist
             |> throw
-        | Eseq exps =>
-            ( iter_list
-                (fn (exp, rest, ()) =>
-                  (case rest of
-                    [] => (eval location exp ctx cont; ())
-                  | _ =>
-                    ( eval' (EHOLE (Eseq (Ehole :: rest))) exp ctx
-                    ; ()
-                    )
-                  )
-                )
-                ()
-                exps
-            ; raise Fail "will not reach here"
+        | Eseq [] => raise Fail "empty eseq"
+        | Eseq [exp] => eval location exp ctx cont
+        | Eseq (exp::rest) =>
+            ( checkpoint' (Eseq (Ehole :: rest)) exp ctx
+            ; redex location (Eseq rest) ctx cont
             )
         | Elet {dec, exps} =>
             let
@@ -286,8 +281,10 @@ structure Debugger :
               cont
         | Eapp {left, right} =>
             let
+              val _ = print "before left in eapp\n"
               val left =
                 checkpoint' (Eapp {left = Ehole, right = right}) left ctx
+              val _ = print "after left in eapp\n"
               val right =
                 checkpoint' (Eapp {left = value_to_exp left, right = Ehole}) right ctx
             in
@@ -299,10 +296,10 @@ structure Debugger :
                         , arg = SOME v
                         }
                     )
-              | (Vfn (matches, E, VE), v) =>
+              | (Vfn {matches, env, rec_env}, v) =>
                   let
                     val (new_ctx, new_exp) =
-                      Context.apply_fn (matches, E, VE) v
+                      Context.apply_fn (matches, env, rec_env) v
                   in
                     redex location new_exp new_ctx cont
                   end
@@ -335,10 +332,10 @@ structure Debugger :
               val value = Context.get_val ctx [id]
             in
               case value of
-                (Vfn (matches, E, VE)) =>
+                (Vfn {matches, env, rec_env}) =>
                   let
                     val (new_ctx, new_exp) =
-                      Context.apply_fn (matches, E, VE) (Vtuple [left, right])
+                      Context.apply_fn (matches, env, rec_env) (Vtuple [left, right])
                   in
                     redex location new_exp new_ctx cont
                   end
@@ -368,7 +365,7 @@ structure Debugger :
               case (left, right) of
                 (Vconstr {id = [x], arg = NONE}, Vconstr {id = [y], arg = NONE}) =>
                   if is_bool x andalso is_bool y then
-                    if Symbol.eq (x, sym_true) andalso Symbol.eq (x, sym_true) then
+                    if Symbol.eq (x, sym_true) andalso Symbol.eq (y, sym_true) then
                       redex_value
                         location
                         (Vconstr { id = [sym_true], arg = NONE })
@@ -400,7 +397,7 @@ structure Debugger :
               case (left, right) of
                 (Vconstr {id = [x], arg = NONE}, Vconstr {id = [y], arg = NONE}) =>
                   if is_bool x andalso is_bool y then
-                    if Symbol.eq (x, sym_false) andalso Symbol.eq (x, sym_false) then
+                    if Symbol.eq (x, sym_false) andalso Symbol.eq (y, sym_false) then
                       redex_value
                         location
                         (Vconstr { id = [sym_false], arg = NONE })
@@ -416,19 +413,25 @@ structure Debugger :
                     raise Fail "invalid inputs to orelse"
               | _ => raise Fail "invalid inputs to orelse"
             end
-        | Ehandle {exp, matches} =>
-            ( throw
-              (checkpoint' (Ehandle {exp = Ehole, matches = matches}) exp ctx)
+        | Ehandle {exp = exp', matches} =>
+            ( print "evalling handle\n"
+            ; throw
+              (checkpoint' (Ehandle {exp = Ehole, matches = matches}) exp' ctx)
               handle Raise value =>
-                let
+                ( let
+                  (* TODO: doesn't match *)
+                  val _ = print "have now handled\n"
                   val (new_ctx, exp) = Context.match_against ctx matches value
                 in
                   redex location exp new_ctx cont
                 end
+                handle Context.Mismatch _ => raise Raise value
+                )
+
             )
         | Eraise exp =>
             (case checkpoint' (Eraise Ehole) exp ctx of
-              (constr as Vconstr _) => raise Raise constr
+              (constr as Vconstr _) => (print "raising vconstr\n"; raise Raise constr)
             | (constr as Vinfix _) => raise Raise constr
             | _ => raise Fail "raise on non-constr"
             )
@@ -472,21 +475,25 @@ structure Debugger :
               )
             end
         | Ecase {exp, matches} =>
-            let
-              val value =
-                checkpoint' (Ecase {exp = Ehole, matches = matches}) exp ctx
-              val (new_ctx, new_exp) =
-                Context.match_against ctx matches value
-            in
-              redex location new_exp new_ctx cont
-            end
+            ( let
+                val value =
+                  checkpoint' (Ecase {exp = Ehole, matches = matches}) exp ctx
+                val (new_ctx, new_exp) =
+                  Context.match_against ctx matches value
+              in
+                redex location new_exp new_ctx cont
+              end
+              handle Context.Mismatch _ =>
+                raise Raise (Vconstr {id = [Symbol.fromValue "Match"], arg = NONE})
+            )
           (* If we are evaluating an `Efn`, it must have already existed.
            * As in, it was an anonymous function value, and its closure is just
            * the current closure.
            *
            * This breaks down if we ever call eval twice.
            *)
-        | Efn matches => throw (Vfn (matches, ctx, Context.scope_empty))
+        | Efn matches => throw (Vfn {matches = matches, env = ctx, rec_env =
+        NONE})
         | Ehole => raise Fail "shouldn't happen, evaling Ehole"
       end
 
@@ -496,9 +503,13 @@ structure Debugger :
      *)
     and redex location exp ctx cont =
       let
+        val _ = print "entered redex\n"
         val new_value = checkpoint location exp ctx true
+        val _ = print ("redexing normal!! on " ^ (PrettySimpleDoc.toString true
+        (PrettyPrintAst.show_exp ctx exp) ^ " with cont " ^ Int.toString
+        (Cont.get_id cont) ^ "\n"))
       in
-        Cont.throw cont (checkpoint location exp ctx true)
+        Cont.throw cont new_value
       end
 
     (* This function is used on the expression resulting from evaluating a redex
@@ -508,10 +519,9 @@ structure Debugger :
      *)
     and redex_value location value ctx cont =
       let
-        (*val _ = print ("redexing value!! on " ^ (PrettySimpleDoc.toString true
+        val _ = print ("redexing value!! on " ^ (PrettySimpleDoc.toString true
         (PrettyPrintAst.show_value ctx value) ^ " with cont " ^ Int.toString
         (Cont.get_id cont) ^ "\n"))
-         *)
         val (new_location, new_focus) =
           case plug_hole value (List.nth (location, 0)) of
             (exp, true) => (location, VAL (exp, value))
@@ -519,8 +529,8 @@ structure Debugger :
       in
         ( Cont.callcc
             (fn cont =>
-              ( (*print ("redex value spawned cont " ^ Int.toString (Cont.get_id
-              cont) ^ "\n"); *)
+              (print ("redex value spawned cont " ^ Int.toString (Cont.get_id
+              cont) ^ "\n");
               raise
                 Perform { context = ctx (* Our context is the outer context *)
                         , location = new_location
@@ -530,8 +540,8 @@ structure Debugger :
                         }
               )
             )
-        (*; print ("redex throwing to cont " ^ Int.toString (Cont.get_id cont) ^
-        "\n") *)
+        ; print ("redex throwing to cont " ^ Int.toString (Cont.get_id cont) ^
+        "\n")
         ; Cont.throw cont value
         )
       end
@@ -557,10 +567,15 @@ structure Debugger :
                 (fn ({recc, ...}, acc) => recc orelse acc)
                 false
                 valbinds
+            val _ = print "dealing wiht valdec\n"
           in
             iter_list
               (fn ({recc, pat, exp}, rest, pairs) =>
                 let
+                  val _ = print ("iter for valdecs on exp " ^
+                (PrettyPrintAst.report_doc ctx (PrettyPrintAst.show_exp ctx
+                exp) 0 location) ^ "\n")
+
                   val new_value =
                     checkpoint
                       ( DVALBINDS (recc_flag, tyvars, pat, rest) :: location)
@@ -629,14 +644,20 @@ structure Debugger :
                        )
                        ( Ecase
                            { exp =
-                              Etuple
-                                ( List.map
-                                    (fn id => Eident {opp = false, id = [id]})
-                                    new_vars
-                                )
+                              case new_vars of
+                                [var] => Eident {opp = false, id = [var]}
+                              | _ =>
+                                  Etuple
+                                    ( List.map
+                                        (fn id => Eident {opp = false, id = [id]})
+                                        new_vars
+                                    )
                            , matches =
                               List.map
-                                (fn (pats, exp) => { pat = Ptuple pats
+                                (fn (pats, exp) => { pat =
+                                                     case pats of
+                                                       [pat] => pat
+                                                     | _ => Ptuple pats
                                                  , exp = exp
                                                  }
                                 )
@@ -646,10 +667,10 @@ structure Debugger :
                        new_vars
                       |> (fn exp =>
                            case exp of
-                             Efn [{pat, exp}] => Vfn ( [{pat = pat, exp = exp}]
-                                                      , ctx
-                                                      , Context.scope_empty
-                                                      )
+                             Efn [{pat, exp}] => Vfn { matches = [{pat = pat, exp = exp}]
+                                                     , env = ctx
+                                                     , rec_env = NONE
+                                                     }
                           | _ => raise Fail "empty args for fvalbind, shouldn't happen"
                         )
                    )
@@ -660,6 +681,7 @@ structure Debugger :
                 (fn fvalbind => get_fvalbinding fvalbind ctx)
                 fvalbinds
 
+            val _ = print "got fvalbindings\n"
           in
             Context.add_rec_bindings ctx fvalbindings
           end
