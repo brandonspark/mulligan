@@ -11,6 +11,9 @@ terminal SET
 terminal PREV
 terminal BREAK
 terminal RUN
+terminal CLEAR
+terminal PRINT
+terminal ASSIGN
 terminal EOF
 
 nonterminal Directive : directive =
@@ -21,6 +24,11 @@ nonterminal Directive : directive =
   REVEAL => bare_reveal
   REVEAL 1:NUM => num_reveal
   BREAK 1:SYMBOL => break_fn
+  CLEAR => bare_clear
+  CLEAR 1:SYMBOL => sym_clear
+  PRINT 1:SYMBOL => sym_print
+  BREAK ASSIGN 1:SYMBOL => break_assign
+  SET 1:SYMBOL EQUAL 2:SYMBOL => change_setting
   RUN => run
 
 nonterminal Main : directive =

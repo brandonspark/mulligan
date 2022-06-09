@@ -4,6 +4,13 @@ structure Location =
     datatype location =
       (* EXP hole *)
         EHOLE of SMLSyntax.exp
+      | CLOSURE of Context.t
+          (* When you enter a function application, your entire context changes
+           * to the closure of the function.
+           * To prevent the pretty printer from applying this new context
+           * backwards when reporting the greater context, we need to restore
+           * this context once we exit the closrue.
+           *)
       | DVALBINDS of
            bool
          * SMLSyntax.symbol list
@@ -69,7 +76,19 @@ structure Location =
         case location of
           EHOLE exp_hole => (plug_exp_hole v exp_hole, false)
         | DVALBINDS _ => (Context.value_to_exp v, true)
-        | _ => raise Fail "invalid value hole"
+        | CLOSURE _ => (Context.value_to_exp v, false)
+        | ( ELET _
+          | DLOCAL _
+          | DSEQ _
+          | DMLOCAL _
+          | DMSEQ _
+          | MLET _
+          | MSTRUCT
+          | MSEAL _
+          | MAPP _
+          | STRUCTS _
+          | FBODY _
+          | PROG _ ) => raise Fail "invalid value hole"
 
       and plug_exp_hole v exp_hole =
         ( case exp_hole of

@@ -76,6 +76,8 @@ structure Context :
         , body : SMLSyntax.module
         }
 
+    exception Raise of value
+
     (* Context stuff. *)
 
     val scope_empty : scope
@@ -97,8 +99,12 @@ structure Context :
     val add_funbind : t -> SMLSyntax.funbind -> t
     val add_hole_print_fn : t -> (unit -> PrettySimpleDoc.t) -> t
     val get_hole_print_fn : t -> (unit -> PrettySimpleDoc.t)
-    val break_fn : t -> SMLSyntax.longid -> t
+    val get_break_assigns : t -> SymSet.set ref
+    val set_substitute : t -> bool -> unit
+    val is_substitute : t -> bool
 
+
+    val break_fn : t -> SMLSyntax.longid -> bool -> t * symbol option ref
     val remove_infix : t -> SMLSyntax.symbol -> t
 
     val enter_scope : t -> t
@@ -114,7 +120,6 @@ structure Context :
     val add_rec_bindings : t -> (SMLSyntax.symbol * value) list -> t
 
     val initial : t
-    val empty : t
 
     (* Value stuff. *)
 
@@ -124,18 +129,19 @@ structure Context :
     val apply_fn :
            {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list * t * scope option
         -> value
-        -> t * SMLSyntax.exp
+        -> (SMLSyntax.symbol * value) list * t * SMLSyntax.exp
 
     exception Mismatch of string
     val match_against :
          t
       -> {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list
       -> value
-      -> t * SMLSyntax.exp
+      -> (SMLSyntax.symbol * value) list * t * SMLSyntax.exp
 
     val match_pat : t -> SMLSyntax.pat -> value -> (SMLSyntax.symbol * value) list
 
     val get_pat_bindings : t -> SMLSyntax.pat -> PrettyPrintContext.MarkerSet.set
+    val get_pat_ids : t -> SMLSyntax.pat -> SMLSyntax.symbol list
     val get_fname_args_bindings :
       t -> SMLSyntax.fname_args -> PrettyPrintContext.MarkerSet.set
     val remove_bound_ids : t -> PrettyPrintContext.MarkerSet.set -> t
@@ -171,6 +177,9 @@ structure Context :
   struct
     open PrettyPrintContext
     open SMLSyntax
+
+    val sym_true = Symbol.fromValue "true"
+    val sym_false = Symbol.fromValue "false"
 
     val empty_set = MarkerSet.empty
 
@@ -278,9 +287,16 @@ structure Context :
       , sigdict : sigval dict
       , functordict : functorval dict
       , hole_print_fn : unit -> PrettySimpleDoc.t
+      , settings :
+          { break_assigns : SymSet.set ref
+          , substitute : bool ref
+          }
       }
 
-    fun lift f {scope, outer_scopes, sigdict, functordict, hole_print_fn} =
+    exception Raise of value
+
+    fun lift f {scope, outer_scopes, sigdict, functordict, hole_print_fn,
+    settings } =
       let
         val (scope, outer_scopes) = f (scope, outer_scopes)
       in
@@ -289,208 +305,9 @@ structure Context :
         , sigdict = sigdict
         , functordict = functordict
         , hole_print_fn = hole_print_fn
+        , settings = settings
         }
       end
-
-    (* Evaluate each expression to a "normal form" for the value.
-
-    exception Raise of exp
-
-    fun find_match matches v =
-      List.foldl
-        (fn ({pat, exp}, NONE) =>
-          ( SOME (match_pat pat v, exp)
-            handle Mismatch _ => NONE
-          )
-        | ({pat, exp}, SOME ans) => SOME ans
-        )
-        NONE
-        matches
-
-
-    fun evaluate ctx exp =
-      case exp of
-        ( Enumber _
-        | Estring _
-        | Echar _
-        | Eunit _
-        | Econstr _
-        | Eselect _
-        ) => exp
-      | Erecord fields =>
-          Erecord
-            (List.map (fn {lab, exp} => {lab = lab, exp = evaluate ctx exp}) fields)
-      | Eident {opp, id} => (* TODO: lookup *)
-
-      (* Due to evaluation order, these should raise if any of the constituent
-       * expressions raise an exception. Same with looping forever.
-       *)
-      | Etuple exps => Etuple (List.map (evaluate ctx) exps)
-      | Elist exps => Elist (List.map (evaluate ctx) exps)
-      | Eseq exps => Eseq (List.map (evaluate ctx) exps)
-      | Elet {dec, exps} =>
-          let
-            val new_ctx = add_dec ctx dec
-            val new_exps = List.map (subst new_ctx) exps
-          in
-            List.map (evaluate new_ctx) new_exps
-            |> get_last
-          end
-      | Eparens exp => evaluate ctx exp
-      | Eapp {left, right} =>
-          (case (evaluate ctx left, evaluate ctx right) of
-            (constr as Econstr {id, ...}, v) =>
-              Eapp { left = constr
-                   , right = v
-                   }
-          | (Eselect sym, Erecord fields) =>
-              List.find
-                (fn {lab, ...} => Symbol.eq (lab, sym))
-                field
-              |> #exp
-              |> evaluate ctx
-          | (Efn (matches, E, VE), v) =>
-              (* TODO *)
-              let
-                val (substs, exp) = find_match matches v
-                val new_ctx = merge E (ctx_rec VE)
-              in
-                (* CHECK: This should not induce capture, because we're using
-                 * the function's own closure.
-                 *)
-                evaluate new_ctx exp
-              end
-          | _ => raise Fail "invalid form for application"
-          )
-      | Einfix {left, id, right} =>
-         Einfix { left = evaluate ctx left
-                , id = id
-                , right = evaluate ctx right
-                }
-      | Etyped {exp, ty} => evaluate ctx exp
-      | Eandalso {left, right} =>
-          (case (evaluate ctx left, evaluate ctx right) of
-            (Econstr {id = [s], ...}, Econstr {id = [s'], ...}) =>
-              if not (is_bool s andalso is_bool s') then
-                raise Fail "andalso on non-bools"
-              else if ( Symbol.eq (s, Symbol.fromValue "true")
-                andalso Symbol.eq (s', Symbol.fromValue "true") ) then
-                Econstr { opp = false, id = [Symbol.fromValue "true"] }
-              else
-                Econstr { opp = false, id = [Symbol.fromValue "false"] }
-          | _ => raise Fail "andalso on non-bools"
-          )
-      | Eorelse {left, right} =>
-          (case (evaluate ctx left, evaluate ctx right) of
-            (Econstr {id = [s], ...}, Econstr {id = [s'], ...}) =>
-              if not (is_bool s andalso is_bool s') then
-                raise Fail "orelse on non-bools"
-              else if ( Symbol.eq (s, Symbol.fromValue "false")
-                andalso Symbol.eq (s', Symbol.fromValue "false") ) then
-                Econstr { opp = false, id = [Symbol.fromValue "false"] }
-              else
-                Econstr { opp = false, id = [Symbol.fromValue "true"] }
-          | _ => raise Fail "andalso on non-bools"
-          )
-      | Ehandle {exp, matches} =>
-          evaluate ctx exp
-          handle Raise exp =>
-            let
-              val (substs, exp) = find_match matches exp
-              val new_ctx = add_substs ctx substs
-            in
-              (* CHECK: This should not induce capture.
-               *)
-              evaluate new_ctx exp
-            end
-      | Eraise exp =>
-          (case evaluate ctx exp of
-            (constr as Econstr _) => raise Raise const
-          | app as Eapp { left = Econstr _, right = _ } =>
-              raise Raise app
-          | _ => raise Fail "invalid raise"
-          )
-      | Eif {exp1, exp2, exp3} =>
-          (case evaluate ctx exp1 of
-            Econstr {opp, id} =>
-              if longid_eq [Symbol.fromValue "true"] then
-                evaluate ctx exp2
-              else if longid_eq [Symbol.fromValue "false"] then
-                evaluate ctx exp3
-              else
-                raise Fail "if given non-bool"
-          | _ => raise Fail "if given non-bool"
-          )
-      | Ewhile { exp1, exp2 } =>
-          while
-            (case evaluate ctx exp1 of
-              Econstr {opp, id} =>
-                if longid_eq [Symbol.fromValue "true"] then
-                  true
-                else if longid_eq [Symbol.fromValue "false"] then
-                  false
-                else
-                  raise Fail "if given non-bool"
-            | _ => raise Fail "if given non-bool"
-            )
-          do
-            evaluate ctx exp2
-      | Ecase {exp, matches} =>
-          let
-            val (substs, exp) = find_match matches exp
-            val new_ctx = add_substs ctx substs
-          in
-            (* CHECK: This should not induce capture
-             *)
-            evaluate new_ctx exp
-          end
-      (* Leave it as is. *)
-      | Efn _ => exp
-    *)
-
-    (* fun match_ctx ctx pat exp =
-      let
-        val substs = match_pat pat (evaluate ctx exp)
-      in
-        List.foldl
-          (fn ((id, v), ctx) =>
-            add_bind ctx id v
-          )
-          ctx
-          substs
-      end
-    *)
-
-    (*
-    fun add_dec ctx dec =
-      case dec of
-        Dval {valbinds, ...} =>
-          List.foldl
-            (fn ({recc, pat, exp}, (acc, flag)) =>
-              ( match_pat pat (evaluate ctx exp) @ acc
-              , flag orelse recc
-              )
-            )
-            ([], false)
-            valbinds
-          |> (fn (pairs, flag) => (dict_from_list pairs, flag))
-          |> (fn (scope, flag) =>
-              if flag then ctx_rev scope
-              else scope
-             )
-          |> merge_scope ctx
-      | Dfun {fvalbinds, ...} =>
-          raise Fail "test"
-
-    fun add_strdec (scope, ctx) strdec =
-      case strdec of
-        DMdec dec => add_dec (scope, ctx) dec
-      | DMstruct => raise Fail "TODO"
-
-    fun add_topdec (scope, ctx) topdec =
-      case topdec of
-        Strdec strdec => raise Fail "TODO"
-    *)
 
     (* CONTEXT STUFF *)
 
@@ -503,14 +320,6 @@ structure Context :
         , infixdict = SymDict.empty
         , tydict = SymDict.empty
         }
-
-    val empty =
-      { scope = scope_empty
-      , outer_scopes = []
-      , sigdict = SymDict.empty
-      , functordict = SymDict.empty
-      , hole_print_fn = fn () => PrettySimpleDoc.text TerminalColors.white "<hole>"
-      }
 
     fun scope_valdict (Scope {valdict, ...}) = valdict
     fun scope_condict (Scope {condict, ...}) = condict
@@ -625,7 +434,8 @@ structure Context :
 
     exception CouldNotFind
 
-    fun map_scope_id f (ctx as {scope, outer_scopes, sigdict, functordict, hole_print_fn} : t) id =
+    fun map_scope_id f (ctx as {scope, outer_scopes, sigdict, functordict,
+    hole_print_fn, settings} : t) id =
       let
         fun map_thing' scopes =
           case scopes of
@@ -633,7 +443,7 @@ structure Context :
           | scope::rest =>
             ( case f scope of
                 NONE => scope :: map_thing' rest
-              | SOME ans => scope :: rest
+              | SOME ans => ans :: rest
             )
         val (scope, rest) =
           case map_thing' (scope::outer_scopes) of
@@ -645,13 +455,15 @@ structure Context :
         , sigdict = sigdict
         , functordict = functordict
         , hole_print_fn = hole_print_fn
+        , settings = settings
         }
       end
 
     (* map_module f [] should map the current scope
      * map_module f (x::xs)
      *)
-    fun map_module f (ctx as {sigdict, functordict, hole_print_fn, ...} : t) id =
+    fun map_module f (ctx as {sigdict, functordict, hole_print_fn,
+    settings, ...} : t) id =
       case id of
         [] => raise Fail "map module on an empty path is a bad idea, because it can pick up extra scopes"
       | _ =>
@@ -688,6 +500,7 @@ structure Context :
                       , sigdict = sigdict
                       , functordict = functordict
                       , hole_print_fn = hole_print_fn
+                      , settings = settings
                       } id
                 in
                   (scope, inner_scope :: rest)
@@ -991,7 +804,8 @@ structure Context :
         end
       ) ctx
 
-    fun add_funbind (ctx as {scope, outer_scopes, sigdict, functordict, hole_print_fn})
+    fun add_funbind (ctx as {scope, outer_scopes, sigdict, functordict,
+    hole_print_fn, settings})
                     {id, funarg, seal, body} =
       { scope = scope
       , outer_scopes = outer_scopes
@@ -1017,6 +831,7 @@ structure Context :
               }
             )
       , hole_print_fn = hole_print_fn
+      , settings = settings
       }
 
     fun remove_infix ctx id =
@@ -1114,73 +929,80 @@ structure Context :
       ) ctx
 
     fun add_hole_print_fn
-        {scope, outer_scopes, sigdict, functordict, hole_print_fn} f =
+        {scope, outer_scopes, sigdict, functordict, hole_print_fn, settings} f =
       { scope = scope
       , outer_scopes = outer_scopes
       , sigdict = sigdict
       , functordict = functordict
       , hole_print_fn = f
+      , settings = settings
       }
 
     fun get_hole_print_fn ({hole_print_fn, ...} : t) = hole_print_fn
 
-    fun break_fn ctx id =
-      case id of
-        [x] =>
-          map_scope_id (fn scope =>
-            let
-              val valdict = scope_valdict scope
-            in
-              case SymDict.find valdict x of
+    fun get_break_assigns ({settings = {break_assigns, ...}, ...} : t) = break_assigns
+
+    fun set_substitute ({settings = {substitute, ...}, ...} : t) b =
+      substitute := b
+
+    fun is_substitute ({settings = {substitute, ...}, ...} : t) =
+      !substitute
+
+    fun break_fn ctx id do_break =
+      let
+        val res = ref NONE
+        val (xs, x) = snoc id
+        val setting =
+          if do_break then SOME x
+          else NONE
+
+        fun new_vfn {matches, env, rec_env, break} f =
+          (case (break, do_break) of
+            (ref (SOME _), true) =>
+              raise Fail "breaking already broken function"
+          | (ref NONE, false) =>
+              raise Fail "clearing a not broken function"
+          | _ =>
+              Vfn { matches = matches
+                  , env = env
+                  , rec_env = rec_env
+                  , break = (res := SOME break; break := setting; break)
+                  }
+              |> f
+          )
+      in
+        ( case id of
+          [x] =>
+            map_scope_id (fn scope =>
+              case SymDict.find (scope_valdict scope) x of
                 NONE => NONE
-              | SOME (Vfn {break = ref (SOME _), ...}) => raise Fail "breaking already broken function"
-              | SOME (Vfn {matches, env, rec_env, break}) =>
-                  let
-                    val _ = break := SOME x
-                  in
-                    SOME
-                      ( scope_set_valdict scope
-                          ( SymDict.insert
-                              valdict
-                              x
-                              (Vfn { matches = matches
-                                   , env = env
-                                   , rec_env = rec_env
-                                   , break = break
-                                   }
-                              )
-                          )
-                      )
-                  end
+              | SOME (Vfn info) =>
+                  new_vfn info (fn vfn =>
+                    SymDict.insert (scope_valdict scope) x vfn
+                    |> scope_set_valdict scope
+                    |> SOME
+                  )
               | _ => raise Fail "breaking a non function"
-            end
-          ) ctx x
-      | _ =>
-        case get_val_opt ctx id of
-          NONE => raise Fail "breaking nonexistent function"
-        | SOME (Vfn {break = ref (SOME _), ...}) => raise Fail "breaking already broken function"
-        | SOME (Vfn {matches, env, rec_env, break}) =>
-            let
-              val (xs, x) = snoc id
-              val _ = break := SOME x
-            in
-              map_module
-                (fn scope =>
-                  SymDict.insert
-                    (scope_valdict scope)
-                    x
-                    (Vfn { matches = matches
-                         , env = env
-                         , rec_env = rec_env
-                         , break = break
-                         }
-                    )
-                  |> scope_set_valdict scope
-                )
-                ctx
-                xs
-            end
-        | _ => raise Fail "breaking a non function"
+            ) ctx x
+        | _ =>
+          case get_val_opt ctx id of
+            NONE => raise Fail "breaking nonexistent function"
+          | SOME (Vfn info) =>
+              new_vfn info (fn vfn =>
+                map_module
+                  (fn scope =>
+                    SymDict.insert (scope_valdict scope) x vfn
+                    |> scope_set_valdict scope
+                  )
+                  ctx
+                  xs
+              )
+          | _ => raise Fail "breaking a non function"
+        , case !res of
+            NONE => raise Fail "shouldn't be possible"
+          | SOME ans => ans
+        )
+      end
 
 
     (* TYPE STUFF *)
@@ -1655,6 +1477,10 @@ structure Context :
             (MarkerSet.singleton (VAL id))
             (get_pat_bindings ctx aspat)
 
+    fun get_pat_ids ctx pat =
+      List.map (fn VAL id => id | _ => raise Fail "shouldn't happen")
+      (MarkerSet.toList (get_pat_bindings ctx pat))
+
     fun get_fname_args_bindings ctx fname_args =
       case fname_args of
         Fprefix {id, args, ...} =>
@@ -1691,7 +1517,8 @@ structure Context :
         scope_set_moddict scope (SymDict.remove moddict id)
       end
 
-    fun remove_bound_id_base f ({scope, outer_scopes, sigdict, functordict, hole_print_fn} : t) id =
+    fun remove_bound_id_base f ({scope, outer_scopes, sigdict, functordict,
+    hole_print_fn, settings} : t) id =
       let
         val scope = f scope id
         val outer_scopes =
@@ -1704,6 +1531,7 @@ structure Context :
         , sigdict = sigdict
         , functordict = functordict
         , hole_print_fn = hole_print_fn
+        , settings = settings
         }
       end
 
@@ -1790,7 +1618,7 @@ structure Context :
             NONE => raise Mismatch "failed to match against any"
           | SOME ans => ans
       in
-        (add_bindings ctx bindings, exp)
+        (bindings, add_bindings ctx bindings, exp)
       end
 
     fun apply_fn (matches, E, VE) value =
@@ -1802,7 +1630,8 @@ structure Context :
     fun generate_sigbinding ctx {id, signat} =
       (id, evaluate_signat ctx signat)
 
-    fun add_sigbindings {scope, outer_scopes, sigdict, functordict, hole_print_fn} sigbindings =
+    fun add_sigbindings {scope, outer_scopes, sigdict, functordict,
+    hole_print_fn, settings} sigbindings =
       { scope = scope
       , outer_scopes = outer_scopes
       , sigdict =
@@ -1815,6 +1644,7 @@ structure Context :
             )
       , functordict = functordict
       , hole_print_fn = hole_print_fn
+      , settings = settings
       }
 
     val sym = Symbol.fromValue
@@ -1824,30 +1654,112 @@ structure Context :
     (* TODO: word stuff *)
     val initial_values =
       [ ( "+"
-        , Vbasis (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 + i2))
-                 | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 + r2))
-                 | _ => raise Fail "invalid args to +"
-                 )
+        , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 + i2))
+          | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 + r2))
+          | _ => raise Fail "invalid args to +"
+          )
         )
       , ( "-"
-        , Vbasis (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 - i2))
-                 | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 - r2))
-                 | _ => raise Fail "invalid args to -"
-                 )
+        , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 - i2))
+          | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 - r2))
+          | _ => raise Fail "invalid args to -"
+          )
         )
       , ( "*"
-        , Vbasis (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 * i2))
-                 | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 * r2))
-                 | _ => raise Fail "invalid args to *"
-                 )
+        , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 * i2))
+          | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 * r2))
+          | _ => raise Fail "invalid args to *"
+          )
         )
       , ( "div"
-        , Vbasis (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 div i2))
-                 | _ => raise Fail "invalid args to div"
-                 )
+        , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 div i2))
+          | _ => raise Fail "invalid args to div"
+          )
+        )
+      , ( "mod"
+        , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 mod i2))
+          | _ => raise Fail "invalid args to div"
+          )
+        )
+      , ( "/"
+        , (fn Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 / r2))
+          | _ => raise Fail "invalid args to /"
+          )
+        )
+      , ( "not"
+        , (fn Vconstr {id = [x], arg = NONE} =>
+            if Symbol.eq (x, sym_true) then
+              Vconstr {id = [sym_false], arg = NONE}
+            else if Symbol.eq (x, sym_false) then
+              Vconstr {id = [sym_true], arg = NONE}
+            else
+              raise Fail "invalid arg to `not`"
+          | _ => raise Fail "invalid arg to `not`"
+          )
+        )
+      , ( "^"
+        , (fn Vtuple [Vstring s1, Vstring s2] =>
+              Vstring (Symbol.fromValue (Symbol.toValue s1 ^ Symbol.toValue s2))
+          | _ => raise Fail "invalid args to ^"
+          )
+        )
+      , ( "chr"
+        , (fn Vnumber (Int i) => Vchar (Char.chr i)
+          | _ => raise Fail "invalid args to `chr`"
+          )
+        )
+      , ( "explode"
+        , (fn Vstring s => Vlist (List.map Vchar (String.explode (Symbol.toValue s)))
+          | _ => raise Fail "invalid args to `explode`"
+          )
+        )
+      , ( "floor"
+        , (fn Vnumber (Real r) => Vnumber (Int (Real.floor r))
+          | _ => raise Fail "invalid args to `floor`"
+          )
+        )
+      , ( "ord"
+        , (fn Vchar c => Vnumber (Int (Char.ord c))
+          | _ => raise Fail "invalid arg to `ord`"
+          )
+        )
+      , ( "real"
+        , (fn Vnumber (Int i) => Vnumber (Real (real i))
+          | _ => raise Fail "invalid arg to `real`"
+          )
+        )
+      , ( "size"
+        , (fn Vstring s => Vnumber (Int (String.size (Symbol.toValue s)))
+          | _ => raise Fail "invalid arg to `size`"
+          )
+        )
+      , ( "str"
+        , (fn Vchar c => Vstring (Symbol.fromValue (str c))
+          | _ => raise Fail "invalid arg to `str`"
+          )
+        )
+      , ( "round"
+        , (fn Vnumber (Real r) => Vnumber (Int (round r))
+          | _ => raise Fail "invalid arg to `round`"
+          )
+        )
+      , ( "substring"
+        , (fn Vtuple [Vstring s, Vnumber (Int i1), Vnumber (Int i2)] =>
+            ( Vstring
+              (Symbol.fromValue (String.substring (Symbol.toValue s, i1, i2))) handle Subscript =>
+                raise Raise (Vconstr {id = [Symbol.fromValue "Subscript"], arg = NONE})
+            )
+          | _ => raise Fail "invalid args to `substring`"
+          )
+        )
+      , ( "~"
+        , (fn Vnumber (Int i) => Vnumber (Int (~i))
+          | Vnumber (Real i) => Vnumber (Real (~i))
+          | _ => raise Fail "invalid arg to `~`"
+          )
         )
       ]
-      |> List.map (fn (x, y) => (sym x, y))
+      |> List.map (fn (x, y) => (sym x, Vbasis y))
 
     val initial_cons =
       [ "SOME", "NONE", "true", "false", "::", "LESS", "EQUAL", "GREATER",
@@ -1855,7 +1767,7 @@ structure Context :
       |> List.map sym
 
     val initial_exns =
-      [ "Fail", "Bind", "Match", "Div" ]
+      [ "Fail", "Bind", "Match", "Div", "Subscript" ]
       |> List.map sym
 
     val initial_mods = []
@@ -1865,24 +1777,27 @@ structure Context :
       , ( "mod", (LEFT, 7) )
       , ( "*", (LEFT, 7) )
       , ( "/", (LEFT, 7) )
+
       , ( "+", (LEFT, 6) )
       , ( "-", (LEFT, 6) )
+      , ( "^", (LEFT, 6) )
+
+      , ( "::", (RIGHT, 5) )
+      , ( "@", (RIGHT, 5) )
+
+      , ( "<>", (LEFT, 4) )
+      , ( "=", (LEFT, 4) )
       , ( "<", (LEFT, 4) )
       , ( ">", (LEFT, 4) )
       , ( "<=", (LEFT, 4) )
       , ( ">=", (LEFT, 4) )
 
-      , ( "::", (RIGHT, 5) )
-      , ( "=", (LEFT, 4) )
       , ( ":=", (LEFT, 3) )
+      , ( "o", (LEFT, 3) )
+
+      , ( "before", (LEFT, 0) )
       ]
       |> List.map (fn (x, y) => (sym x, y))
-
-      (* TODO: write code for this
-      , ( sym "^", (LEFT, 5) )
-      , ( sym "o", (LEFT, 4) )
-      , ( sym "@", (RIGHT, 3) )
-       *)
 
     val initial_tys =
       [ ( "order"
@@ -1911,6 +1826,12 @@ structure Context :
             ]
           )
         )
+      , ( "unit"
+        , ( 0
+          , [ ("()", NONE) ]
+          )
+        )
+        (* TODO: int, real, types with weird constructors? *)
       ]
       |> List.map
            (fn (tycon, (arity, cons)) =>
@@ -1946,7 +1867,9 @@ structure Context :
       , sigdict = SymDict.empty
       , functordict = SymDict.empty
       , hole_print_fn = fn () => PrettySimpleDoc.text TerminalColors.white "<hole>"
+      , settings =
+          { break_assigns = ref SymSet.empty
+          , substitute = ref true
+          }
       }
-
-
   end

@@ -10,6 +10,9 @@ structure Token =
       | PREV
       | BREAK
       | RUN
+      | CLEAR
+      | PRINT
+      | ASSIGN
 
       | EQUAL
       | SET
@@ -28,6 +31,9 @@ structure Token =
       | PREV => "PREV"
       | BREAK => "BREAK"
       | RUN => "RUN"
+      | CLEAR => "CLEAR"
+      | PRINT => "PRINT"
+      | ASSIGN => "ASSIGN"
       | EOF => "EOF"
 
   end

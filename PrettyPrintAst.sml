@@ -444,7 +444,9 @@ struct
           text_syntax "#" ++ show_symbol_node blue lab
       | Eunit => text "()"
       | Eident {opp, id} =>
-          if Context.is_con ctx id then
+          if not (Context.is_substitute ctx) then
+            show_longid id
+          else if Context.is_con ctx id then
             show_constr id
           else
             let
@@ -613,7 +615,6 @@ struct
 
     and show_value ctx value =
       let
-        val _ = print "show value\n"
         open Context
         val show_value = show_value ctx
         val color = white
@@ -1426,7 +1427,14 @@ struct
         val new_ctx = Context.remove_bound_ids ctx acc_ids
       in
         case (n, location) of
-          (_, EHOLE exp :: rest) =>
+          (_, CLOSURE ctx :: rest) =>
+            report
+              (Context.add_hole_print_fn ctx (fn () => doc))
+              empty_set
+              doc
+              n
+              rest
+        | (_, EHOLE exp :: rest) =>
             report
               ctx
               empty_set

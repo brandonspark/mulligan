@@ -45,6 +45,11 @@ structure DirectiveParser :> PARSER =
         val run = null Run
         val prev = null (Prev NONE)
         fun break_fn s = Break s
+        fun bare_clear () = Clear NONE
+        fun sym_clear s = Clear (SOME s)
+        fun sym_print s = Print s
+        fun break_assign s = BreakAssign s
+        fun change_setting (s1, s2) = Set (s1, s2)
 
         exception Error of DToken.t StreamStreamable.t
         fun error x = Error x

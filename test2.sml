@@ -14,24 +14,26 @@ val _ =
   end
 *)
 
-val x = 1 + 2 + 3 + 4 + 5
 
-local
-  val x = 2
-in
-  val y = x + 3
-end
+infix x
 
-val h = let val x = 2 in 2 end
+fun a x b = a * b
 
-val z = x + 2
+val a = 2
 
-fun h x = 1 * 2 + f 3
-and f x = 1 + 4
+val _ = 4 x 5
 
-val _ = h (1 + 2)
+val _ = a + a
 
-val x =
+val b = (case 5 of a => a + 4 + 5)
+
+val _ = a + a
+
+val _ = (fn (0, a) => 2 | (b, _) => b + 3) (1, 2)
+
+val _ = b + 3
+
+val y =
   ( 2 + 1
   ; 3 + 4 + 5
   ; true andalso false

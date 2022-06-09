@@ -14,13 +14,17 @@ structure Debugger :
        VAL of SMLSyntax.exp * Context.value
      | EXP of SMLSyntax.exp
 
-    exception Perform of
-      { context : Context.t
-      , location : Location.location list
-      , focus : focus
-      , cont : Context.value Cont.t
-      , stop : bool
-      }
+    datatype perform =
+        Step of
+          { context : Context.t
+          , location : Location.location list
+          , focus : focus
+          , cont : Context.value Cont.t
+          , stop : bool
+          }
+      | Break of bool * unit Cont.t
+
+    exception Perform of perform
 
     val plug_hole : Context.value -> Location.location -> SMLSyntax.exp * bool
   end =
@@ -66,19 +70,48 @@ structure Debugger :
       VAL of SMLSyntax.exp * Context.value
     | EXP of SMLSyntax.exp
 
-    exception Perform of
-      { context : Context.t
-      , location : Location.location list
-      , focus : focus
-      , cont : value Cont.t
-      , stop : bool
-      }
+    datatype perform =
+        Step of
+          { context : Context.t
+          , location : Location.location list
+          , focus : focus
+          , cont : Context.value Cont.t
+          , stop : bool
+          }
+      | Break of bool * unit Cont.t
+
+    exception Perform of perform
 
     fun iter_list f z l =
       case l of
         [] => z
       | x::xs =>
           iter_list f (f (x, xs, z)) xs
+
+    fun break_check_ids ctx bindings =
+      let
+        val break_assigns = !(Context.get_break_assigns ctx)
+      in
+        List.foldl
+          (fn ((id, value), acc) =>
+            if SymSet.member break_assigns id then
+              ( print ("Breaking at binding of value " ^
+              PrettySimpleDoc.toString true (PrettyPrintAst.show_value ctx
+              value) ^ " to " ^ Symbol.toValue id ^ "\n")
+              ; true
+              )
+            else
+              acc
+          )
+          false
+          bindings
+        |> (fn b =>
+            if b then
+              Cont.callcc (fn cont => raise Perform (Break (false, cont)))
+            else
+              ()
+           )
+      end
 
     (* Given an expression with a hole (Ehole) in it, checkpoint will signal to
      * the handler that we have focused on this expression, within that hole
@@ -105,12 +138,14 @@ structure Debugger :
               ( print ("checkpoint spawned cont " ^ Int.toString
               (Cont.get_id cont) ^ "\n");
               raise
-                Perform { context = ctx
-                        , location = location
-                        , focus = EXP exp (* Add the focused expression *)
-                        , cont = cont (* Add the continuation to get back here *)
-                        , stop = break
-                        }
+                Perform
+                  ( Step { context = ctx
+                         , location = location
+                         , focus = EXP exp (* Add the focused expression *)
+                         , cont = cont (* Add the continuation to get back here *)
+                         , stop = break
+                         }
+                  )
               )
             )
 
@@ -126,25 +161,8 @@ structure Debugger :
             (exp, true) => (location, VAL (exp, new_value))
           | (exp, false) => (List.drop (location, 1), VAL (exp, new_value))
       in
-        (* This second callcc is _just_ to trigger the outer handler, and to show
-         * that we have returned to the original outer context.
-         *)
-         (* for now, disable *)
-        ( (*Cont.callcc
-          (fn cont =>
-            raise
-              Perform { context = ctx (* Our context is the outer context *)
-                      , location = new_location
-                      , focus = new_focus
-                        (* Use the exp wiht a hole  to compute the new total expression *)
-                      , cont = cont (* Continuation to get back here *)
-                      }
-          )
-        ; *)new_value
-        )
+        new_value
       end
-
-    exception Raise of value
 
     (* Does a left-to-right application of the function to each element.
      *
@@ -290,14 +308,26 @@ structure Debugger :
                     )
               | (Vfn {matches, env, rec_env, break}, v) =>
                   let
-                    val _ = print "APPLYING BROKEN FUNCTION\n"
-                    val (new_ctx, new_exp) =
+                    val (bindings, new_ctx, new_exp) =
                       Context.apply_fn (matches, env, rec_env) v
+
+                      (* TODO *)
+                    val _ =
+                      break_check_ids ctx bindings
+
+                    val _ =
+                      if Option.isSome (!break) then
+                        Cont.callcc (fn cont =>
+                          raise Perform (Break (true, cont))
+                        )
+                      else
+                        ()
                   in
-                    if Option.isSome (!break) then
+                    (* if Option.isSome (!break) then
                       redex_break location new_exp new_ctx cont
                     else
-                      redex location new_exp new_ctx cont
+                     *)
+                    redex (CLOSURE ctx :: location) new_exp new_ctx cont
                   end
               | (Vselect sym, Vrecord fields) =>
                    List.find
@@ -330,10 +360,21 @@ structure Debugger :
               case value of
                 (Vfn {matches, env, rec_env, break}) =>
                   let
-                    val (new_ctx, new_exp) =
+                    val (bindings, new_ctx, new_exp) =
                       Context.apply_fn (matches, env, rec_env) (Vtuple [left, right])
+
+                    val _ =
+                      break_check_ids ctx bindings
+
+                    val _ =
+                      if Option.isSome (!break) then
+                        Cont.callcc (fn cont =>
+                          raise Perform (Break (true, cont))
+                        )
+                      else
+                        ()
                   in
-                    redex location new_exp new_ctx cont
+                    redex (CLOSURE ctx :: location) new_exp new_ctx cont
                   end
               | Vconstr {id = [sym], arg = NONE} =>
                   redex_value
@@ -417,9 +458,11 @@ structure Debugger :
                 ( let
                   (* TODO: doesn't match *)
                   val _ = print "have now handled\n"
-                  val (new_ctx, exp) = Context.match_against ctx matches value
+                  val (bindings, new_ctx, exp) = Context.match_against ctx matches value
+                  val _ =
+                    break_check_ids ctx bindings
                 in
-                  redex location exp new_ctx cont
+                  redex (CLOSURE ctx :: location) exp new_ctx cont
                 end
                 handle Context.Mismatch _ => raise Raise value
                 )
@@ -474,10 +517,13 @@ structure Debugger :
             ( let
                 val value =
                   checkpoint' (Ecase {exp = Ehole, matches = matches}) exp ctx
-                val (new_ctx, new_exp) =
+                val (bindings, new_ctx, new_exp) =
                   Context.match_against ctx matches value
+
+                val _ =
+                  break_check_ids ctx bindings
               in
-                redex location new_exp new_ctx cont
+                redex (CLOSURE ctx :: location) new_exp new_ctx cont
               end
               handle Context.Mismatch _ =>
                 raise Raise (Vconstr {id = [Symbol.fromValue "Match"], arg = NONE})
@@ -506,7 +552,8 @@ structure Debugger :
      *)
     and redex location exp ctx cont =
       let
-        val _ = print "entered redex\n"
+        val _ = print ("entered redex with cont " ^ Int.toString (Cont.get_id
+        cont) ^ "\n")
         val new_value = checkpoint location exp ctx false
         val _ = print ("redexing normal!! on " ^ (PrettySimpleDoc.toString true
         (PrettyPrintAst.show_exp ctx exp) ^ " with cont " ^ Int.toString
@@ -535,13 +582,15 @@ structure Debugger :
               (print ("redex value spawned cont " ^ Int.toString (Cont.get_id
               cont) ^ "\n");
               raise
-                Perform { context = ctx (* Our context is the outer context *)
-                        , location = new_location
-                        , focus = new_focus
+                Perform
+                  ( Step { context = ctx (* Our context is the outer context *)
+                         , location = new_location
+                         , focus = new_focus
                           (* Use the exp wiht a hole  to compute the new total expression *)
-                        , cont = cont (* Continuation to get back here *)
-                        , stop = false
-                        }
+                         , cont = cont (* Continuation to get back here *)
+                         , stop = false
+                         }
+                  )
               )
             )
         ; print ("redex throwing to cont " ^ Int.toString (Cont.get_id cont) ^
@@ -576,6 +625,20 @@ structure Debugger :
             iter_list
               (fn ({recc, pat, exp}, rest, pairs) =>
                 let
+                  val ids = Context.get_pat_ids ctx pat
+
+                  val break_assigns = !(Context.get_break_assigns ctx)
+
+                  val _ =
+                    List.foldl
+                      (fn (id, acc) =>
+                        SymSet.member break_assigns id orelse acc
+                      )
+                      false
+                      ids
+                    |> (fn b => if b then Cont.callcc (fn cont => raise Perform
+                    (Break (false, cont))) else ())
+
                   val _ = print ("iter for valdecs on exp " ^
                 (PrettyPrintAst.report_doc ctx (PrettyPrintAst.show_exp ctx
                 exp) 0 location) ^ "\n")
