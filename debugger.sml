@@ -19,6 +19,7 @@ structure Debugger :
       , location : Location.location list
       , focus : focus
       , cont : Context.value Cont.t
+      , stop : bool
       }
 
     val plug_hole : Context.value -> Location.location -> SMLSyntax.exp * bool
@@ -70,6 +71,7 @@ structure Debugger :
       , location : Location.location list
       , focus : focus
       , cont : value Cont.t
+      , stop : bool
       }
 
     fun iter_list f z l =
@@ -83,73 +85,63 @@ structure Debugger :
      * context. We will evaluate that expression to a value, and then signal
      * that we are done.
      *)
-    fun checkpoint location exp ctx override =
+    fun checkpoint location exp ctx break =
       let
-        fun go () =
-          let
+        val _ = print
+          ("checkpointing an " ^
+            (PrettyPrintAst.report_doc ctx (PrettyPrintAst.show_exp ctx
+            exp) 0 location) ^ "\n"
+          )
 
-            val _ = print
-              ("checkpointing an " ^
-                (PrettyPrintAst.report_doc ctx (PrettyPrintAst.show_exp ctx
-                exp) 0 location) ^ "\n"
+        (* This first callcc is a `true` EXP, meaning that it will simply
+         * recurse evaling.
+         *
+         * We essentially change focus to this sub-expression, until it returns a
+         * value.
+         *)
+        val new_value =
+          Cont.callcc
+            (fn cont =>
+              ( print ("checkpoint spawned cont " ^ Int.toString
+              (Cont.get_id cont) ^ "\n");
+              raise
+                Perform { context = ctx
+                        , location = location
+                        , focus = EXP exp (* Add the focused expression *)
+                        , cont = cont (* Add the continuation to get back here *)
+                        , stop = break
+                        }
               )
-
-            (* This first callcc is a `true` EXP, meaning that it will simply
-             * recurse evaling.
-             *
-             * We essentially change focus to this sub-expression, until it returns a
-             * value.
-             *)
-            val new_value =
-              Cont.callcc
-                (fn cont =>
-                  ( print ("checkpoint spawned cont " ^ Int.toString
-                  (Cont.get_id cont) ^ "\n");
-                  raise
-                    Perform { context = ctx
-                            , location = location
-                            , focus = EXP exp (* Add the focused expression *)
-                            , cont = cont (* Add the continuation to get back here *)
-                            }
-                  )
-                )
-
-            val _ = print "Returnign!\n"
-
-            val _ = print
-              ("we are here now with val " ^
-                (PrettyPrintAst.report_doc ctx (PrettyPrintAst.show_value ctx
-                new_value) 0 location) ^ "\n")
-
-            val (new_location, new_focus) =
-              case plug_hole new_value (List.nth (location, 0)) of
-                (exp, true) => (location, VAL (exp, new_value))
-              | (exp, false) => (List.drop (location, 1), VAL (exp, new_value))
-          in
-            (* This second callcc is _just_ to trigger the outer handler, and to show
-             * that we have returned to the original outer context.
-             *)
-             (* for now, disable *)
-            ( (*Cont.callcc
-              (fn cont =>
-                raise
-                  Perform { context = ctx (* Our context is the outer context *)
-                          , location = new_location
-                          , focus = new_focus
-                            (* Use the exp wiht a hole  to compute the new total expression *)
-                          , cont = cont (* Continuation to get back here *)
-                          }
-              )
-            ; *)new_value
             )
-          end
+
+        val _ = print "Returnign!\n"
+
+        val _ = print
+          ("we are here now with val " ^
+            (PrettyPrintAst.report_doc ctx (PrettyPrintAst.show_value ctx
+            new_value) 0 location) ^ "\n")
+
+        val (new_location, new_focus) =
+          case plug_hole new_value (List.nth (location, 0)) of
+            (exp, true) => (location, VAL (exp, new_value))
+          | (exp, false) => (List.drop (location, 1), VAL (exp, new_value))
       in
-        if override then
-          go ()
-        else
-          case Context.exp_to_value ctx exp of
-            SOME value => value
-          | NONE => go ()
+        (* This second callcc is _just_ to trigger the outer handler, and to show
+         * that we have returned to the original outer context.
+         *)
+         (* for now, disable *)
+        ( (*Cont.callcc
+          (fn cont =>
+            raise
+              Perform { context = ctx (* Our context is the outer context *)
+                      , location = new_location
+                      , focus = new_focus
+                        (* Use the exp wiht a hole  to compute the new total expression *)
+                      , cont = cont (* Continuation to get back here *)
+                      }
+          )
+        ; *)new_value
+        )
       end
 
     exception Raise of value
@@ -296,12 +288,16 @@ structure Debugger :
                         , arg = SOME v
                         }
                     )
-              | (Vfn {matches, env, rec_env}, v) =>
+              | (Vfn {matches, env, rec_env, break}, v) =>
                   let
+                    val _ = print "APPLYING BROKEN FUNCTION\n"
                     val (new_ctx, new_exp) =
                       Context.apply_fn (matches, env, rec_env) v
                   in
-                    redex location new_exp new_ctx cont
+                    if Option.isSome (!break) then
+                      redex_break location new_exp new_ctx cont
+                    else
+                      redex location new_exp new_ctx cont
                   end
               | (Vselect sym, Vrecord fields) =>
                    List.find
@@ -332,7 +328,7 @@ structure Debugger :
               val value = Context.get_val ctx [id]
             in
               case value of
-                (Vfn {matches, env, rec_env}) =>
+                (Vfn {matches, env, rec_env, break}) =>
                   let
                     val (new_ctx, new_exp) =
                       Context.apply_fn (matches, env, rec_env) (Vtuple [left, right])
@@ -492,9 +488,16 @@ structure Debugger :
            *
            * This breaks down if we ever call eval twice.
            *)
-        | Efn matches => throw (Vfn {matches = matches, env = ctx, rec_env =
-        NONE})
+        | Efn matches =>
+            throw (Vfn {matches = matches, env = ctx, rec_env = NONE, break = ref NONE})
         | Ehole => raise Fail "shouldn't happen, evaling Ehole"
+      end
+
+    and redex_break location exp ctx cont =
+      let
+        val new_value = checkpoint location exp ctx true
+      in
+        Cont.throw cont new_value
       end
 
     (* This function is used on the expression resulting immediately from
@@ -504,7 +507,7 @@ structure Debugger :
     and redex location exp ctx cont =
       let
         val _ = print "entered redex\n"
-        val new_value = checkpoint location exp ctx true
+        val new_value = checkpoint location exp ctx false
         val _ = print ("redexing normal!! on " ^ (PrettySimpleDoc.toString true
         (PrettyPrintAst.show_exp ctx exp) ^ " with cont " ^ Int.toString
         (Cont.get_id cont) ^ "\n"))
@@ -537,6 +540,7 @@ structure Debugger :
                         , focus = new_focus
                           (* Use the exp wiht a hole  to compute the new total expression *)
                         , cont = cont (* Continuation to get back here *)
+                        , stop = false
                         }
               )
             )
@@ -581,7 +585,7 @@ structure Debugger :
                       ( DVALBINDS (recc_flag, tyvars, pat, rest) :: location)
                       exp
                       ctx
-                      true
+                      false
                   (* This flag needs to be true, or else val bindings of values
                    * won't trigger a step at all.
                    * For instance, `val _ = fn x => x`
@@ -670,6 +674,7 @@ structure Debugger :
                              Efn [{pat, exp}] => Vfn { matches = [{pat = pat, exp = exp}]
                                                      , env = ctx
                                                      , rec_env = NONE
+                                                     , break = ref NONE
                                                      }
                           | _ => raise Fail "empty args for fvalbind, shouldn't happen"
                         )

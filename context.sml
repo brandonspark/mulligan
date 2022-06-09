@@ -53,6 +53,7 @@ structure Context :
         { matches : { pat : SMLSyntax.pat, exp : SMLSyntax.exp } list
         , env : t
         , rec_env : scope option
+        , break : symbol option ref
         }
     | Vbasis of value -> value
 
@@ -96,6 +97,7 @@ structure Context :
     val add_funbind : t -> SMLSyntax.funbind -> t
     val add_hole_print_fn : t -> (unit -> PrettySimpleDoc.t) -> t
     val get_hole_print_fn : t -> (unit -> PrettySimpleDoc.t)
+    val break_fn : t -> SMLSyntax.longid -> t
 
     val remove_infix : t -> SMLSyntax.symbol -> t
 
@@ -234,6 +236,7 @@ structure Context :
         { matches : { pat : pat, exp : exp } list
         , env : t
         , rec_env : scope option
+        , break : symbol option ref
         }
     | Vbasis of value -> value
 
@@ -609,8 +612,12 @@ structure Context :
 
     fun ctx_rec (scope as Scope { valdict, ... }) =
       SymDict.map
-        (fn Vfn {matches, env, rec_env} =>
-              Vfn {matches = matches, env = env, rec_env = SOME scope}
+        (fn Vfn {matches, env, rec_env, break} =>
+              Vfn { matches = matches
+                  , env = env
+                  , rec_env = SOME scope
+                  , break = break
+                  }
         | other => other
         )
         valdict
@@ -618,58 +625,86 @@ structure Context :
 
     exception CouldNotFind
 
+    fun map_scope_id f (ctx as {scope, outer_scopes, sigdict, functordict, hole_print_fn} : t) id =
+      let
+        fun map_thing' scopes =
+          case scopes of
+            [] => raise CouldNotFind
+          | scope::rest =>
+            ( case f scope of
+                NONE => scope :: map_thing' rest
+              | SOME ans => scope :: rest
+            )
+        val (scope, rest) =
+          case map_thing' (scope::outer_scopes) of
+            [] => raise Fail "impossible"
+          | scope::rest => (scope, rest)
+      in
+        { scope = scope
+        , outer_scopes = rest
+        , sigdict = sigdict
+        , functordict = functordict
+        , hole_print_fn = hole_print_fn
+        }
+      end
+
+    (* map_module f [] should map the current scope
+     * map_module f (x::xs)
+     *)
     fun map_module f (ctx as {sigdict, functordict, hole_print_fn, ...} : t) id =
-      lift (fn (scope, ctx) =>
-        let
-          fun map_module' scope id =
-            case id of
-              [] => raise Fail "looking for empty id"
-            | [name] => f scope
-            | mod_name::path =>
-                (* look for the outer module *)
-                case SymDict.find (scope_moddict scope) mod_name of
-                  NONE => NONE
-                | SOME mod_scope =>
-                    Option.map
-                      (fn new_scope =>
-                        (* recursively modify the outer module *)
-                        SymDict.insert
-                          (SymDict.remove (scope_moddict scope) mod_name)
-                          mod_name
-                          new_scope
-                        |> scope_set_moddict scope
-                      )
-                      (map_module' mod_scope path)
-        in
-          case (map_module' scope id, ctx) of
-            (NONE, []) => raise CouldNotFind
-          | (SOME mapped_scope, _) => (mapped_scope, ctx)
-          | (NONE, scope::rest) =>
-              let
-                val { scope = inner_scope, outer_scopes = rest, ...} =
-                  map_module f
-                    { scope = scope
-                    , outer_scopes = rest
-                    , sigdict = sigdict
-                    , functordict = functordict
-                    , hole_print_fn = hole_print_fn
-                    } id
-              in
-                (scope, inner_scope :: rest)
-              end
-        end
-      ) ctx
+      case id of
+        [] => raise Fail "map module on an empty path is a bad idea, because it can pick up extra scopes"
+      | _ =>
+        lift (fn (scope, ctx) =>
+          let
+            fun map_module' scope id =
+              case id of
+                [] => SOME (f scope)
+              | mod_name::path =>
+                  (* look for the outer module *)
+                  case SymDict.find (scope_moddict scope) mod_name of
+                    NONE => NONE
+                  | SOME mod_scope =>
+                      Option.map
+                        (fn new_scope =>
+                          (* recursively modify the outer module *)
+                          SymDict.insert
+                            (SymDict.remove (scope_moddict scope) mod_name)
+                            mod_name
+                            new_scope
+                          |> scope_set_moddict scope
+                        )
+                        (map_module' mod_scope path)
+          in
+            case (map_module' scope id, ctx) of
+              (NONE, []) => raise CouldNotFind
+            | (SOME mapped_scope, _) => (mapped_scope, ctx)
+            | (NONE, scope::rest) =>
+                let
+                  val { scope = inner_scope, outer_scopes = rest, ...} =
+                    map_module f
+                      { scope = scope
+                      , outer_scopes = rest
+                      , sigdict = sigdict
+                      , functordict = functordict
+                      , hole_print_fn = hole_print_fn
+                      } id
+                in
+                  (scope, inner_scope :: rest)
+                end
+          end
+        ) ctx
 
 
     fun drop_last l = List.nth (l, List.length l - 1)
 
     fun get_module (ctx as {scope, ...} : t) id =
-      let
-        exception Return of scope
-      in
-        case id of
-          [] => scope
-        | _ =>
+      case id of
+        [] => raise Fail "getting the empty path is a bad idea"
+      | _ =>
+        let
+          exception Return of scope
+        in
           ( map_module
               (fn scope =>
                 raise Return scope
@@ -679,7 +714,7 @@ structure Context :
           ; raise Fail "shouldn't get here"
           )
           handle Return scope => scope
-      end
+        end
 
     fun get_base f orig_ctx id =
       let
@@ -691,32 +726,88 @@ structure Context :
         handle SymDict.Absent => raise CouldNotFind
       end
 
+    fun search_id f ({scope, outer_scopes, ...} : t) id =
+      let
+        fun search_id' scope =
+          SOME
+            ( SymDict.lookup
+                (f scope)
+                id
+            )
+          handle SymDict.Absent => NONE
+
+        fun search_iter scopes =
+          case scopes of
+            [] => raise Fail "CouldNotFind"
+          | scope::rest =>
+              (case search_id' scope of
+                NONE => search_iter rest
+              | SOME ans => ans
+              )
+      in
+        search_iter (scope::outer_scopes)
+      end
+
+    fun ctx_scopes ({scope, outer_scopes, ...} : t) =
+      scope :: outer_scopes
+
+    fun iter_scopes f scopes =
+      case scopes of
+        [] => raise CouldNotFind
+      | scope::rest =>
+          (case f scope of
+            NONE => iter_scopes f rest
+          | SOME ans => ans
+          )
+
     fun is_con ctx id =
       let
         val (xs, x) = snoc id
       in
-        SymSet.member
-          (scope_condict (get_module ctx xs))
-          x
+        case xs of
+          [] =>
+            ( iter_scopes
+                (fn scope => if SymSet.member (scope_condict scope) x then SOME true
+                             else NONE)
+                (ctx_scopes ctx)
+              handle CouldNotFind => false
+            )
+        | _ => SymSet.member (scope_condict (get_module ctx xs)) x
       end
 
     fun is_exn ctx id =
       let
         val (xs, x) = snoc id
       in
-        SymSet.member
-          (scope_exndict (get_module ctx xs))
-          x
+        case xs of
+          [] =>
+            ( iter_scopes
+                (fn scope => if SymSet.member (scope_exndict scope) x then SOME true
+                             else NONE)
+                (ctx_scopes ctx)
+              handle CouldNotFind => false
+            )
+        | _ => SymSet.member (scope_exndict (get_module ctx xs)) x
       end
 
-    val get_val = get_base scope_valdict
+    fun get_val ctx id =
+      case id of
+        [x] =>
+          iter_scopes
+            (fn scope => (SymDict.find (scope_valdict scope) x))
+            (ctx_scopes ctx)
+      | _ => get_base scope_valdict ctx id
 
     fun get_val_opt ctx id =
       SOME (get_val ctx id) handle CouldNotFind => NONE
 
-    val get_datatype = get_base scope_tydict
-
-    val get_infixdict = get_base scope_infixdict
+    fun get_datatype ctx id =
+      case id of
+        [x] =>
+          iter_scopes
+            (fn scope => SymDict.find (scope_tydict scope) x)
+            (ctx_scopes ctx)
+      | _ => get_base scope_tydict ctx id
 
     fun get_sig ({sigdict, ...} : t) id =
       SymDict.lookup sigdict id
@@ -1033,6 +1124,65 @@ structure Context :
 
     fun get_hole_print_fn ({hole_print_fn, ...} : t) = hole_print_fn
 
+    fun break_fn ctx id =
+      case id of
+        [x] =>
+          map_scope_id (fn scope =>
+            let
+              val valdict = scope_valdict scope
+            in
+              case SymDict.find valdict x of
+                NONE => NONE
+              | SOME (Vfn {break = ref (SOME _), ...}) => raise Fail "breaking already broken function"
+              | SOME (Vfn {matches, env, rec_env, break}) =>
+                  let
+                    val _ = break := SOME x
+                  in
+                    SOME
+                      ( scope_set_valdict scope
+                          ( SymDict.insert
+                              valdict
+                              x
+                              (Vfn { matches = matches
+                                   , env = env
+                                   , rec_env = rec_env
+                                   , break = break
+                                   }
+                              )
+                          )
+                      )
+                  end
+              | _ => raise Fail "breaking a non function"
+            end
+          ) ctx x
+      | _ =>
+        case get_val_opt ctx id of
+          NONE => raise Fail "breaking nonexistent function"
+        | SOME (Vfn {break = ref (SOME _), ...}) => raise Fail "breaking already broken function"
+        | SOME (Vfn {matches, env, rec_env, break}) =>
+            let
+              val (xs, x) = snoc id
+              val _ = break := SOME x
+            in
+              map_module
+                (fn scope =>
+                  SymDict.insert
+                    (scope_valdict scope)
+                    x
+                    (Vfn { matches = matches
+                         , env = env
+                         , rec_env = rec_env
+                         , break = break
+                         }
+                    )
+                  |> scope_set_valdict scope
+                )
+                ctx
+                xs
+            end
+        | _ => raise Fail "breaking a non function"
+
+
     (* TYPE STUFF *)
 
     fun add_datatype ctx {tyvars, tycon, conbinds} =
@@ -1209,16 +1359,12 @@ structure Context :
               }
           end
 
-    fun is_constr ctx id =
-      let
-        val (xs, x) = snoc id
-        val condict = scope_condict (get_module ctx xs)
-      in
-        SymSet.member condict x
-      end
-
     (* VALUE STUFF *)
 
+    (* This is used purely so we acn have an exp for the surrounding context of
+     * the focused expression. These are for compatibility with the pretty
+     * printer, not for any computational purpose.
+     *)
     fun value_to_exp value =
       case value of
         Vnumber num => Enumber num
@@ -1248,7 +1394,7 @@ structure Context :
                  , id = id
                  , right = value_to_exp right
                  }
-      | Vfn {matches, env, rec_env} => Efn matches
+      | Vfn {matches, env, rec_env, ...} => Efn matches
       (* For basis values *)
       | Vbasis f => raise Fail "TODO"
 
@@ -1269,11 +1415,16 @@ structure Context :
       | Eselect sym => SOME (Vselect sym)
       | Eunit => SOME Vunit
       | Eident {id, ...} =>
-          if is_constr ctx id then
+          if is_con ctx id then
             SOME (Vconstr {id = id, arg = NONE})
           else
             SOME (get_val ctx id)
-      | Efn matches => SOME (Vfn {matches = matches, env = ctx, rec_env = NONE})
+      | Efn matches =>
+          (* The only reason to do an exp to value on a verbatim Efn is if it
+           * was a bona fide literal lambda expression, ergo non-recursive.
+           * So it should be OK to set rec_env and break to NONE.
+           *)
+          SOME (Vfn {matches = matches, env = ctx, rec_env = NONE, break = ref NONE})
       | Erecord fields =>
           List.map
             (fn {lab, exp} =>
@@ -1299,14 +1450,14 @@ structure Context :
 
       | Eparens exp => exp_to_value ctx exp
       | Eapp {left = Eident {opp, id}, right} =>
-          if is_constr ctx id then
+          if is_con ctx id then
             Option.map
               (fn exp => Vconstr {id = id, arg = SOME exp})
               (exp_to_value ctx right)
           else
             NONE
       | Einfix {left, id, right} =>
-          if is_constr ctx [id] then
+          if is_con ctx [id] then
             exp_to_value ctx left
             |> Option.map (fn left =>
                  exp_to_value ctx right
@@ -1464,7 +1615,7 @@ structure Context :
         | Pwild
         | Punit ) => MarkerSet.empty
       | Pident {id, ...} =>
-          if is_constr ctx id then
+          if is_con ctx id then
             MarkerSet.empty
           else
             (case id of
@@ -1477,7 +1628,7 @@ structure Context :
       | Plist pats => List.map (get_pat_bindings ctx) pats |> union_sets
       | Por pats => List.map (get_pat_bindings ctx) pats |> union_sets
       | Papp {id, atpat, ...} =>
-          if is_constr ctx id then
+          if is_con ctx id then
             get_pat_bindings ctx atpat
           else
             (case id of
@@ -1488,7 +1639,7 @@ structure Context :
             | _ => raise Fail "shouldn't happen, constructor not found"
             )
       | Pinfix {left, id, right} =>
-          if is_constr ctx [id] then
+          if is_con ctx [id] then
             MarkerSet.union
               (get_pat_bindings ctx left)
               (get_pat_bindings ctx right)

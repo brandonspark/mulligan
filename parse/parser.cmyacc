@@ -9,6 +9,8 @@ terminal STOP
 terminal EQUAL
 terminal SET
 terminal PREV
+terminal BREAK
+terminal RUN
 terminal EOF
 
 nonterminal Directive : directive =
@@ -18,6 +20,8 @@ nonterminal Directive : directive =
   PREV 1:NUM => num_prev
   REVEAL => bare_reveal
   REVEAL 1:NUM => num_reveal
+  BREAK 1:SYMBOL => break_fn
+  RUN => run
 
 nonterminal Main : directive =
   1:Directive EOF => main

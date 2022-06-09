@@ -59,3 +59,15 @@ lot of annoying code, so I've decided to make it non-contextual.
 This means we can't do things like put the context into the Efn, change Eidents
 to Econstrs, etc, but this can be done in a later pass.
 
+
+
+I did a naive solution to break functions.
+When you say you want to break a function `f`, you just set a flag on the value
+bound to the identifier `f` at that stage in the function.
+Then, when that value is used for function application, the program is
+appropriately halted.
+This relies on the fact that every invocation of the broken function always
+corresponds to that value, however. This is not the case for mutually recursive
+functions.
+
+

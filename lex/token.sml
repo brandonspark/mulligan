@@ -8,6 +8,8 @@ structure Token =
       | REVEAL
       | STOP
       | PREV
+      | BREAK
+      | RUN
 
       | EQUAL
       | SET
@@ -24,6 +26,8 @@ structure Token =
       | EQUAL => "EQUAL"
       | SET => "SET"
       | PREV => "PREV"
+      | BREAK => "BREAK"
+      | RUN => "RUN"
       | EOF => "EOF"
 
   end

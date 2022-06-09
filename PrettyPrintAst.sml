@@ -200,9 +200,6 @@ struct
     | show_tyvars_option [tyvar] = SOME (show_tyvar tyvar)
     | show_tyvars_option other =  SOME (show_tyvars other)
 
-
-  fun show_opp opp = if opp then text_syntax "op" else text_syntax ""
-
   fun bool_to_option b default =
     if b then SOME default
     else NONE
@@ -368,8 +365,11 @@ struct
       case fname_args of
         Fprefix { opp, id, args } =>
           group (
-            (if opp then text_syntax "op" else text_syntax "")
-            +-+ show_id id
+            ( if opp then
+                text_syntax "op" +-+ show_id id
+              else
+                show_id id
+            )
             +-+ show_list_base true (show_pat ctx) "" false true args
           )
       | Finfix {left, id, right} =>
@@ -952,6 +952,8 @@ struct
             text_syntax "open" +-+ show_list show_open " " longids
             |> inject bound_ids
           end
+      | Dseq [] => raise Fail "empty dseq"
+      | Dseq [x] => show_dec' ctx x
       | Dseq decs =>
           List.foldl
             (fn (dec, (acc, ctx, acc_boundids)) =>
@@ -966,7 +968,7 @@ struct
             )
             (NONE, ctx, empty_set)
             decs
-          |> (fn (doc, _, boundids) => (Option.getOpt (doc, text_syntax ""), boundids))
+          |> (fn (doc, _, boundids) => (text_syntax "dseq" ++ Option.getOpt (doc, text_syntax ""), boundids))
       | Dinfix {precedence, ids} =>
           separateWithSpaces
             [ SOME (text_syntax "infix")
@@ -1000,7 +1002,8 @@ struct
         val show_longid = show_longid color
       in
       case strdec_ of
-        DMdec dec => show_dec' ctx dec
+        DMdec dec =>
+          show_dec' ctx dec
       | DMstruct body =>
           let
             fun mk mark {id, seal, module} =
@@ -1039,20 +1042,23 @@ struct
             )
             |> inject right_bound_ids
           end
+      | DMseq [] => raise Fail "empty dmseq"
+      | DMseq [strdec] => show_strdec' ctx strdec
       | DMseq strdecs =>
           List.foldl
             (fn (strdec, (acc, ctx, acc_boundids)) =>
               let
                 val (strdec_doc, bound_ids) = show_strdec' ctx strdec
               in
-                ( acc $$ strdec_doc
+                ( case acc of NONE => SOME strdec_doc | SOME acc => SOME (acc $$ strdec_doc)
                 , Context.remove_bound_ids ctx bound_ids
-                , MarkerSet.union acc_boundids bound_ids)
+                , MarkerSet.union acc_boundids bound_ids
+                )
               end
             )
-            ( text_syntax "", ctx, empty_set )
+            ( NONE, ctx, empty_set )
             strdecs
-          |> (fn (doc, _, bound_ids) => (doc, bound_ids))
+          |> (fn (doc, _, bound_ids) => (Option.getOpt (doc, text_syntax ""), bound_ids))
       | DMhole => ( Context.get_hole_print_fn ctx (), empty_set )
       end
     and show_module ctx module = show_module_ ctx module
@@ -1496,7 +1502,7 @@ struct
             end
         | (n, DSEQ decs :: rest) =>
             let
-              val (doc, bound_ids) = show_dec' ctx (Dseq (Dhole :: decs))
+              val (doc, bound_ids) = show_dec' new_ctx (Dseq (Dhole :: decs))
             in
               report
                 ctx
@@ -1510,7 +1516,7 @@ struct
               val strdec = DMlocal {left_dec = DMseq (DMhole :: strdecs), right_dec = strdec}
 
               val (doc, bound_ids) =
-                show_strdec' ctx strdec
+                show_strdec' new_ctx strdec
             in
               report
                 ctx
@@ -1522,7 +1528,7 @@ struct
         | (n, DMSEQ strdecs :: rest) =>
             let
               val (doc, bound_ids) =
-                show_strdec' ctx (DMseq (DMhole :: strdecs))
+                show_strdec' new_ctx (DMseq (DMhole :: strdecs))
             in
               report
                 ctx
@@ -1534,10 +1540,10 @@ struct
         | (n, MLET module :: rest) =>
             let
               val doc =
-                show_module ctx (Mlet {dec = DMhole, module = module})
+                show_module new_ctx (Mlet {dec = DMhole, module = module})
             in
               report
-                new_ctx
+                ctx
                 empty_set
                 doc
                 (n - 1)

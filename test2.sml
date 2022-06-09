@@ -14,6 +14,23 @@ val _ =
   end
 *)
 
+val x = 1 + 2 + 3 + 4 + 5
+
+local
+  val x = 2
+in
+  val y = x + 3
+end
+
+val h = let val x = 2 in 2 end
+
+val z = x + 2
+
+fun h x = 1 * 2 + f 3
+and f x = 1 + 4
+
+val _ = h (1 + 2)
+
 val x =
   ( 2 + 1
   ; 3 + 4 + 5
@@ -22,6 +39,7 @@ val x =
 
 val _ = (raise Match) handle Match => (2 + 2)
 
+
 (*
 val _ = ( case SOME 5 of
             NONE => 3
@@ -29,8 +47,6 @@ val _ = ( case SOME 5 of
  j      ) handle Bind => 150
  *)
 
-fun f x = 1 + g x
-and g x = 2 * f x
 
 
 (* val _ = f 5 *)

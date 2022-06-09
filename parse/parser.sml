@@ -42,7 +42,9 @@ structure DirectiveParser :> PARSER =
         val bare_reveal = null (Reveal NONE)
         val stop = null Stop
         val step = null Step
+        val run = null Run
         val prev = null (Prev NONE)
+        fun break_fn s = Break s
 
         exception Error of DToken.t StreamStreamable.t
         fun error x = Error x

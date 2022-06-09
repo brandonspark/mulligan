@@ -43,6 +43,8 @@ structure Lexer :> LEXER =
           , ("stop", STOP)
           , ("set", SET)
           , ("prev", PREV)
+          , ("break", BREAK)
+          , ("run", RUN)
           ]
 
         val keywords : DToken.t Table.table = Table.table 60

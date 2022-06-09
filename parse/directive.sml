@@ -6,6 +6,8 @@ structure Directive =
       | Reveal of int option
       | Stop
       | Prev of int option
+      | Break of Symbol.symbol
+      | Run
 
     datatype ('a, 'b) either = INL of 'a | INR of 'b
   end
