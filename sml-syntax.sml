@@ -386,6 +386,7 @@ signature SMLSYNTAX =
     type longid = PreSMLSyntax.symbol list
 
     val map_sym : symbol -> (string -> string) -> symbol
+    val longid_eq : longid * longid -> bool
 
     (* TYPES *)
 
@@ -449,6 +450,8 @@ structure SMLSyntax : SMLSYNTAX =
 
     fun map_sym sym f =
       Symbol.fromValue (f (Symbol.toValue sym))
+    fun longid_eq (l1, l2) =
+      ListPair.allEq Symbol.eq (l1, l2)
 
     (* TYPES *)
 

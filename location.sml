@@ -75,8 +75,8 @@ structure Location =
       and plug_hole v location =
         case location of
           EHOLE exp_hole => (plug_exp_hole v exp_hole, false)
-        | DVALBINDS _ => (Context.value_to_exp v, true)
-        | CLOSURE _ => (Context.value_to_exp v, false)
+        | DVALBINDS _ => (Value.value_to_exp v, true)
+        | CLOSURE _ => (Value.value_to_exp v, false)
         | ( ELET _
           | DLOCAL _
           | DSEQ _
@@ -149,11 +149,9 @@ structure Location =
             (* Shouldn't be any holes in matches. *)
             Ecase { exp = plug_exp_hole v exp, matches = matches }
         | Efn _ => (* Shouldn't be any in a function. *) exp_hole
-        | Ehole => Context.value_to_exp v
+        | Ehole => Value.value_to_exp v
         )
     end
-
-
   end
 
 

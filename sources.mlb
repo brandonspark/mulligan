@@ -8,10 +8,15 @@ util/sources.mlb
 parse/sources.mlb
 cont.sml
 
+sml-syntax.sml
+
 PrettyPrintContext.sml
 
-sml-syntax.sml
+context_type.sml
 context.sml
+value.sml
+binding.sml
+
 elaborate.sml
 location.sml
 PrettyPrintAst.sml

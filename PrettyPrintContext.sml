@@ -37,4 +37,12 @@ structure PrettyPrintContext =
     structure MarkerSet = RedBlackSet (structure Elem = MarkerOrdered)
 
     type t = MarkerSet.set
+
+    fun union_sets l =
+      List.foldl
+        (fn (set, acc) =>
+          MarkerSet.union set acc
+        )
+        MarkerSet.empty
+        l
   end

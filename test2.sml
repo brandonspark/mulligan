@@ -15,6 +15,8 @@ val _ =
 *)
 
 
+val _ = [op +, op -]
+val x = 1 + 2 * 1 + 4 * 5
 infix x
 
 fun a x b = a * b

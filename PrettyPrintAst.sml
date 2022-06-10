@@ -479,7 +479,7 @@ struct
       | Elet {dec, exps} =>
           let
             val (dec_doc, bound_ids) = show_dec' ctx dec
-            val new_ctx = Context.remove_bound_ids ctx bound_ids
+            val new_ctx = Binding.remove_bound_ids ctx bound_ids
           in
             group (
               separateWithNewlines
@@ -493,7 +493,6 @@ struct
           end
       | Eparens exp => parensAround (show_exp exp)
       | Eapp {left, right} =>
-          (* TODO: check if is atomic exp right *)
           show_exp left +-+ show_atexp right
       | Einfix {left, id, right} =>
           group (
@@ -675,13 +674,13 @@ struct
                   )
                 )
           end
-      | Vbasis _ => text "<basis>"
+      | Vbasis {name, ...} => show_id name
       end
 
     and show_match ctx {pat, exp} =
       let
-        val bound_ids = Context.get_pat_bindings ctx pat
-        val new_ctx = Context.remove_bound_ids ctx bound_ids
+        val bound_ids = Binding.get_pat_bindings ctx pat
+        val new_ctx = Binding.remove_bound_ids ctx bound_ids
       in
         group (
           show_pat ctx pat +-+ text_syntax "=>"
@@ -694,8 +693,8 @@ struct
         val ctx =
           if recc then
             let
-              val binded_ids = Context.get_pat_bindings ctx pat
-              val ctx = Context.remove_bound_ids ctx binded_ids
+              val binded_ids = Binding.get_pat_bindings ctx pat
+              val ctx = Binding.remove_bound_ids ctx binded_ids
             in
               ctx
             end
@@ -778,7 +777,7 @@ struct
           | hd::tl =>
               let
                 val bound_ids =
-                  List.map (Context.get_pat_bindings ctx o #pat) valbinds
+                  List.map (Binding.get_pat_bindings ctx o #pat) valbinds
                   |> union_sets
 
                 (* If any of them are `rec`, then the matches need to be
@@ -789,7 +788,7 @@ struct
                        false
                        (List.map #recc valbinds)
                   then
-                    Context.remove_bound_ids ctx bound_ids
+                    Binding.remove_bound_ids ctx bound_ids
                   else
                     ctx
               in
@@ -824,12 +823,12 @@ struct
                 fvalbinds
               |> marker_set_of_list
 
-            val mutual_ctx = Context.remove_bound_ids ctx func_names
+            val mutual_ctx = Binding.remove_bound_ids ctx func_names
 
             fun mk { fname_args, ty, exp } =
               let
-                val binded_ids = Context.get_fname_args_bindings ctx fname_args
-                val new_ctx = Context.remove_bound_ids mutual_ctx binded_ids
+                val binded_ids = Binding.get_fname_args_bindings ctx fname_args
+                val new_ctx = Binding.remove_bound_ids mutual_ctx binded_ids
               in
                 group (
                   separateWithSpaces
@@ -929,7 +928,7 @@ struct
       | Dlocal {left_dec, right_dec} =>
           let
             val (left_dec_doc, left_bound_ids) = show_dec' ctx left_dec
-            val ctx = Context.remove_bound_ids ctx left_bound_ids
+            val ctx = Binding.remove_bound_ids ctx left_bound_ids
             val (right_dec_doc, right_bound_ids) = show_dec' ctx right_dec
           in
             group (
@@ -948,7 +947,7 @@ struct
       | Dopen longids =>
           let
             val bound_ids =
-              Context.open_bound_ids ctx longids
+              Binding.open_bound_ids ctx longids
           in
             text_syntax "open" +-+ show_list show_open " " longids
             |> inject bound_ids
@@ -962,7 +961,7 @@ struct
                 val (dec_doc, bound_ids) = show_dec' ctx dec
               in
                 ( (case acc of NONE => SOME dec_doc | SOME acc => SOME (acc $$ dec_doc))
-                , Context.remove_bound_ids ctx bound_ids
+                , Binding.remove_bound_ids ctx bound_ids
                 , MarkerSet.union acc_boundids bound_ids
                 )
               end
@@ -1029,7 +1028,7 @@ struct
       | DMlocal {left_dec, right_dec} =>
           let
             val (left_dec_doc, left_bound_ids) = show_strdec' ctx left_dec
-            val ctx = Context.remove_bound_ids ctx left_bound_ids
+            val ctx = Binding.remove_bound_ids ctx left_bound_ids
             val (right_dec_doc, right_bound_ids) = show_strdec' ctx right_dec
           in
             group (
@@ -1052,7 +1051,7 @@ struct
                 val (strdec_doc, bound_ids) = show_strdec' ctx strdec
               in
                 ( case acc of NONE => SOME strdec_doc | SOME acc => SOME (acc $$ strdec_doc)
-                , Context.remove_bound_ids ctx bound_ids
+                , Binding.remove_bound_ids ctx bound_ids
                 , MarkerSet.union acc_boundids bound_ids
                 )
               end
@@ -1098,7 +1097,7 @@ struct
       | Mlet {dec, module} =>
           let
             val (strdec_doc, bound_ids) = show_strdec' ctx dec
-            val ctx = Context.remove_bound_ids ctx bound_ids
+            val ctx = Binding.remove_bound_ids ctx bound_ids
           in
             group (
               separateWithNewlines
@@ -1330,8 +1329,8 @@ struct
 
       fun mk mark {id, funarg, seal, body} =
         let
-          val bound_ids = Context.get_funarg_bound_ids ctx funarg
-          val new_ctx = Context.remove_bound_ids ctx bound_ids
+          val bound_ids = Binding.get_funarg_bound_ids ctx funarg
+          val new_ctx = Binding.remove_bound_ids ctx bound_ids
         in
           group (
             separateWithSpaces
@@ -1381,7 +1380,7 @@ struct
             val (topdec_doc, bound_ids) = show_topdec' ctx topdec
           in
             ( acc $$ topdec_doc
-            , Context.remove_bound_ids ctx bound_ids
+            , Binding.remove_bound_ids ctx bound_ids
             , MarkerSet.union acc_boundids bound_ids
             )
           end
@@ -1424,7 +1423,7 @@ struct
         (* This new ctx contains the print function for the current doc.
          *)
         val ctx = Context.add_hole_print_fn ctx (fn () => doc)
-        val new_ctx = Context.remove_bound_ids ctx acc_ids
+        val new_ctx = Binding.remove_bound_ids ctx acc_ids
       in
         case (n, location) of
           (_, CLOSURE ctx :: rest) =>
@@ -1600,7 +1599,7 @@ struct
             in
               report new_ctx bound_ids doc (n - 1) rest
             end
-        | (n, FBODY sym :: rest) => (* TODO *) report ctx empty_set doc n rest
+        | (n, FBODY sym :: rest) => (* TODO? *) report ctx empty_set doc n rest
         | (n, [PROG topdecs]) =>
           let
             val (doc, bound_ids) = show_ast ctx (Thole :: topdecs)

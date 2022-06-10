@@ -136,7 +136,7 @@ structure Elaborate :
       | StrDec strdec => elab_strdec (strdec, ctx) <<| Strdec
       | FunDec fundec => (elab_fundec (fundec, ctx) |> Fundec, ctx)
 
-    and elab_sigdec' (sigdec, ctx) =
+    and elab_sigdec (sigdec, ctx) =
       case sigdec of
         Sig.Signature {elems, ...} =>
           elab_seq_ctx
@@ -147,10 +147,6 @@ structure Elaborate :
             elems
             ctx
           |> (fn (sigbinds, ctx) => (sigbinds, ctx))
-
-    and elab_sigdec (sigdec, ctx) =
-      (* TODO *)
-      elab_sigdec' (sigdec, ctx)
 
     and elab_sigexp (sigexp, ctx) =
       case sigexp of
@@ -330,7 +326,7 @@ structure Elaborate :
             )
           end
 
-    and elab_strdec' (strdec, ctx) =
+    and elab_strdec (strdec, ctx) =
       case strdec of
         Str.DecEmpty => (DMseq [], ctx)
       | Str.DecCore dec =>
@@ -379,10 +375,6 @@ structure Elaborate :
           end
       | Str.MLtonOverload _ => raise Fail "mlton not supported rn"
 
-    and elab_strdec (strdec, ctx) =
-      (* TODO *)
-      elab_strdec' (strdec, ctx)
-
     and elab_funarg (funarg, ctx) =
       case funarg of
         Fun.ArgIdent {strid, sigexp, ...} =>
@@ -392,7 +384,7 @@ structure Elaborate :
           elab_spec (spec, ctx)
           <<| Sugar
 
-    and elab_fundec' (fundec, ctx) =
+    and elab_fundec (fundec, ctx) =
       case fundec of
         Fun.DecFunctor {elems, ...} =>
           elab_seq
@@ -415,10 +407,6 @@ structure Elaborate :
               end
             )
             elems
-
-    and elab_fundec (fundec, ctx) =
-      (* TODO *)
-      elab_fundec' (fundec, ctx)
 
     and elab_datbind {elems, ...} =
       elab_seq
@@ -568,8 +556,7 @@ structure Elaborate :
           Exp.Const tok => elab_constant tok
         | Exp.Ident {opp, id} =>
             Eident {opp = opt_to_bool opp, id = ml_tok_to_longid id}
-            (* TODO: check if it is a constructor
-             * Re earlier, we have decided to make elaboration noncontextual, so
+            (* Re earlier, we have decided to make elaboration noncontextual, so
              * there will not be any Econstrs. So no checking.
              *)
         | Exp.Record {elems, ...} =>
@@ -736,7 +723,6 @@ structure Elaborate :
               Pident { opp = opt_to_bool opp
                      , id = [tok_to_sym (MaybeLongToken.getToken id)]
                      }
-            (* TODO: constr or not *)
         | Pat.List {elems, ...} =>
             Plist (elab_seq elab_pat elems)
         | Pat.Tuple {elems, ...} =>

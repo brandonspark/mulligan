@@ -203,7 +203,7 @@ structure Debugger :
               | exp::right' =>
                   let
                     val left_exps =
-                      List.map Context.value_to_exp left
+                      List.map Value.value_to_exp left
                     val new_value =
                       checkpoint'
                         ((mk_exp (List.rev left_exps, right')))
@@ -296,7 +296,7 @@ structure Debugger :
                 checkpoint' (Eapp {left = Ehole, right = right}) left ctx
               val _ = print "after left in eapp\n"
               val right =
-                checkpoint' (Eapp {left = value_to_exp left, right = Ehole}) right ctx
+                checkpoint' (Eapp {left = Value.value_to_exp left, right = Ehole}) right ctx
             in
               case (left, right) of
                 (constr as Vconstr {id, arg = NONE}, v) =>
@@ -309,9 +309,8 @@ structure Debugger :
               | (Vfn {matches, env, rec_env, break}, v) =>
                   let
                     val (bindings, new_ctx, new_exp) =
-                      Context.apply_fn (matches, env, rec_env) v
+                      Value.apply_fn (matches, env, rec_env) v
 
-                      (* TODO *)
                     val _ =
                       break_check_ids ctx bindings
 
@@ -323,10 +322,6 @@ structure Debugger :
                       else
                         ()
                   in
-                    (* if Option.isSome (!break) then
-                      redex_break location new_exp new_ctx cont
-                    else
-                     *)
                     redex (CLOSURE ctx :: location) new_exp new_ctx cont
                   end
               | (Vselect sym, Vrecord fields) =>
@@ -338,7 +333,7 @@ structure Debugger :
                       )
                    |> #value
                    |> (fn value => redex_value location value ctx cont)
-              | (Vbasis f, v) => redex_value location (f v) ctx cont
+              | (Vbasis {function = f, ...}, v) => redex_value location (f v) ctx cont
               | _ => raise Fail "impossible app redex"
             end
         | Einfix {left, id, right} =>
@@ -351,7 +346,7 @@ structure Debugger :
 
               val right =
                 checkpoint'
-                  (Einfix {left = value_to_exp left, id = id, right = Ehole})
+                  (Einfix {left = Value.value_to_exp left, id = id, right = Ehole})
                   right
                   ctx
 
@@ -361,7 +356,7 @@ structure Debugger :
                 (Vfn {matches, env, rec_env, break}) =>
                   let
                     val (bindings, new_ctx, new_exp) =
-                      Context.apply_fn (matches, env, rec_env) (Vtuple [left, right])
+                      Value.apply_fn (matches, env, rec_env) (Vtuple [left, right])
 
                     val _ =
                       break_check_ids ctx bindings
@@ -382,7 +377,7 @@ structure Debugger :
                     (Vinfix {left = left, id = sym, right = right})
                     ctx
                     cont
-              | Vbasis f => redex_value location (f (Vtuple [left, right])) ctx cont
+              | Vbasis {function = f, ...} => redex_value location (f (Vtuple [left, right])) ctx cont
               | _ => raise Fail "applied value is not a function or constr"
             end
         | Etyped {exp, ...} => eval location exp ctx cont
@@ -395,7 +390,7 @@ structure Debugger :
                   ctx
               val right =
                 checkpoint'
-                  (Eandalso {left = value_to_exp left, right = Ehole})
+                  (Eandalso {left = Value.value_to_exp left, right = Ehole})
                   right
                   ctx
             in
@@ -427,7 +422,7 @@ structure Debugger :
                   ctx
               val right =
                 checkpoint'
-                  (Eorelse {left = value_to_exp left, right = Ehole})
+                  (Eorelse {left = Value.value_to_exp left, right = Ehole})
                   right
                   ctx
             in
@@ -454,24 +449,23 @@ structure Debugger :
             ( print "evalling handle\n"
             ; throw
               (checkpoint' (Ehandle {exp = Ehole, matches = matches}) exp' ctx)
-              handle Raise value =>
+              handle Context.Raise value =>
                 ( let
-                  (* TODO: doesn't match *)
-                  val _ = print "have now handled\n"
-                  val (bindings, new_ctx, exp) = Context.match_against ctx matches value
-                  val _ =
-                    break_check_ids ctx bindings
-                in
-                  redex (CLOSURE ctx :: location) exp new_ctx cont
-                end
-                handle Context.Mismatch _ => raise Raise value
+                    val _ = print "have now handled\n"
+                    val (bindings, new_ctx, exp) = Value.match_against ctx matches value
+                    val _ =
+                      break_check_ids ctx bindings
+                  in
+                    redex (CLOSURE ctx :: location) exp new_ctx cont
+                  end
+                  handle Value.Mismatch _ => raise Context.Raise value
                 )
 
             )
         | Eraise exp =>
             (case checkpoint' (Eraise Ehole) exp ctx of
-              (constr as Vconstr _) => (print "raising vconstr\n"; raise Raise constr)
-            | (constr as Vinfix _) => raise Raise constr
+              (constr as Vconstr _) => (print "raising vconstr\n"; raise Context.Raise constr)
+            | (constr as Vinfix _) => raise Context.Raise constr
             | _ => raise Fail "raise on non-constr"
             )
         | Eif {exp1, exp2, exp3} =>
@@ -518,15 +512,15 @@ structure Debugger :
                 val value =
                   checkpoint' (Ecase {exp = Ehole, matches = matches}) exp ctx
                 val (bindings, new_ctx, new_exp) =
-                  Context.match_against ctx matches value
+                  Value.match_against ctx matches value
 
                 val _ =
                   break_check_ids ctx bindings
               in
                 redex (CLOSURE ctx :: location) new_exp new_ctx cont
               end
-              handle Context.Mismatch _ =>
-                raise Raise (Vconstr {id = [Symbol.fromValue "Match"], arg = NONE})
+              handle Value.Mismatch _ =>
+                raise Context.Raise (Vconstr {id = [Symbol.fromValue "Match"], arg = NONE})
             )
           (* If we are evaluating an `Efn`, it must have already existed.
            * As in, it was an anonymous function value, and its closure is just
@@ -625,7 +619,7 @@ structure Debugger :
             iter_list
               (fn ({recc, pat, exp}, rest, pairs) =>
                 let
-                  val ids = Context.get_pat_ids ctx pat
+                  val ids = Binding.get_pat_ids ctx pat
 
                   val break_assigns = !(Context.get_break_assigns ctx)
 
@@ -654,7 +648,7 @@ structure Debugger :
                    * For instance, `val _ = fn x => x`
                    *)
                 in
-                  Context.match_pat ctx pat new_value @ pairs
+                  Value.match_pat ctx pat new_value @ pairs
                 end
               )
               []
@@ -863,7 +857,7 @@ structure Debugger :
               Context.ascribe
                 scope
                 (SOME { opacity = opacity
-                      , sigval = Context.evaluate_signat ctx signat
+                      , sigval = Value.evaluate_signat ctx signat
                       }
                 )
              )
@@ -930,7 +924,6 @@ structure Debugger :
           (* For a module let, evaluate the declaration in a new scope, and then
            * enter a new scope for the actual module itself. Get rid of the
            * local scope.
-           * TODO: need to also open the current scope into the upper context
            *)
       | Mlet {dec, module} =>
           eval_strdec (MLET module :: location) dec (Context.enter_scope ctx)
@@ -973,7 +966,7 @@ structure Debugger :
                   ( Option.map
                       (fn {opacity, signat} => { opacity = opacity
                                              , sigval =
-                                                 Context.evaluate_signat
+                                                 Value.evaluate_signat
                                                    ctx
                                                    signat
                                              }
@@ -1019,15 +1012,15 @@ structure Debugger :
            *)
           List.foldr
             (fn (sigbind, acc) =>
-              Context.generate_sigbinding ctx sigbind :: acc
+              Binding.generate_sigbinding ctx sigbind :: acc
             )
             []
             sigdec
-          |> Context.add_sigbindings ctx
+          |> Binding.add_sigbindings ctx
 
       | Fundec fundec =>
           List.foldl
-            (fn (funbind, ctx) => Context.add_funbind ctx funbind)
+            (fn (funbind, ctx) => Binding.add_funbind ctx funbind)
             ctx
             fundec
       | Thole => raise Fail "shouldn't eval thole"

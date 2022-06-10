@@ -80,7 +80,7 @@ structure Top =
               | _ =>
                 ( print ("going into eval for " ^ PrettyPrintAst.report ctx
                   (get_focus_exp focus) 0 location ^ "\n")
-                ; case Context.exp_to_value ctx (get_focus_exp focus) of
+                ; case Value.exp_to_value ctx (get_focus_exp focus) of
                     SOME value =>
                       ( print ("throwing " ^ PrettySimpleDoc.toString true
                         (PrettyPrintAst.show_value ctx value) ^ " value cont " ^ Int.toString
