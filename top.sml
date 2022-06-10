@@ -8,7 +8,7 @@ structure Top =
         val _ = print "parsing...\n"
         val ast = Parser.parse source (* may err *)
         val _ = print "done parsing, elaborating...\n"
-        val (derived_ast, _) = Elaborate.elab_ast (ast, Context.initial)
+        val (derived_ast, _) = Elaborate.elab_ast (ast, Basis.initial)
         val _ = print "done elaborating"
       in
         derived_ast
@@ -251,7 +251,7 @@ structure Top =
          * This handler gets entered at any point that we checkpoint _after_ a
          * throw.
          *)
-        Debugger.eval_program ast Context.initial
+        Debugger.eval_program ast Basis.initial
           handle
             Debugger.Perform (Debugger.Step data) => entry_point data
           | Debugger.Perform (Debugger.Break cont) => handle_break cont

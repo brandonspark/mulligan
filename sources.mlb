@@ -16,6 +16,7 @@ context_type.sml
 context.sml
 value.sml
 binding.sml
+basis.sml
 
 elaborate.sml
 location.sml
