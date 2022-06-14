@@ -1,0 +1,11 @@
+local
+  ../../util/sources.mlb
+
+  ../syntax/sources.mlb
+  ../lex/sources.mlb
+
+  parser.fun
+  parser.sml
+in
+  structure CM_Parser
+end

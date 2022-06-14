@@ -1,0 +1,34 @@
+sml
+name ParserFun
+
+terminal ELEM of elem
+
+terminal LIBRARY
+terminal GROUP
+terminal STRUCTURE
+terminal SIGNATURE
+terminal FUNCTOR
+terminal IDENT of symbol
+terminal IS
+
+terminal EOF
+
+nonterminal Files : files =
+  EOF => nil_files
+  1:ELEM 2:Files => cons_files
+
+nonterminal Export : export =
+  STRUCTURE 1:IDENT => structure_export
+  SIGNATURE 1:IDENT => signature_export
+  FUNCTOR 1:IDENT => functor_export
+
+nonterminal Exports : exports =
+  /* epsilon */ => nil_exports
+  1:Export 2:Exports => cons_exports
+
+
+nonterminal Main : main =
+  GROUP 1:Exports IS 2:Files => main_prog
+  LIBRARY 1:Exports IS 2:Files => main_prog
+
+start Main

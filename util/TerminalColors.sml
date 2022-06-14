@@ -15,6 +15,7 @@ sig
   val lightblue: color
   val softred: color
   val orange: color
+  val purple: color
 
   (* channel values 0 to 1 *)
   val rgb: {red: real, green: real, blue: real} -> color
@@ -68,6 +69,7 @@ struct
   val lightblue = hsv {h = 199.0, s = 0.8, v = 0.99}
   val softred = hsv {h = 0.0, s = 0.66, v = 0.83}
   val orange = hsv {h = 35.0, s = 0.85, v = 0.84}
+  val purple = hsv {h=283.0,s=0.87,v=0.87}
 
   fun to256 channel =
     Real.ceil (channel * 255.0)

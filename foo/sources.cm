@@ -1,0 +1,6 @@
+Group
+  structure Bar
+  structure Foo
+is
+  test2.sml
+  test.sml

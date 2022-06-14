@@ -13,13 +13,17 @@ set symbol = (or '! '# '$ '% '& '' '* '+ '- '. ': '< '= '> '? '@ '^ '| '~ '` '/)
 set printable = (range 32 126)
 set stringelem = (- printable '" '\)
 set hexadecimal = (range '0 '9 'A 'F 'a 'f)
+set alphanumeric = (or letter digit '_ '')
+
+regexp ident = (seq letter (* alphanumeric))
+
 
 function main : t =
   (+ whitespace) => skip
 
   (+ digit) => lex_number
 
-  (+ letter) => lex_keyword
+  ident => lex_keyword
 
   '= => equal
 

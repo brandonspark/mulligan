@@ -1,7 +1,11 @@
 ../cmlib/cmlib.mlb
-../sml-syntax.sml
+$(SML_LIB)/basis/basis.mlb
+$(SML_LIB)/basis/mlton.mlb
 
 ListUtils.sml
 TerminalColors.sml
 PrettySimpleDoc.sml
 temp_id.sml
+cont.sml
+either.sml
+error.sml

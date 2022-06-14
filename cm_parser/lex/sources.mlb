@@ -1,0 +1,11 @@
+local
+  ../../cmlib/cmlib.mlb
+  ../../util/sources.mlb
+
+  ../syntax/sources.mlb
+
+  lexer.fun
+  lexer.sml
+in
+  structure CM_Lexer
+end

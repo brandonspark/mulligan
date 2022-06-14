@@ -49,7 +49,11 @@ structure DirectiveParser :> PARSER =
         fun sym_clear s = Clear (SOME s)
         fun sym_print s = Print s
         fun break_assign s = BreakAssign s
-        fun change_setting (s1, s2) = Set (s1, s2)
+        fun change_setting (s1, s2) = Set (s1, Directive.VALUE s2)
+        fun change_setting_num (s1, i) = Set (s1, Directive.NUM i)
+        fun report s = Report s
+        fun bare_last () = Last NONE
+        fun num_last i = Last (SOME i)
 
         exception Error of DToken.t StreamStreamable.t
         fun error x = Error x

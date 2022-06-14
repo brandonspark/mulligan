@@ -14,6 +14,8 @@ terminal RUN
 terminal CLEAR
 terminal PRINT
 terminal ASSIGN
+terminal REPORT
+terminal LAST
 terminal EOF
 
 nonterminal Directive : directive =
@@ -29,6 +31,10 @@ nonterminal Directive : directive =
   PRINT 1:SYMBOL => sym_print
   BREAK ASSIGN 1:SYMBOL => break_assign
   SET 1:SYMBOL EQUAL 2:SYMBOL => change_setting
+  SET 1:SYMBOL EQUAL 2:NUM => change_setting_num
+  REPORT 1:SYMBOL => report
+  LAST => bare_last
+  LAST 1:NUM => num_last
   RUN => run
 
 nonterminal Main : directive =

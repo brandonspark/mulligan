@@ -1,37 +1,6 @@
 
-We need to decide whether we want to use a stripped-down AST (without tokens,
-without location information, and with just the strict expression information),
-or if we want to use Sam's austere AST (with all of the above).
-
-To support "stars" (which will denote "holes" in expressions of where the
-computation currently is), it seems we need a new tree.
-
-But if we don't use the austere AST, we lose the existing pretty printer.
-OK, so the existing pretty printer works solely by utilizing the existing
-source, meaning that we can't use the original pretty printer anyways.
-
-Seems to be little reason NOT to just translate to something new.
-
 to compile:
 mlton -mlb-path-var 'COMPAT mlton' -default-ann 'allowOrPats true' sources.mlb
-
-We have an issue.
-The debugger is founded on the idea that the size of semantic objects (i.e.
-expressions) during the course of runtime will be finite.
-
-Now, this is clearly not true. See:
-fun fact 0 = 1
-  | fact n = n * fact (n - 1)
-We want some kind of "delayed" evaluation where:
-
-fact n =
-
-fun f n = g n
-and g n = f n
-
-f n
-==> g n
-==> f n
 
 IMPORTANT: The pretty printer is contextual.
 
@@ -59,15 +28,23 @@ lot of annoying code, so I've decided to make it non-contextual.
 This means we can't do things like put the context into the Efn, change Eidents
 to Econstrs, etc, but this can be done in a later pass.
 
+All function values come equipped with their own reference cell for whether or
+not they have been broken. Then, upon breaking a function, that flag will be set
+for every copy, including the recursive copies within the special closures for
+mutually recursive functions.
 
+This means that breaking functions persists beyond names, but are attached to
+the exact function value.
 
-I did a naive solution to break functions.
-When you say you want to break a function `f`, you just set a flag on the value
-bound to the identifier `f` at that stage in the function.
-Then, when that value is used for function application, the program is
-appropriately halted.
-This relies on the fact that every invocation of the broken function always
-corresponds to that value, however. This is not the case for mutually recursive
-functions.
-
+KNOWN ISSUES:
+- Types don't exist yet
+- Constructor and exception generativity doesn't exist, matching happens only on
+  the basis of names.
+- Equality is not yet implemented.
+- It looks like shit
+- should probably stop before entering a Let body
+- Sources in CM files are processed in linear order, which may not be correct.
+  For full correctness, they should be processed to determine the dependency
+  graph, and then an ordering selected from there.
+- No support for .mlb files
 

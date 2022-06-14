@@ -1,7 +1,7 @@
 
 structure TempId :
   sig
-    val new : unit -> SMLSyntax.symbol
+    val new : unit -> Symbol.symbol
   end =
   struct
     val counter = ref 0

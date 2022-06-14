@@ -12,28 +12,51 @@ val _ =
   in
     f (x, y + 3)
   end
+
+  factCPS (1 - 1) SOME
+
+  ((fn n => fn k => ....) (1 - 1)) SOME
 *)
 
+datatype tree = Empty | Node of tree * int * tree
+fun treeSum Empty = 0
+  | treeSum (Node (t1, i, t2)) = treeSum t1 + i + treeSum t2
 
-val _ = [op +, op -]
-val x = 1 + 2 * 1 + 4 * 5
-infix x
+val _ =
+  (treeSum Empty, 0 + 1)
 
-fun a x b = a * b
+val _ =
+  treeSum (Node (Node (Node (Empty, 3, Empty), 5, Empty), 10, Node (Node (Empty,
+  2, Empty), 9, Node (Empty, 5, Node (Empty, 4, Empty)))))
 
-val a = 2
+fun factCPS n k =
+  case n of
+    0 => k 1
+  | _ => factCPS (n - 1) (fn res => k (res * n))
 
-val _ = 4 x 5
+val _ = factCPS 2 SOME
 
-val _ = a + a
+val x = 1
+structure Foo =
+  struct
+    val x = x + 1
 
-val b = (case 5 of a => a + 4 + 5)
+    structure Bar =
+      struct
+        val x = x + 1
 
-val _ = a + a
+        val _ = x + x
+      end
 
-val _ = (fn (0, a) => 2 | (b, _) => b + 3) (1, 2)
+    val _ = x + Bar.x
+  end
 
-val _ = b + 3
+val _ = x + Foo.x + Foo.Bar.x
+
+fun f x = 2 * x
+and h x = 1 + f x
+
+val _ = h 2 + h 4
 
 val y =
   ( 2 + 1

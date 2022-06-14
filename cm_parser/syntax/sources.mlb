@@ -1,0 +1,7 @@
+local
+  ../../util/sources.mlb
+
+  token.sml
+in
+  structure CM_Token
+end

@@ -11,6 +11,8 @@ sig
   val empty: doc
   val text: TerminalColors.color -> string -> doc
 
+  val bold: doc -> doc
+
   val beside: doc * doc -> doc
   val aboveOrSpace: doc * doc -> doc
   val aboveOrBeside: doc * doc -> doc
@@ -32,7 +34,7 @@ struct
   datatype doc =
     Empty
   | Space of bool
-  | Text of string * TerminalColors.color
+  | Text of string * TerminalColors.color * bool
   | Beside of doc * doc
   | Above of bool * doc * doc
   | Choice of {flattened: (bool * doc * int * bool), normal: doc}
@@ -44,8 +46,21 @@ struct
   val empty = Empty
   val space = Space true
   val softspace = Space false
-  val text = fn color => fn s => Text (s, color)
+  val text = fn color => fn s => Text (s, color, false)
 
+  fun bold doc =
+    case doc of
+      Empty => doc
+    | Space _ => doc
+    | Text (s, c1, _) => Text (s, c1, true)
+    | Beside (d1, d2) =>
+        Beside (bold d1, bold d2)
+    | Above (b, d1, d2) =>
+        Above (b, bold d1, bold d2)
+    | Choice {flattened = (b, d, i, b2), normal} =>
+        Choice { flattened = (b, bold d, i, b2)
+               , normal = bold normal
+               }
 
   fun beside (doc1, doc2) =
     case (doc1, doc2) of
@@ -72,8 +87,8 @@ struct
             (false, Empty, 0, false)
         | Space keepSpace =>
             (keepSpace, Empty, 0, keepSpace)
-        | Text (str, color) =>
-            (false, Text (str, color), String.size str, false)
+        | Text (str, color, color2) =>
+            (false, Text (str, color, color2), String.size str, false)
         | Beside (d1, d2) =>
             loopBeside (d1, d2)
         | Above (withSpace, d1, d2) =>
@@ -138,11 +153,11 @@ struct
             , col + 1
             , " " :: acc
             )
-        | Text (str, color) =>
+        | Text (str, color, b2) =>
             ( lnStart
             , col + String.size str
             , if b then
-                TC.foreground color ^ str ^ TC.reset :: acc
+                (if b2 then TC.bold else "") ^ TC.foreground color ^ str ^ TC.reset :: acc
               else
                 str :: acc
             )

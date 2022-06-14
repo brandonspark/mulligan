@@ -13,6 +13,8 @@ structure Token =
       | CLEAR
       | PRINT
       | ASSIGN
+      | REPORT
+      | LAST
 
       | EQUAL
       | SET
@@ -34,6 +36,8 @@ structure Token =
       | CLEAR => "CLEAR"
       | PRINT => "PRINT"
       | ASSIGN => "ASSIGN"
+      | REPORT => "REPORT"
+      | LAST => "LAST"
       | EOF => "EOF"
 
   end
