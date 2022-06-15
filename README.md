@@ -4,7 +4,7 @@
 the semantics of SML at a fine granularity for inspection purposes.
 
 Has rudimentary support for SML/NJ CM files, allowing analysis of entire SML/NJ
-projects.
+mdprojects.
 
 ## Usage
 
@@ -27,6 +27,8 @@ and thus always evaluates the source files _in order of listing_.
 Upon evaluating a particular program, `mulligan` takes the user into an
 interactive loop, in which the user can take a variety of actions to manipulate
 the program state.
+
+![image](https://user-images.githubusercontent.com/49291449/173885877-307a3220-7526-4e0f-bfd5-0730b80d894d.png)
 
 The commands `step` and `prev` allow the user to step through execution, until
 the next "significant event". Significant events include stepping of a
