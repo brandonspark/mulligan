@@ -5,4 +5,4 @@ smldebug: $(SOURCES)
 
 .PHONY: clean
 clean:
-	rm -f demo smlfmt
+	rm -f mulligan
