@@ -47,4 +47,6 @@ KNOWN ISSUES:
   For full correctness, they should be processed to determine the dependency
   graph, and then an ordering selected from there.
 - No support for .mlb files
+- Substitution does not work properly for referring to bindings in a module that
+  is currently being evaluated
 

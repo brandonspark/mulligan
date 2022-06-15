@@ -1,0 +1,20 @@
+local
+  ../../parse-sml/src/base/sources.mlb
+  ../../parse-sml/src/ast/sources.mlb
+  ../../parse-sml/src/ast/AstType.sml
+  ../../parse-sml/src/parse/sources.mlb
+in
+  structure Ast
+  structure ParseSMLError = Error
+  structure Seq
+  structure Token
+  structure MaybeLongToken
+end
+
+$(SML_LIB)/basis/basis.mlb
+
+../util/sources.mlb
+../../cmlib/cmlib.mlb
+
+sml-syntax.sml
+elaborate.sml

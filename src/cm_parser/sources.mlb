@@ -1,0 +1,7 @@
+local
+  syntax/sources.mlb
+  parse/sources.mlb
+in
+  structure CM_Token
+  structure CM_Parser
+end

@@ -1,0 +1,26 @@
+$(SML_LIB)/basis/basis.mlb
+
+../util/sources.mlb
+../../cmlib/cmlib.mlb
+../parse/sources.mlb
+../syntax/sources.mlb
+../context/sources.mlb
+../pretty-print/sources.mlb
+../debugger/sources.mlb
+../cm_parser/sources.mlb
+
+local
+  ../../parse-sml/src/base/sources.mlb
+  ../../parse-sml/src/parse/sources.mlb
+  ../../parse-sml/src/syntax-highlighting/sources.mlb
+in
+  structure ParseSMLError = Error
+  structure Parser
+  structure FilePath
+  structure Source
+  structure TCS = TerminalColorString
+  structure SyntaxHighlighter
+  structure CommandLineArgs
+end
+
+top.sml
