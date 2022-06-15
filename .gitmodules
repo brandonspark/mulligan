@@ -1,3 +1,6 @@
 [submodule "parse-sml"]
 	path = parse-sml
 	url = https://github.com/shwestrick/parse-sml.git
+[submodule "cmlib"]
+  path = cmlib
+  url = https://github.com/standardml/cmlib
