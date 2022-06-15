@@ -4,7 +4,7 @@
 the semantics of SML at a fine granularity for inspection purposes.
 
 Has rudimentary support for SML/NJ CM files, allowing analysis of entire SML/NJ
-mdprojects.
+projects.
 
 ## Usage
 
