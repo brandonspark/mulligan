@@ -16,7 +16,7 @@ functor ParserFun
           val report : symbol -> directive
           val change_setting_num : symbol * int -> directive
           val change_setting : symbol * symbol -> directive
-          val break_assign : symbol -> directive
+          val break_bind : symbol -> directive
           val sym_print : symbol -> directive
           val sym_clear : symbol -> directive
           val bare_clear : unit -> directive
@@ -41,7 +41,7 @@ functor ParserFun
            | RUN
            | CLEAR
            | PRINT
-           | ASSIGN
+           | BIND
            | REPORT
            | LAST
            | HELP
@@ -73,7 +73,7 @@ start -> . Main  / 0
 7 : Directive -> . CLEAR  / 1
 8 : Directive -> . CLEAR SYMBOL  / 1
 9 : Directive -> . PRINT SYMBOL  / 1
-10 : Directive -> . BREAK ASSIGN SYMBOL  / 1
+10 : Directive -> . BREAK BIND SYMBOL  / 1
 11 : Directive -> . SET SYMBOL EQUAL SYMBOL  / 1
 12 : Directive -> . SET SYMBOL EQUAL NUM  / 1
 13 : Directive -> . REPORT SYMBOL  / 1
@@ -119,10 +119,10 @@ EOF => reduce 17
 State 3:
 
 6 : Directive -> BREAK . SYMBOL  / 1
-10 : Directive -> BREAK . ASSIGN SYMBOL  / 1
+10 : Directive -> BREAK . BIND SYMBOL  / 1
 
 SYMBOL => shift 17
-ASSIGN => shift 16
+BIND => shift 16
 
 -----
 
@@ -233,7 +233,7 @@ $ => reduce 18
 
 State 16:
 
-10 : Directive -> BREAK ASSIGN . SYMBOL  / 1
+10 : Directive -> BREAK BIND . SYMBOL  / 1
 
 SYMBOL => shift 25
 
@@ -306,7 +306,7 @@ EOF => reduce 15
 
 State 25:
 
-10 : Directive -> BREAK ASSIGN SYMBOL .  / 1
+10 : Directive -> BREAK BIND SYMBOL .  / 1
 
 EOF => reduce 10
 
@@ -370,7 +370,7 @@ Arg.NUM x => (1, Value.int x)
 | Arg.RUN => (10, Value.nonterminal)
 | Arg.CLEAR => (11, Value.nonterminal)
 | Arg.PRINT => (12, Value.nonterminal)
-| Arg.ASSIGN => (13, Value.nonterminal)
+| Arg.BIND => (13, Value.nonterminal)
 | Arg.REPORT => (14, Value.nonterminal)
 | Arg.LAST => (15, Value.nonterminal)
 | Arg.HELP => (16, Value.nonterminal)
@@ -391,7 +391,7 @@ Vector.fromList [(0,1,(fn _::rest => Value.directive(Arg.step {})::rest|_=>raise
 (0,1,(fn _::rest => Value.directive(Arg.bare_clear {})::rest|_=>raise (Fail "bad parser"))),
 (0,2,(fn Value.symbol(arg0)::_::rest => Value.directive(Arg.sym_clear arg0)::rest|_=>raise (Fail "bad parser"))),
 (0,2,(fn Value.symbol(arg0)::_::rest => Value.directive(Arg.sym_print arg0)::rest|_=>raise (Fail "bad parser"))),
-(0,3,(fn Value.symbol(arg0)::_::_::rest => Value.directive(Arg.break_assign arg0)::rest|_=>raise (Fail "bad parser"))),
+(0,3,(fn Value.symbol(arg0)::_::_::rest => Value.directive(Arg.break_bind arg0)::rest|_=>raise (Fail "bad parser"))),
 (0,4,(fn Value.symbol(arg0)::_::Value.symbol(arg1)::_::rest => Value.directive(Arg.change_setting {2=arg0,1=arg1})::rest|_=>raise (Fail "bad parser"))),
 (0,4,(fn Value.int(arg0)::_::Value.symbol(arg1)::_::rest => Value.directive(Arg.change_setting_num {2=arg0,1=arg1})::rest|_=>raise (Fail "bad parser"))),
 (0,2,(fn Value.symbol(arg0)::_::rest => Value.directive(Arg.report arg0)::rest|_=>raise (Fail "bad parser"))),

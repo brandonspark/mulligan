@@ -54,24 +54,20 @@ structure Debugger :
     infix |>
     fun x |> f = f x
 
-    (* We want to be able to reconstruct the location of the evaler, once we
-     * focus in on a particular area.
+    (* A focus represents what the debugger is currently looking at.
      *
-     * If we're in an expression, we may have a lot of expressions to back out
-     * of.
-     *
-     * If we're in a declaration, we must be in a sequence or local.
-     *
-     * If we're in a strdec, we must be in a DMseq (in a structure).
-     *
-     * If we're in a topdec, we must be at the top-level program.
+     * In the VAL and EXP cases, it also contains a first-class continuation to
+     * be used to jump back into the evaluation of the program.
      *)
-
     datatype focus =
        VAL of SMLSyntax.exp * Context.value * Context.value Cont.t
      | EXP of SMLSyntax.exp * Context.value Cont.t
      | PROG of SMLSyntax.ast
 
+    (* Using the idea of algebraic effects, the debugger performs certain
+     * actions, which allow it to briefly dip into the interactive loop, before
+     * resuming computation of the debugger again.
+     *)
     datatype perform =
         Step of
           { context : Context.t
@@ -89,6 +85,9 @@ structure Debugger :
       | x::xs =>
           iter_list f (f (x, xs, z)) xs
 
+    (* Check if these bindings are supposed to be breakpoints when
+     * bound to.
+     *)
     fun break_check_ids ctx bindings =
       let
         val break_assigns = !(Context.get_break_assigns ctx)
@@ -110,17 +109,13 @@ structure Debugger :
            )
       end
 
-    (* Given an expression with a hole (Ehole) in it, checkpoint will signal to
-     * the handler that we have focused on this expression, within that hole
-     * context. We will evaluate that expression to a value, and then signal
-     * that we are done.
+    (* checkpoint will signal to the handler that we have focused on the
+     * given expression, within the given location context.
+     * We will evaluate that expression to a value, and then return it.
      *)
     fun checkpoint location exp ctx break =
       let
-        (* This first callcc is a `true` EXP, meaning that it will simply
-         * recurse evaling.
-         *
-         * We essentially change focus to this sub-expression, until it returns a
+        (* We essentially change focus to this sub-expression, until it returns a
          * value.
          *)
         val new_value =
@@ -153,10 +148,6 @@ structure Debugger :
     fun eval location exp ctx cont =
       let
         fun eval' ehole exp ctx =
-          eval (ehole :: location) exp ctx cont
-
-        fun checkpoint' ehole exp ctx =
-          (* checkpoint (EHOLE ehole :: location) exp ctx false *)
           Cont.callcc (fn cont =>
             ( eval (EHOLE ehole :: location) exp ctx cont
             ; raise Fail "can't get here"
@@ -176,8 +167,8 @@ structure Debugger :
                     val left_exps =
                       List.map Value.value_to_exp left
                     val new_value =
-                      checkpoint'
-                        ((mk_exp (List.rev left_exps, right')))
+                      eval'
+                        (mk_exp (List.rev left_exps, right'))
                         exp
                         ctx
                   in
@@ -244,38 +235,37 @@ structure Debugger :
         | Eseq [] => raise Fail "empty eseq"
         | Eseq [exp] => eval location exp ctx cont
         | Eseq (exp::rest) =>
-            ( checkpoint' (Eseq (Ehole :: rest)) exp ctx
+            ( eval' (Eseq (Ehole :: rest)) exp ctx
             ; redex location (Eseq rest) ctx cont
             )
         | Elet {dec, exps} =>
             let
               val new_ctx = eval_dec (ELET (exps) :: location) dec ctx
             in
+              (* For the pretty printer's benefit, we have to be able to
+               * remember that when printing out the context surrounding the
+               * let-expression, we must forget all the bindings that only exist
+               * within the let.
+               *
+               * So we put a CLOSURE into the location, so that we reset our
+               * context when printing outwards.
+               *)
               case exps of
                 [] => raise Fail "impossible, empty exps in elet"
               | [exp] => eval (CLOSURE ctx :: location) exp new_ctx cont
               | exps => eval (CLOSURE ctx :: location) (Eseq exps) new_ctx cont
             end
-        | Eparens exp =>
-            eval
-              location
-              exp
-              ctx
-              cont
+        | Eparens exp => eval location exp ctx cont
         | Eapp {left, right} =>
             let
               val left =
-                checkpoint' (Eapp {left = Ehole, right = right}) left ctx
+                eval' (Eapp {left = Ehole, right = right}) left ctx
               val right =
-                checkpoint' (Eapp {left = Value.value_to_exp left, right = Ehole}) right ctx
+                eval' (Eapp {left = Value.value_to_exp left, right = Ehole}) right ctx
             in
               case (left, right) of
                 (constr as Vconstr {id, arg = NONE}, v) =>
-                  throw ( Vconstr
-                            { id = id
-                            , arg = SOME v
-                            }
-                        )
+                  throw (Vconstr { id = id, arg = SOME v})
               | (Vfn {matches, env, rec_env, break}, v) =>
                   ( let
                       val (bindings, new_ctx, new_exp) =
@@ -304,9 +294,10 @@ structure Debugger :
                      (fn {lab, ...} => Symbol.eq (lab, sym))
                      fields
                    |> (fn NONE =>
-                        eval_err ("Selecting nonexistent field " ^
-                        lightblue (Symbol.toValue sym) ^ " from record " ^
-                        PrettyPrintAst.print_value ctx right)
+                        eval_err ( "Selecting nonexistent field "
+                                 ^ lightblue (Symbol.toValue sym)
+                                 ^ " from record "
+                                 ^ PrettyPrintAst.print_value ctx right)
                       | SOME ans => ans
                       )
                    |> #value
@@ -321,12 +312,12 @@ structure Debugger :
         | Einfix {left, id, right} =>
             let
               val left =
-                checkpoint'
+                eval'
                   (Einfix {left = Ehole, id = id, right = right})
                   left
                   ctx
               val right =
-                checkpoint'
+                eval'
                   (Einfix {left = Value.value_to_exp left, id = id, right = Ehole})
                   right
                   ctx
@@ -371,28 +362,26 @@ structure Debugger :
                         ( "+"
                         | "-"
                         | "*"
-                        | "div" ) =>
-                          throw (f (Vtuple [left, right]))
+                        | "div" ) => throw (f (Vtuple [left, right]))
                       | _ =>
                         redex_value location (f (Vtuple [left, right])) ctx cont
                       )
                   end
               | _ =>
                   eval_err
-                    ("Infix identifier bound to invalid value " ^ PrettyPrintAst.print_value
-                    ctx value
-                    )
+                    ( "Infix identifier bound to invalid value "
+                    ^ PrettyPrintAst.print_value ctx value)
             end
         | Etyped {exp, ...} => eval location exp ctx cont
         | Eandalso {left, right} =>
             let
               val left =
-                checkpoint'
+                eval'
                   (Eandalso {left = Ehole, right = right})
                   left
                   ctx
               val right =
-                checkpoint'
+                eval'
                   (Eandalso {left = Value.value_to_exp left, right = Ehole})
                   right
                   ctx
@@ -426,12 +415,12 @@ structure Debugger :
         | Eorelse {left, right} =>
             let
               val left =
-                checkpoint'
+                eval'
                   (Eorelse {left = Ehole, right = right})
                   left
                   ctx
               val right =
-                checkpoint'
+                eval'
                   (Eorelse {left = Value.value_to_exp left, right = Ehole})
                   right
                   ctx
@@ -464,7 +453,7 @@ structure Debugger :
             end
         | Ehandle {exp = exp', matches} =>
             ( throw
-                (checkpoint' (Ehandle {exp = Ehole, matches = matches}) exp' ctx)
+                (eval' (Ehandle {exp = Ehole, matches = matches}) exp' ctx)
               handle Context.Raise value =>
                 ( let
                     val (bindings, new_ctx, exp) = Value.match_against ctx matches value
@@ -477,7 +466,7 @@ structure Debugger :
                 )
             )
         | Eraise exp =>
-            (case checkpoint' (Eraise Ehole) exp ctx of
+            (case eval' (Eraise Ehole) exp ctx of
               (constr as Vconstr _) => (raise Context.Raise constr)
             | (constr as Vinfix _) => raise Context.Raise constr
             | value =>
@@ -487,7 +476,7 @@ structure Debugger :
             )
         | Eif {exp1, exp2, exp3} =>
             (case
-              checkpoint'
+              eval'
                 (Eif {exp1 = Ehole, exp2 = exp2, exp3 = exp3})
                 exp1
                 ctx
@@ -511,7 +500,7 @@ structure Debugger :
               (* TODO later when adding mutable state *)
               val value =
                 (* This won't be right, because ctx will never change. *)
-                checkpoint' (Ewhile {exp1 = Ehole, exp2 = exp2}) exp1 ctx
+                eval' (Ewhile {exp1 = Ehole, exp2 = exp2}) exp1 ctx
             in
               ( while
                   (case value of
@@ -537,7 +526,7 @@ structure Debugger :
         | Ecase {exp, matches} =>
             ( let
                 val value =
-                  checkpoint' (Ecase {exp = Ehole, matches = matches}) exp ctx
+                  eval' (Ecase {exp = Ehole, matches = matches}) exp ctx
                 val (bindings, new_ctx, new_exp) =
                   Value.match_against ctx matches value
 
@@ -559,13 +548,6 @@ structure Debugger :
         | Efn (matches, SOME _) =>
             raise Fail "shouldn't eval an Efn with a closure"
         | Ehole => raise Fail "shouldn't happen, evaling Ehole"
-      end
-
-    and redex_break location exp ctx cont =
-      let
-        val new_value = checkpoint location exp ctx true
-      in
-        Cont.throw cont new_value
       end
 
     (* This function is used on the expression resulting immediately from

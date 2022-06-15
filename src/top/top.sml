@@ -284,11 +284,12 @@ structure Top =
                     start_loop info
                   end
                 )
-            | SOME (Directive.BreakAssign s) =>
+            | SOME (Directive.BreakBind s) =>
                 let
                   val break_assigns = Context.get_break_assigns ctx
                 in
-                  ( print ("Breaking assignment to identifier " ^ orange (Symbol.toValue s) ^ "\n")
+                  ( print ("Breakpoint set on bindings to identifier "
+                          ^ orange (Symbol.toValue s) ^ "\n")
                   ; break_assigns := SymSet.insert (!break_assigns) s
                   )
                   |> recur
@@ -332,7 +333,7 @@ structure Top =
                             Context.set_substitute ctx b
                         | ("print_dec", SOME b) =>
                             #print_dec (Context.get_settings ctx) := b
-                        | _ => print "Unrecognized setting"
+                        | _ => print "Unrecognized setting."
                         )
                     | ("print_depth", Directive.NUM i) =>
                         #print_depth (Context.get_settings ctx) := i

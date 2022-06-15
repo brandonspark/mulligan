@@ -12,7 +12,7 @@ structure Token =
       | RUN
       | CLEAR
       | PRINT
-      | ASSIGN
+      | BIND
       | REPORT
       | LAST
       | HELP
@@ -36,7 +36,7 @@ structure Token =
       | RUN => "RUN"
       | CLEAR => "CLEAR"
       | PRINT => "PRINT"
-      | ASSIGN => "ASSIGN"
+      | BIND => "BIND"
       | REPORT => "REPORT"
       | LAST => "LAST"
       | HELP => "HELP"

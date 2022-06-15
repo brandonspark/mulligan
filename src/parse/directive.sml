@@ -11,7 +11,7 @@ structure Directive =
       | Stop
       | Prev of int option
       | Break of Symbol.symbol
-      | BreakAssign of Symbol.symbol
+      | BreakBind of Symbol.symbol
       | Run
       | Clear of Symbol.symbol option
       | Print of Symbol.symbol

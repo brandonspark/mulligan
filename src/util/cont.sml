@@ -28,9 +28,7 @@ structure Cont :>
       end
 
     fun throw (i, cont) v =
-      ( print ("Throwing to cont " ^ Int.toString i ^ "\n")
-      ; MLton.Cont.throw (cont, v)
-      )
+      MLton.Cont.throw (cont, v)
 
     fun get_id (i, _) = i
   end

@@ -48,7 +48,7 @@ structure Lexer :> LEXER =
           , ("run", RUN)
           , ("clear", CLEAR)
           , ("print", PRINT)
-          , ("assign", ASSIGN)
+          , ("bind", BIND)
           , ("report", REPORT)
           , ("last", LAST)
           , ("help", HELP)

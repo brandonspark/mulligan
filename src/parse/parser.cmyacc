@@ -13,7 +13,7 @@ terminal BREAK
 terminal RUN
 terminal CLEAR
 terminal PRINT
-terminal ASSIGN
+terminal BIND
 terminal REPORT
 terminal LAST
 terminal HELP
@@ -30,7 +30,7 @@ nonterminal Directive : directive =
   CLEAR => bare_clear
   CLEAR 1:SYMBOL => sym_clear
   PRINT 1:SYMBOL => sym_print
-  BREAK ASSIGN 1:SYMBOL => break_assign
+  BREAK BIND 1:SYMBOL => break_bind
   SET 1:SYMBOL EQUAL 2:SYMBOL => change_setting
   SET 1:SYMBOL EQUAL 2:NUM => change_setting_num
   REPORT 1:SYMBOL => report
