@@ -1,8 +1,0 @@
-$(SML_LIB)/basis/basis.mlb
-
-../syntax/sources.mlb
-../context/sources.mlb
-../pretty-print/sources.mlb
-../util/sources.mlb
-
-debugger.sml
