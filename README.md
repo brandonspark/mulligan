@@ -35,10 +35,10 @@ the next "significant event". Significant events include stepping of a
 sub-expression, function application, and binding to an identifier, among
 others. Some of these may be adjusted in the loop.
 
-By default, `mulligan` will display only the focused sub-expression (within 1
-layer of context). This can be confusing, so the `reveal <i>` command allows one
-to see the surrounding context for the currently evaluated expresison, up to
-`<i>` layers deep.
+By default, while stepping `mulligan` will display the surrounding context until the
+nearest declaration site. This can make it confusing which expression is currently being focused,
+so the `reveal <i>` command allows one to see the surrounding context for the currently
+evaluated expresison, up to `<i>` layers deep.
 
 `mulligan` also allows you to print the value bound to a particular identifier,
 via the command `print <id>`.
