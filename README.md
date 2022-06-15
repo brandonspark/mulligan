@@ -28,7 +28,7 @@ Upon evaluating a particular program, `mulligan` takes the user into an
 interactive loop, in which the user can take a variety of actions to manipulate
 the program state.
 
-![image](https://user-images.githubusercontent.com/49291449/173885877-307a3220-7526-4e0f-bfd5-0730b80d894d.png)
+![image](https://user-images.githubusercontent.com/49291449/173885994-eb307939-1c08-41be-a879-ea9d900773ca.png)
 
 The commands `step` and `prev` allow the user to step through execution, until
 the next "significant event". Significant events include stepping of a
