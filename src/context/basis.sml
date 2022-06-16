@@ -24,6 +24,58 @@ structure Basis :
         SymDict.empty
         l
 
+    fun convert b =
+      if b then
+        Vconstr {id = [sym_true], arg = NONE}
+      else
+        Vconstr {id = [sym_false], arg = NONE}
+
+    fun poly_eq v1 v2 =
+      case (v1, v2) of
+        (Vnumber (Int i1), Vnumber (Int i2)) => i1 = i2
+      | (Vnumber (Word w1), Vnumber (Word w2)) => w1 = w2
+      | (Vstring s1, Vstring s2) => Symbol.eq (s1, s2)
+      | (Vchar c1, Vchar c2) => c1 = c2
+      | (Vrecord fields1, Vrecord fields2) =>
+          let
+            fun subset fields1 fields2 =
+              List.foldl
+                (fn ({lab, value}, acc) =>
+                  acc andalso
+                  (case List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields2 of
+                    NONE => false
+                  | SOME {value = value', ...} => poly_eq value value'
+                  )
+                )
+                true
+                fields1
+          in
+            subset fields1 fields2 andalso subset fields2 fields1
+          end
+      | (Vunit, Vunit) => true
+      | (Vconstr {id, arg}, Vconstr {id = id', arg = arg'}) =>
+          longid_eq (id, id') andalso
+          (case (arg, arg') of
+            (NONE, NONE) => true
+          | (SOME v, SOME v') => poly_eq v v'
+          | _ => false
+          )
+      | (Vselect sym, Vselect sym') => Symbol.eq (sym, sym')
+      | (Vtuple vs1, Vtuple vs2) =>
+          ListPair.allEq (fn (v, v') => poly_eq v v') (vs1, vs2)
+      | (Vlist vs1, Vlist vs2) =>
+          ListPair.allEq (fn (v, v') => poly_eq v v') (vs1, vs2)
+      | (Vinfix {left, id, right}, Vinfix {left=left', id=id', right=right'}) =>
+          poly_eq left left' andalso poly_eq right right' andalso Symbol.eq (id, id')
+      | (Vfn _, _) => prog_err "= called on function value"
+      | (_, Vfn _) => prog_err "= called on function value"
+      | (Vbasis {name, ...}, _) => prog_err "= called on basis function value"
+      | (_, Vbasis {name, ...}) => prog_err "= called on basis function value"
+      | _ => false
+
+    val poly_eq = fn v1 => fn v2 => convert (poly_eq v1 v2)
+
+
     (* TODO: word stuff *)
     val initial_values =
       [ ( "+"
@@ -129,6 +181,11 @@ structure Basis :
         , (fn Vnumber (Int i) => Vnumber (Int (~i))
           | Vnumber (Real i) => Vnumber (Real (~i))
           | _ => eval_err "invalid arg to `~`"
+          )
+        )
+      , ( "="
+        , (fn Vtuple [left, right] => poly_eq left right
+          | _ => eval_err "invalid arg to `=`"
           )
         )
       ]
