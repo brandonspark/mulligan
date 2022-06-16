@@ -77,3 +77,7 @@ ML".
 
 Also, this debugger allows you to rewind and redo evaluation of a program, and a
 mulligan is a term for redoing an action in a game.
+
+# License
+
+The included LICENSE file is the license for this project.
