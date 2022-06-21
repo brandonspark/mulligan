@@ -2,6 +2,16 @@
 structure Basis :
   sig
     val initial : SMLSyntax.context
+
+    val bool_ty : SMLSyntax.tyval
+    val int_ty : SMLSyntax.tyval
+    val string_ty : SMLSyntax.tyval
+    val real_ty : SMLSyntax.tyval
+    val char_ty : SMLSyntax.tyval
+    val unit_ty : SMLSyntax.tyval
+    val exn_ty : SMLSyntax.tyval
+    val list_tyid : TyId.t
+    val option_tyid : TyId.t
   end =
   struct
     open SMLSyntax
@@ -16,12 +26,47 @@ structure Basis :
     val sym_true = sym "true"
     val sym_false = sym "false"
 
+    val alpha = TVtyvar (sym "'a")
+    val beta = TVtyvar (sym "'b")
+
+    fun nullary tyid = TVapp ([], tyid)
+
+    fun forall_none_tyval tyval =
+      ( 0
+      , fn [] => tyval
+       | _ =>
+          prog_err "incorrect arity for tycon"
+      )
+    fun forall_none tyid =
+      ( 0
+      , fn [] => nullary tyid
+       | _ =>
+          prog_err "incorrect arity for tycon"
+      )
+
+
+    fun forall_single f =
+      ( 1
+      , fn tyvals =>
+        case tyvals of
+          [x] => f x
+        | _ => prog_err "incorrect arity to instantiate tycon"
+      )
+
     fun dict_from_list l =
       List.foldl
         (fn ((key, elem), dict) =>
           SymDict.insert dict key elem
         )
         SymDict.empty
+        l
+
+    fun tyid_dict_from_list l =
+      List.foldl
+        (fn ((key, elem), dict) =>
+          TyIdDict.insert dict key elem
+        )
+        TyIdDict.empty
         l
 
     fun convert b =
@@ -75,41 +120,154 @@ structure Basis :
 
     val poly_eq = fn v1 => fn v2 => convert (poly_eq v1 v2)
 
+    (* Types *)
+
+    val int_tyid = TyId.new ()
+    val int_ty = nullary int_tyid
+    val string_tyid = TyId.new ()
+    val string_ty = nullary string_tyid
+    val char_tyid = TyId.new ()
+    val char_ty = nullary char_tyid
+    val real_tyid = TyId.new ()
+    val real_ty = nullary real_tyid
+    val unit_tyid =TyId.new ()
+    val unit_ty = nullary unit_tyid
+
+    val exn_tyid = TyId.new ()
+
+    val option_info as (option_tyid, _, option_cons) =
+      let
+        val self_tyid = TyId.new ()
+      in
+        ( self_tyid
+        , 1
+        , [ ("SOME", forall_single (fn var => TVarrow (var, TVapp ([var],self_tyid))))
+          , ("NONE", forall_single (fn var => TVapp ([var], self_tyid)))
+          ]
+        )
+      end
+    val order_info as (order_tyid, _, order_cons) =
+      let
+        val self_tyid = TyId.new ()
+      in
+        ( self_tyid
+        , 0
+        , [ ("LESS", forall_none self_tyid)
+          , ("EQUAL", forall_none self_tyid)
+          , ("GREATER", forall_none self_tyid)
+          ]
+        )
+      end
+    val list_info as (list_tyid, _, list_cons) =
+      let
+        val self_tyid = TyId.new ()
+        fun listof var = TVapp ([var], self_tyid)
+      in
+        ( self_tyid
+        , 1
+        , [ ("::", forall_single (fn var => TVarrow (TVprod [var, listof var], listof var)))
+          , ("nil", forall_single (fn var => listof var))
+          ]
+        )
+      end
+    val bool_info as (bool_tyid, _, bool_cons) =
+      let
+        val self_tyid = TyId.new()
+      in
+        ( self_tyid
+        , 0
+        , [ ("true", forall_none self_tyid)
+          , ("false", forall_none self_tyid)
+          ]
+        )
+      end
+
+    val bool_ty = nullary bool_tyid
+    val exn_ty = nullary exn_tyid
+
+    val initial_tynames =
+      [ ("int", Scheme (forall_none int_tyid))
+      , ("string", Scheme (forall_none string_tyid))
+      , ("char", Scheme (forall_none char_tyid))
+      , ("real", Scheme (forall_none real_tyid))
+      , ("bool", Datatype bool_tyid)
+      , ("order", Datatype order_tyid)
+      , ("list", Datatype list_tyid)
+      , ("option", Datatype option_tyid)
+      , ("exn", Scheme (forall_none exn_tyid))
+      , ("unit", Scheme (forall_none unit_tyid))
+      ]
+      |> List.map (fn (id, tyscheme) => (sym id, tyscheme))
+
+    val (initial_tys, initial_cons_pair) =
+      [ option_info
+      , order_info
+      , list_info
+      , bool_info
+      ]
+      |> List.map
+           (fn (tyid, arity, cons) =>
+             ( ( tyid
+               , { arity = arity
+                 , cons =
+                     List.map
+                       (fn (id, type_scheme) =>
+                         {id = sym id, tyscheme = type_scheme}
+                       )
+                       cons
+                 }
+               )
+             , List.map (fn (x, y) => ((sym x, C tyid), (sym x, (Csign, y)))) cons
+             )
+           )
+      |> ListPair.unzip
+      |> (fn (tys, cons_tys_lists) => (tys, List.concat cons_tys_lists))
+
+    val (initial_cons, initial_cons_tys) = ListPair.unzip initial_cons_pair
+
+
+    (* Values *)
 
     (* TODO: word stuff *)
-    val initial_values =
+    val (initial_values, initial_values_tys) =
       [ ( "+"
         , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 + i2))
           | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 + r2))
           | _ => eval_err "invalid args to +"
           )
+        , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "-"
         , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 - i2))
           | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 - r2))
           | _ => eval_err "invalid args to -"
           )
+        , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "*"
         , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 * i2))
           | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 * r2))
           | _ => eval_err "invalid args to *"
           )
+        , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "div"
         , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 div i2))
           | _ => eval_err "invalid args to div"
           )
+        , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "mod"
         , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 mod i2))
           | _ => eval_err "invalid args to div"
           )
+        , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "/"
         , (fn Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 / r2))
           | _ => eval_err "invalid args to /"
           )
+        , TVarrow (TVprod [real_ty, real_ty], real_ty)
         )
       , ( "not"
         , (fn Vconstr {id = [x], arg = NONE} =>
@@ -121,52 +279,62 @@ structure Basis :
               eval_err "invalid arg to `not`"
           | _ => eval_err "invalid arg to `not`"
           )
+        , TVarrow (bool_ty, bool_ty)
         )
       , ( "^"
         , (fn Vtuple [Vstring s1, Vstring s2] =>
               Vstring (Symbol.fromValue (Symbol.toValue s1 ^ Symbol.toValue s2))
           | _ => eval_err "invalid args to ^"
           )
+        , TVarrow (string_ty, string_ty)
         )
       , ( "chr"
         , (fn Vnumber (Int i) => Vchar (Char.chr i)
           | _ => eval_err "invalid args to `chr`"
           )
+        , TVarrow (int_ty, char_ty)
         )
       , ( "explode"
         , (fn Vstring s => Vlist (List.map Vchar (String.explode (Symbol.toValue s)))
           | _ => eval_err "invalid args to `explode`"
           )
+        , TVarrow (string_ty, TVapp ([string_ty], list_tyid))
         )
       , ( "floor"
         , (fn Vnumber (Real r) => Vnumber (Int (Real.floor r))
           | _ => eval_err "invalid args to `floor`"
           )
+        , TVarrow (real_ty, int_ty)
         )
       , ( "ord"
         , (fn Vchar c => Vnumber (Int (Char.ord c))
           | _ => eval_err "invalid arg to `ord`"
           )
+        , TVarrow (char_ty, int_ty)
         )
       , ( "real"
         , (fn Vnumber (Int i) => Vnumber (Real (real i))
           | _ => eval_err "invalid arg to `real`"
           )
+        , TVarrow (int_ty, real_ty)
         )
       , ( "size"
         , (fn Vstring s => Vnumber (Int (String.size (Symbol.toValue s)))
           | _ => eval_err "invalid arg to `size`"
           )
+        , TVarrow (string_ty, int_ty)
         )
       , ( "str"
         , (fn Vchar c => Vstring (Symbol.fromValue (str c))
           | _ => eval_err "invalid arg to `str`"
           )
+        , TVarrow (char_ty, string_ty)
         )
       , ( "round"
         , (fn Vnumber (Real r) => Vnumber (Int (round r))
           | _ => eval_err "invalid arg to `round`"
           )
+        , TVarrow (real_ty, int_ty)
         )
       , ( "substring"
         , (fn Vtuple [Vstring s, Vnumber (Int i1), Vnumber (Int i2)] =>
@@ -176,29 +344,51 @@ structure Basis :
             )
           | _ => eval_err "invalid args to `substring`"
           )
+        , TVarrow (TVprod [string_ty, int_ty, int_ty], string_ty)
         )
       , ( "~"
         , (fn Vnumber (Int i) => Vnumber (Int (~i))
           | Vnumber (Real i) => Vnumber (Real (~i))
           | _ => eval_err "invalid arg to `~`"
           )
+        , TVarrow (int_ty, int_ty)
         )
       , ( "="
         , (fn Vtuple [left, right] => poly_eq left right
           | _ => eval_err "invalid arg to `=`"
           )
+        , TVarrow (alpha, alpha) (* TODO: equality types *)
         )
       ]
-      |> List.map (fn (x, y) => (sym x, Vbasis { name = sym x, function = y }))
+      |> List.map
+           (fn (name, value, tyval) =>
+             ( (sym name, V (Vbasis {name = sym name, function = value}))
+             , (sym name, (Vsign, forall_none_tyval tyval))
+             )
+           )
+      |> ListPair.unzip
 
-    val initial_cons =
-      [ "SOME", "NONE", "true", "false", "::", "LESS", "EQUAL", "GREATER",
-         "nil", "Match", "Bind", "Div", "Fail"]
-      |> List.map sym
+    (* Exceptions *)
 
-    val initial_exns =
-      [ "Fail", "Bind", "Match", "Div", "Subscript" ]
-      |> List.map sym
+    fun mk_exn name opt =
+      case opt of
+        NONE => (name, ExnId.new (), exn_ty)
+      | SOME tyval => (name, ExnId.new (), TVarrow (tyval, exn_ty))
+
+    val (initial_exns, initial_exns_tys) =
+      [ mk_exn "Fail" (SOME string_ty)
+      , mk_exn "Bind" NONE
+      , mk_exn "Match" NONE
+      , mk_exn "Div" NONE
+      , mk_exn "Subscript" NONE
+      ]
+      |> List.map
+           (fn (name, value, tyval) =>
+             ( (sym name, E value)
+             , (sym name, (Esign, forall_none_tyval tyval))
+             )
+           )
+      |> ListPair.unzip
 
     val initial_mods = []
 
@@ -229,49 +419,6 @@ structure Basis :
       ]
       |> List.map (fn (x, y) => (sym x, y))
 
-    val initial_tys =
-      [ ( "order"
-        , ( 0
-          , [ ("LESS", NONE)
-            , ("GREATER", NONE)
-            , ("EQUAL", NONE)
-            ]
-          )
-        )
-      , ( "option"
-        , ( 1
-          , [ ("SOME", SOME (Ttyvar (sym "'a")))
-            , ("NONE", NONE)
-            ]
-          )
-        )
-      , ( "list"
-        , ( 1
-          , [ ("::", SOME ( Tprod [ Ttyvar (sym "'a")
-                                  , Tapp ([Ttyvar (sym "'a")], [sym "list"])
-                                  ]
-                          )
-              )
-            , ("nil", NONE)
-            ]
-          )
-        )
-      , ( "unit"
-        , ( 0
-          , [ ("()", NONE) ]
-          )
-        )
-        (* TODO: int, real, types with weird constructors? *)
-      ]
-      |> List.map
-           (fn (tycon, (arity, cons)) =>
-             (sym tycon
-             , { arity = arity
-               , cons = List.map (fn (x, y) => { id = sym x, ty = y }) cons
-               }
-             )
-           )
-
     fun sym_from_list l =
       List.foldl
         (fn (x, acc) =>
@@ -282,12 +429,14 @@ structure Basis :
 
     val initial_scope =
       Scope
-        { valdict = dict_from_list initial_values
-        , condict = sym_from_list initial_cons
-        , exndict = sym_from_list initial_exns
+        { identdict = dict_from_list (initial_values @ initial_cons @ initial_exns)
+        , valtydict =
+            dict_from_list
+              (initial_values_tys @ initial_cons_tys @ initial_exns_tys)
         , moddict = dict_from_list initial_mods
         , infixdict = dict_from_list initial_infix
-        , tydict = dict_from_list initial_tys
+        , tydict = tyid_dict_from_list initial_tys
+        , tynamedict = dict_from_list initial_tynames
         }
 
 
@@ -296,6 +445,7 @@ structure Basis :
       , outer_scopes = []
       , sigdict = SymDict.empty
       , functordict = SymDict.empty
+      , tyvars = SymSet.empty
       , hole_print_fn = fn () => PrettySimpleDoc.text TerminalColors.white "<hole>"
       , settings =
           { break_assigns = ref SymSet.empty

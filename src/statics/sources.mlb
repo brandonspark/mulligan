@@ -2,8 +2,7 @@ $(SML_LIB)/basis/basis.mlb
 
 ../syntax/sources.mlb
 ../context/sources.mlb
-../pretty-print/sources.mlb
+../../cmlib/cmlib.mlb
 ../util/sources.mlb
-../statics/sources.mlb
 
-debugger.sml
+statics.sml

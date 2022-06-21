@@ -13,6 +13,4 @@ structure TempId :
         counter := !counter + 1;
         Symbol.fromValue ("t" ^ Int.toString cur)
       end
-
-
   end

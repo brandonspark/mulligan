@@ -289,9 +289,9 @@ structure Value :
     val match_pat = fn ctx => fn pat => fn value =>
       match_pat ctx pat value
 
-    fun apply_fn (matches, E, VE) value =
+    fun apply_fn (matches, env, VE) value =
       match_against
-        (Context.merge_scope E (Context.ctx_rec (Option.getOpt (VE, scope_empty))))
+        (Context.merge_scope env (Context.ctx_rec (Option.getOpt (VE, scope_empty))))
         matches
         value
 
@@ -335,30 +335,66 @@ structure Value :
       | SPtype typdescs => sigval
       | SPeqtype typdescs => sigval
       | SPdatdec datbinds =>
-          { valspecs = valspecs
-          , dtyspecs =
-              List.foldl
-                (fn ({tyvars, tycon, condescs}, dtyspecs) =>
-                  SymDict.insert
-                    dtyspecs
-                    tycon
-                    { arity = List.length tyvars
-                    , cons = condescs
-                    }
-                )
-                dtyspecs
-                datbinds
-          , exnspecs = exnspecs
-          , modspecs = modspecs
-          }
+          let
+            val enum_datbinds =
+              List.map (fn datbind => (datbind, TyId.new ())) datbinds
+
+            fun datatype_fn sym =
+              List.find
+                (fn ({tycon, ...}, _) => Symbol.eq (sym, tycon))
+                enum_datbinds
+              |> Option.map #2
+          in
+            { valspecs = valspecs
+            , dtyspecs =
+                List.foldl
+                  (fn (({tyvars, tycon, condescs}, tyid), dtyspecs) =>
+                    (* TODO: This means when doing signature matching, we have
+                     * to be able to check equality-up-to-self-TYids.
+                     *)
+                    SymDict.insert
+                      dtyspecs
+                      tycon
+                      { arity = List.length tyvars
+                      , tyid = tyid
+                      , cons =
+                        List.map
+                          (fn {id, ty} =>
+                            { id = id
+                            , tyscheme =
+                              case ty of
+                                NONE =>
+                                  Context.mk_type_scheme
+                                    datatype_fn
+                                    tyvars
+                                    (Tapp (List.map Ttyvar tyvars, [tycon]))
+                                    ctx
+                              | SOME ty =>
+                                  Context.mk_type_scheme datatype_fn tyvars ty ctx
+                            }
+                          )
+                          condescs
+                      }
+                  )
+                  dtyspecs
+                  enum_datbinds
+            , exnspecs = exnspecs
+            , modspecs = modspecs
+            }
+          end
           |> Sigval
       | SPdatrepl {left_tycon, right_tycon} =>
           { valspecs = valspecs
           , dtyspecs =
+            let
+              val {arity,cons} =
+                Context.get_datatype_with_id ctx right_tycon
+            in
               SymDict.insert
                 dtyspecs
                 left_tycon
-                (Context.get_datatype ctx right_tycon)
+                {arity = arity, cons = cons, tyid = TyId.new ()}
+            end
           , exnspecs = exnspecs
           , modspecs = modspecs
           }

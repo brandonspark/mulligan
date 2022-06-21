@@ -131,11 +131,17 @@ structure Binding :
               @ List.map (get_pat_bindings ctx) args
             )
 
+    (* We should not be able to do this for a constructor or exception, because
+     * they will be interpreted as matching against their patterns.
+     *)
     fun remove_val_scope_bound_id scope id =
       let
-        val valdict = scope_valdict scope
+        val identdict = scope_identdict scope
       in
-        scope_set_valdict scope (SymDict.remove valdict id)
+        case SymDict.find identdict id of
+          NONE => scope
+        | SOME (E _ | C _) => prog_err "trying to remove val bound id of constructor or exception"
+        | SOME (V _) => scope_set_identdict scope (SymDict.remove identdict id)
       end
 
     fun remove_mod_scope_bound_id scope id =
@@ -146,7 +152,7 @@ structure Binding :
       end
 
     fun remove_bound_id_base f {scope, outer_scopes, sigdict, functordict,
-    hole_print_fn, settings} id =
+    tyvars, hole_print_fn, settings} id =
       let
         val scope = f scope id
         val outer_scopes =
@@ -158,6 +164,7 @@ structure Binding :
         , outer_scopes = outer_scopes
         , sigdict = sigdict
         , functordict = functordict
+        , tyvars = tyvars
         , hole_print_fn = hole_print_fn
         , settings = settings
         }
@@ -213,16 +220,26 @@ structure Binding :
         Normal {id, ...} => MarkerSet.singleton (MOD id)
       | Sugar spec => get_spec_bound_ids ctx spec
 
+    (* We only care about killed value bindings.
+     * So disregard if it's not.
+     *)
     fun open_bound_id ctx longid =
       let
-        val valdict = scope_valdict (get_module ctx longid)
+        val identdict = scope_identdict (get_module ctx longid)
         val moddict = scope_moddict (get_module ctx longid)
       in
-        marker_set_of_list
-          (List.map VAL (SymDict.domain valdict)
+        ( SymDict.foldl
+            (fn (id, elem, acc) =>
+              case elem of
+                (V _) => VAL id :: acc
+              | _ => acc
+            )
+            []
+            identdict
           @
           List.map MOD (SymDict.domain moddict)
-          )
+        )
+        |> marker_set_of_list
       end
 
     fun open_bound_ids ctx longids =
@@ -233,7 +250,7 @@ structure Binding :
       (id, Value.evaluate_signat ctx signat)
 
     fun add_sigbindings {scope, outer_scopes, sigdict, functordict,
-    hole_print_fn, settings} sigbindings =
+    tyvars, hole_print_fn, settings} sigbindings =
       { scope = scope
       , outer_scopes = outer_scopes
       , sigdict =
@@ -245,12 +262,13 @@ structure Binding :
                 sigbindings
             )
       , functordict = functordict
+      , tyvars = tyvars
       , hole_print_fn = hole_print_fn
       , settings = settings
       }
 
-    fun add_funbind (ctx as {scope, outer_scopes, sigdict, functordict,
-    hole_print_fn, settings})
+    fun add_funbind (ctx as {scope, outer_scopes, sigdict, functordict, tyvars
+    , hole_print_fn, settings})
                     {id, funarg, seal, body} =
       { scope = scope
       , outer_scopes = outer_scopes
@@ -275,6 +293,7 @@ structure Binding :
               , body = body
               }
             )
+      , tyvars = tyvars
       , hole_print_fn = hole_print_fn
       , settings = settings
       }

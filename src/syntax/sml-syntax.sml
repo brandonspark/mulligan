@@ -30,6 +30,39 @@ structure PreSMLSyntax =
       | Trecord of {lab: symbol, ty: ty} list
       | Tparens of ty
 
+    datatype tyval =
+        TVtyvar of symbol
+      | TVapp of tyval list * TyId.t
+      | TVprod of tyval list
+      | TVarrow of tyval * tyval
+      | TVrecord of {lab: symbol, tyval: tyval} list
+      | TVvar of restrict option ref
+
+    and restrict =
+        Rows of {lab: symbol, tyval: tyval} list
+      | Ty of tyval
+
+    type type_scheme = int * (tyval list -> tyval)
+
+    datatype synonym =
+        Datatype of TyId.t
+      | Scheme of type_scheme
+
+    (* These are the type variables which the type inference algorithm has so
+     * far been able to figure out are currently in use.
+     * This means that later on, when we discover different type variables, we
+     * can generalize them at their bind site.
+     *)
+    datatype tyvar =
+        Proper of symbol
+      | Unconstrained of restrict option ref
+
+    fun tyvar_eq (t1, t2) =
+      case (t1, t2) of
+        (Proper s1, Proper s2) => Symbol.eq (s1, s2)
+      | (Unconstrained r1, Unconstrained r2) => r1 = r2
+      | _ => false
+
     (****************************)
     (*        PATTERNS          *)
     (****************************)
@@ -125,9 +158,9 @@ structure PreSMLSyntax =
         conbinds : conbind list
       }
 
-    type tyval = { arity : int
-                 , cons : { id : symbol, ty : ty option } list
-                 }
+    type tyinfo = { arity : int
+                  , cons : { id : symbol, tyscheme : type_scheme } list
+                  }
 
     type settings =
       { break_assigns : SymSet.set ref
@@ -298,7 +331,8 @@ structure PreSMLSyntax =
       Sigval of
         { valspecs : SymSet.set
         , dtyspecs : { arity : int
-                     , cons : { id : symbol, ty : ty option } list
+                     , tyid : TyId.t
+                     , cons : { id : symbol, tyscheme : type_scheme } list
                      } dict
         (* TODO: type stuff , tyspecs : ty option dict *)
         , exnspecs : SymSet.set
@@ -313,14 +347,25 @@ structure PreSMLSyntax =
         , body : module
         }
 
+    and id_info =
+        V of value
+      | C of TyId.t
+      | E of ExnId.t
+
+    and sign =
+        Vsign
+      | Csign
+      | Esign
+
     and scope =
       Scope of
-        { valdict : valdict
-        , condict : condict
-        , exndict : exndict
-        , moddict : moddict
-        , infixdict : infixdict
-        , tydict : tydict
+          (* TODO: combine these three *)
+        { identdict : identdict (* identifiers -> values *)
+        , valtydict : valtydict (* val identifiers -> types *)
+        , moddict : moddict (* maps to module scopes *)
+        , infixdict : infixdict (* all currently infixed operators *)
+        , tydict : tydict (* information for each datatype *)
+        , tynamedict : tynamedict
         }
 
     and infixity = LEFT | RIGHT
@@ -426,24 +471,25 @@ structure PreSMLSyntax =
         ty : ty option
       }
 
+    and identdict = id_info dict
+    and infixdict = (infixity * int) dict
+    and valtydict = (sign * type_scheme) dict
+    and tydict = tyinfo TyIdDict.dict
+    and moddict = scope dict
+    and tynamedict = synonym dict
+
     and typdesc = {
         tyvars : symbol list,
         tycon : symbol,
         ty : ty option
       }
 
-    and valdict = value dict
-    and condict = SymSet.set
-    and exndict = SymSet.set
-    and infixdict = (infixity * int) dict
-    and tydict = tyval dict
-    and moddict = scope dict
-
     and context =
       { scope : scope
       , outer_scopes : scope list
       , sigdict : sigval dict
       , functordict : functorval dict
+      , tyvars : SymSet.set
       , hole_print_fn : unit -> PrettySimpleDoc.t
       , settings : settings
       }
@@ -496,10 +542,16 @@ signature SMLSYNTAX =
     val map_sym : symbol -> (string -> string) -> symbol
     val longid_eq : longid * longid -> bool
     val longid_to_str : longid -> string
+    val tyvar_eq : PreSMLSyntax.tyvar * PreSMLSyntax.tyvar -> bool
 
     (* TYPES *)
 
     datatype ty = datatype PreSMLSyntax.ty
+    datatype tyval = datatype PreSMLSyntax.tyval
+    datatype restrict = datatype PreSMLSyntax.restrict
+    datatype tyvar = datatype PreSMLSyntax.tyvar
+    type type_scheme = PreSMLSyntax.type_scheme
+    datatype synonym = datatype PreSMLSyntax.synonym
 
     (* PATS *)
 
@@ -527,17 +579,19 @@ signature SMLSYNTAX =
     datatype functorval = datatype PreSMLSyntax.functorval
 
     datatype scope = datatype PreSMLSyntax.scope
+    datatype id_info = datatype PreSMLSyntax.id_info
+    datatype sign = datatype PreSMLSyntax.sign
 
     datatype infixity = datatype PreSMLSyntax.infixity
 
-    type valdict = PreSMLSyntax.valdict
-    type condict = PreSMLSyntax.condict
-    type exndict = PreSMLSyntax.exndict
+    type identdict = PreSMLSyntax.identdict
+    type valtydict = PreSMLSyntax.valtydict
     type infixdict = PreSMLSyntax.infixdict
     type tydict = PreSMLSyntax.tydict
     type moddict = PreSMLSyntax.moddict
+    type tynamedict = PreSMLSyntax.tynamedict
 
-    type tyval = PreSMLSyntax.tyval
+    type tyinfo = PreSMLSyntax.tyinfo
     type settings = PreSMLSyntax.settings
 
     type context = PreSMLSyntax.context
@@ -584,10 +638,16 @@ structure SMLSyntax : SMLSYNTAX =
     fun longid_to_str longid =
       String.concatWith "." (List.map Symbol.toValue longid)
 
+    val tyvar_eq = PreSMLSyntax.tyvar_eq
 
     (* TYPES *)
 
     datatype ty = datatype PreSMLSyntax.ty
+    datatype tyval = datatype PreSMLSyntax.tyval
+    datatype restrict = datatype PreSMLSyntax.restrict
+    datatype tyvar = datatype PreSMLSyntax.tyvar
+    type type_scheme = PreSMLSyntax.type_scheme
+    datatype synonym = datatype PreSMLSyntax.synonym
 
     (* PATS *)
 
@@ -615,17 +675,19 @@ structure SMLSyntax : SMLSYNTAX =
     datatype functorval = datatype PreSMLSyntax.functorval
 
     datatype scope = datatype PreSMLSyntax.scope
+    datatype id_info = datatype PreSMLSyntax.id_info
+    datatype sign = datatype PreSMLSyntax.sign
 
     datatype infixity = datatype PreSMLSyntax.infixity
 
-    type valdict = PreSMLSyntax.valdict
-    type condict = PreSMLSyntax.condict
-    type exndict = PreSMLSyntax.exndict
+    type identdict = PreSMLSyntax.identdict
+    type valtydict = PreSMLSyntax.valtydict
     type infixdict = PreSMLSyntax.infixdict
     type tydict = PreSMLSyntax.tydict
     type moddict = PreSMLSyntax.moddict
+    type tynamedict = PreSMLSyntax.tynamedict
 
-    type tyval = PreSMLSyntax.tyval
+    type tyinfo = PreSMLSyntax.tyinfo
     type settings = PreSMLSyntax.settings
 
     type context = PreSMLSyntax.context

@@ -140,6 +140,27 @@ structure Debugger :
           raise Context.Raise (Vconstr {id = [Symbol.fromValue "Match"], arg = NONE})
       | _ => raise exn
 
+    (*
+    fun craise exn =
+      if Basis.do_raise () then
+        raise exn
+      else
+        case exn of
+          Perform (Break (_, cont)) => Cont.throw cont ()
+        | Perform
+            (Step { context
+                  , location
+                  , focus
+                  , stop
+                  }) =>
+            case focus of
+              EXP (exp, cont) =>
+                eval location exp context cont
+            | VAL (_, value, cont) =>
+                Cont.throw cont value
+        | _ => raise exn
+     *)
+
     (* Does a left-to-right application of the function to each element.
      *
      * This continuation will throw the currently evaluated expression, as a
@@ -271,9 +292,14 @@ structure Debugger :
                       val (bindings, new_ctx, new_exp) =
                         Value.apply_fn (matches, env, rec_env) v
 
+                      (* Check if any of these bindings are under `break bind`
+                       *)
                       val _ =
                         break_check_ids ctx bindings
 
+                      (* Check if the function value being applied is currently
+                       * broken.
+                       *)
                       val _ =
                         if Option.isSome (!break) then
                           Cont.callcc (fn cont =>
@@ -581,31 +607,20 @@ structure Debugger :
         Cont.throw cont value
       end
 
-    and eval_dec location dec ctx =
-      case dec of
-        Dseq decs =>
-          iter_list
-            (fn (dec, decs, ctx) =>
-              eval_dec (DSEQ decs :: location) dec ctx
-            )
-            ctx
-            decs
-      | Dval {valbinds, tyvars} =>
-          (* Iterate on them and evaluate each valbinding
-           * sequentially, in the original context.
-           *)
+    and eval_dec location dec orig_ctx =
+      case Statics.synth_dec orig_ctx dec of
+        Statics.DEC_VAL (new_ctx, exp_ctx, {tyvars, valbinds}) =>
           let
             val recc_flag =
               List.foldl
                 (fn ({recc, ...}, acc) => recc orelse acc)
                 false
                 valbinds
+            val ctx = orig_ctx
           in
             iter_list
               (fn ({recc, pat, exp}, rest, pairs) =>
                 let
-                  val ids = Binding.get_pat_ids ctx pat
-
                   val break_assigns = !(Context.get_break_assigns ctx)
 
                   val _ =
@@ -614,18 +629,21 @@ structure Debugger :
                         SymSet.member break_assigns id orelse acc
                       )
                       false
-                      ids
+                      (Binding.get_pat_ids ctx pat)
                     |> (fn b => if b then Cont.callcc (fn cont => raise Perform
                     (Break (false, cont))) else ())
 
+                  (* We checkpoint here, and evaluate the expression in the
+                   * context of all of the new bindings' types.
+                   *)
                   val new_value =
                     checkpoint
                       ( DVALBINDS (recc_flag, tyvars, pat, rest) :: location)
                       exp
-                      ctx
+                      exp_ctx
                       false
                 in
-                  Value.match_pat ctx pat new_value @ pairs
+                  Value.match_pat exp_ctx pat new_value @ pairs
                 end
                 handle exn => match_handler exn
               )
@@ -636,201 +654,119 @@ structure Debugger :
                  * expressions contain the others in their closure.
                  *)
                 if List.foldl (fn (x, y) => x orelse y) false (List.map #recc valbinds) then
-                  Context.add_rec_bindings ctx bindings
+                  Context.add_rec_bindings new_ctx bindings
                 else
-                  Context.add_bindings ctx bindings
+                  Context.add_bindings new_ctx bindings
                )
           end
-      | Dfun {fvalbinds, ...} =>
-          let
-            fun get_id_pats fname_args =
-              case fname_args of
-                Fprefix {opp, id, args} => (id, args)
-              | Finfix {left, id, right} => (id, [Ptuple [left, right]])
-              | Fcurried_infix {left, id, right, args} =>
-                  (id, Ptuple [left, right] :: args)
+      | Statics.DEC_FUN (ctx, {tyvars, fvalbinds}) =>
+        let
+          fun get_id_pats fname_args =
+            case fname_args of
+              Fprefix {opp, id, args} => (id, args)
+            | Finfix {left, id, right} => (id, [Ptuple [left, right]])
+            | Fcurried_infix {left, id, right, args} =>
+                (id, Ptuple [left, right] :: args)
 
-            fun process_fvalbind fvalbind =
-              List.foldr
-                (fn ({fname_args, ty, exp}, acc) =>
-                  let
-                    val (id, pats) = get_id_pats fname_args
-                    val num_args = List.length pats
-                  in
-                    case acc of
-                      NONE => SOME (id, num_args, [(pats, exp)])
-                    | SOME (id, num_args, acc) => SOME (id, num_args, (pats, exp) :: acc)
-                  end
-                )
-                NONE
-                fvalbind
+          fun process_fvalbind fvalbind =
+            List.foldr
+              (fn ({fname_args, ty, exp}, acc) =>
+                let
+                  val (id, pats) = get_id_pats fname_args
+                  val num_args = List.length pats
+                in
+                  case acc of
+                    NONE => SOME (id, num_args, [(pats, exp)])
+                  | SOME (id, num_args, acc) => SOME (id, num_args, (pats, exp) :: acc)
+                end
+              )
+              NONE
+              fvalbind
 
-            fun get_fvalbinding fvalbind ctx =
-              case process_fvalbind fvalbind of
-                NONE => raise Fail "empty fvalbind"
-              | SOME (id, num_args, matches) =>
-                ( if SymSet.member (!(Context.get_break_assigns ctx)) id then
-                    Cont.callcc (fn cont => raise Perform (Break (false, cont)))
-                  else ()
-                ; case matches of
-                   [(pats, exp)] =>
-                     ( id
-                     , List.foldr
-                         (fn (pat, exp) => Efn ([{pat = pat, exp = exp}], NONE))
-                         exp
-                         pats
-                       |> (fn Efn ([{pat, exp}], _) =>
-                            Vfn { matches = [{pat = pat, exp = exp}]
-                                , env = ctx
-                                , rec_env = NONE
-                                , break = ref NONE
-                                }
+          fun get_fvalbinding fvalbind ctx =
+            case process_fvalbind fvalbind of
+              NONE => raise Fail "empty fvalbind"
+            | SOME (id, num_args, matches) =>
+              ( if SymSet.member (!(Context.get_break_assigns ctx)) id then
+                  Cont.callcc (fn cont => raise Perform (Break (false, cont)))
+                else ()
+              ; case matches of
+                 [(pats, exp)] =>
+                   ( id
+                   , List.foldr
+                       (fn (pat, exp) => Efn ([{pat = pat, exp = exp}], NONE))
+                       exp
+                       pats
+                     |> (fn Efn ([{pat, exp}], _) =>
+                          Vfn { matches = [{pat = pat, exp = exp}]
+                              , env = ctx
+                              , rec_env = NONE
+                              , break = ref NONE
+                              }
+                        | _ => raise Fail "empty args for fvalbind, shouldn't happen"
+                        )
+                   )
+               | _ =>
+                 let
+                   val new_vars = List.tabulate (num_args, fn _ => TempId.new ())
+
+                 in
+                   ( id
+                   , List.foldr
+                       (fn (id, exp) =>
+                         Efn ( [ { pat = Pident {opp = false, id = [id]}
+                                 , exp = exp
+                                 }
+                               ]
+                             , NONE
+                             )
+                       )
+                       ( Ecase
+                           { exp =
+                              case new_vars of
+                                [var] => Eident {opp = false, id = [var]}
+                              | _ =>
+                                  Etuple
+                                    ( List.map
+                                        (fn id => Eident {opp = false, id = [id]})
+                                        new_vars
+                                    )
+                           , matches =
+                              List.map
+                                (fn (pats, exp) => { pat =
+                                                     case pats of
+                                                       [pat] => pat
+                                                     | _ => Ptuple pats
+                                                 , exp = exp
+                                                 }
+                                )
+                                matches
+                           }
+                       )
+                       new_vars
+                      |> (fn exp =>
+                           case exp of
+                             Efn ([{pat, exp}], _) => Vfn { matches = [{pat = pat, exp = exp}]
+                                                     , env = ctx
+                                                     , rec_env = NONE
+                                                     , break = ref NONE
+                                                     }
                           | _ => raise Fail "empty args for fvalbind, shouldn't happen"
-                          )
-                     )
-                 | _ =>
-                   let
-                     val new_vars = List.tabulate (num_args, fn _ => TempId.new ())
+                        )
+                   )
+                 end
+              )
 
-                   in
-                     ( id
-                     , List.foldr
-                         (fn (id, exp) =>
-                           Efn ( [ { pat = Pident {opp = false, id = [id]}
-                                   , exp = exp
-                                   }
-                                 ]
-                               , NONE
-                               )
-                         )
-                         ( Ecase
-                             { exp =
-                                case new_vars of
-                                  [var] => Eident {opp = false, id = [var]}
-                                | _ =>
-                                    Etuple
-                                      ( List.map
-                                          (fn id => Eident {opp = false, id = [id]})
-                                          new_vars
-                                      )
-                             , matches =
-                                List.map
-                                  (fn (pats, exp) => { pat =
-                                                       case pats of
-                                                         [pat] => pat
-                                                       | _ => Ptuple pats
-                                                   , exp = exp
-                                                   }
-                                  )
-                                  matches
-                             }
-                         )
-                         new_vars
-                        |> (fn exp =>
-                             case exp of
-                               Efn ([{pat, exp}], _) => Vfn { matches = [{pat = pat, exp = exp}]
-                                                       , env = ctx
-                                                       , rec_env = NONE
-                                                       , break = ref NONE
-                                                       }
-                            | _ => raise Fail "empty args for fvalbind, shouldn't happen"
-                          )
-                     )
-                   end
-                )
-
-            val fvalbindings =
-              List.map
-                (fn fvalbind => get_fvalbinding fvalbind ctx)
-                fvalbinds
-
-          in
-            Context.add_rec_bindings ctx fvalbindings
-          end
-      | Dtype typbinds =>
-          Context.add_typbinds ctx typbinds
-      | Ddatdec {datbinds, withtypee} =>
-          (* TODO: recursive datatypes type wise *)
-          List.foldl
-            (fn (datbind, ctx) =>
-              Context.add_datatype ctx datbind
-            )
-            ctx
-            datbinds
-      | Ddatrepl {left_tycon, right_tycon} =>
-          Context.replicate_datatype ctx (left_tycon, right_tycon)
-      | Dabstype _ => raise Fail "no support for abstype right now"
-      | Dexception exbinds =>
-          (* TODO: type stuff *)
-          List.foldl
-            (fn (Xnew {opp, id, ...}, ctx) =>
-                Context.add_exn ctx id
-            | (exbind as Xrepl {left_id, right_id, ...}, ctx) =>
-                Context.replicate_exception ctx (left_id, right_id)
-            )
-            ctx
-            exbinds
-      | Dlocal {left_dec, right_dec} =>
-          (* Make a temporary scope to evaluate all the bindings in the `local`.
-           * Then, make a scope for all of the actual `in` decs.
-           * Then pop the penultimate scope to get rid of the temporary
-           * bindings.
-           *)
-          ( case left_dec of
-              Dseq decs =>
-                iter_list
-                  (fn (dec, decs, ctx) =>
-                    eval_dec (DLOCAL (decs, right_dec) :: CLOSURE ctx :: location) dec ctx
-                  )
-                  (Context.enter_scope ctx)
-                  decs
-                |> Context.enter_scope
-                |> (fn ctx' => eval_dec (CLOSURE ctx :: location) right_dec ctx')
-                |> Context.exit_local
-            | _ =>
-                eval_dec
-                  (DLOCAL ([], right_dec) :: CLOSURE ctx :: location)
-                  left_dec
-                  (Context.enter_scope ctx)
-                |> Context.enter_scope
-                |> (fn ctx' => eval_dec (CLOSURE ctx :: location) right_dec ctx')
-                |> Context.exit_local
-          )
-      | Dopen ids =>
-          List.foldl
-            (fn (id, ctx) => Context.open_path ctx id)
-            ctx
-            ids
-      | Dinfix {precedence, ids} =>
-          List.foldl
-            (fn (id, ctx) =>
-              Context.add_infix ctx
-                ( id
-                , LEFT
-                , Option.getOpt (precedence, 0)
-                )
-            )
-            ctx
-            ids
-      | Dinfixr {precedence, ids} =>
-          List.foldl
-            (fn (id, ctx) =>
-              Context.add_infix ctx
-                ( id
-                , RIGHT
-                , Option.getOpt (precedence, 0)
-                )
-            )
-            ctx
-            ids
-      | Dnonfix ids =>
-          List.foldl
-            (fn (id, ctx) =>
-              Context.remove_infix ctx id
-            )
-            ctx
-            ids
-      | Dhole => raise Fail "shouldn't eval dhole"
+          val fvalbindings =
+            List.map
+              (fn fvalbind => get_fvalbinding fvalbind orig_ctx)
+              fvalbinds
+        in
+          Context.add_rec_bindings ctx fvalbindings
+        end
+      | Statics.DEC_CTX ctx => ctx
+      | Statics.DEC_CONT f =>
+          f (location, eval_dec)
 
     (* Should put all of the resulting bindings into the top-most scope.
      *)
@@ -920,7 +856,6 @@ structure Debugger :
               |> Context.open_scope ctx
           )
         end
-
           (* For a module let, evaluate the declaration in a new scope, and then
            * enter a new scope for the actual module itself. Get rid of the
            * local scope.

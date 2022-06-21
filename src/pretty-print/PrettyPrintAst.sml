@@ -1732,7 +1732,7 @@ struct
 
   fun pretty ctx ast b = PrettySimpleDoc.toString b (#1 (show_ast ctx ast))
 
-  fun ctx_toString (ctx as {scope, outer_scopes, ...}) =
+  fun ctx_toString (ctx as {scope, outer_scopes, ...} : SMLSyntax.context) =
     let
       fun dict_toString f d =
         "{" ^
@@ -1747,8 +1747,8 @@ struct
 
       val show_doc = PrettySimpleDoc.toString true
 
-      fun scope_toString (Scope {valdict, condict, exndict, moddict, infixdict, tydict}) =
-        "< valdict: " ^ dict_toString (show_doc o show_value ctx) valdict ^ ">"
+      fun scope_toString (Scope {identdict, moddict, infixdict, tydict, ...}) =
+        "< valdict: " (*^ dict_toString (show_doc o show_value ctx) valdict*) ^ ">"
       (* ^ "  condict: " ^ set_toString Symbol.toValue condict ^ "\n"
       ^ "  exndict: " ^ set_toString Symbol.toValue exndict ^ "\n"
       ^ "  moddict: " ^ dict_toString scope_toString moddict ^ "\n"
