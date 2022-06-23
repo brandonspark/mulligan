@@ -101,7 +101,7 @@ structure Context :
       -> SMLSyntax.tyval
 
     val mk_type_scheme :
-         (SMLSyntax.symbol -> TyId.t option)
+         (SMLSyntax.symbol * SMLSyntax.tyval list -> SMLSyntax.tyval option)
       -> SMLSyntax.symbol list
       -> SMLSyntax.ty
       -> t
@@ -113,11 +113,17 @@ structure Context :
 
     val get_current_tyvars : (SMLSyntax.tyval -> SMLSyntax.tyvar list) -> t -> SMLSyntax.tyvar list
 
-    val add_datbind : (SMLSyntax.symbol -> TyId.t option) -> t -> TyId.t * SMLSyntax.datbind -> t
+    val add_datbind :
+        (SMLSyntax.symbol * SMLSyntax.tyval list -> SMLSyntax.tyval option)
+     -> t
+     -> TyId.t * SMLSyntax.datbind
+     -> t
 
+    (*
     val ascribe : scope -> { opacity : SMLSyntax.opacity
                            , sigval : SMLSyntax.sigval
                            } option -> scope
+    *)
 
     (* Value stuff *)
   end =
@@ -1059,8 +1065,8 @@ structure Context :
 
             val default_datatype_fn =
               fn (sym, tyvals) =>
-                case datatype_fn sym of
-                  SOME tyid => SOME (TVapp (tyvals, tyid))
+                case datatype_fn (sym, tyvals) of
+                  SOME ty => SOME ty
                 | _ =>
                   case get_type_synonym_opt ctx [sym] of
                     SOME (Datatype tyid) => SOME (TVapp (tyvals, tyid))
@@ -1191,6 +1197,7 @@ structure Context :
           []
       |> (fn valty_tyvars => valty_tyvars @ List.map Proper (SymSet.toList cur_tyvars))
 
+    (*
     fun ascribe scope seal =
       case seal of
         NONE => scope
@@ -1336,4 +1343,5 @@ structure Context :
               , tynamedict = new_tynamedict
               }
           end
+                                       *)
   end

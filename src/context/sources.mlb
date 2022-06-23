@@ -6,9 +6,9 @@ $(SML_LIB)/basis/basis.mlb
 PrettyPrintContext.sml
 
 context.sml
+basis.sml
 value.sml
 binding.sml
 
-basis.sml
 location.sml
 

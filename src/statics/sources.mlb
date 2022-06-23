@@ -4,5 +4,10 @@ $(SML_LIB)/basis/basis.mlb
 ../context/sources.mlb
 ../../cmlib/cmlib.mlb
 ../util/sources.mlb
+local
+  ../pretty-print/sources.mlb
+in
+  structure PrettyPrintAst
+end
 
 statics.sml

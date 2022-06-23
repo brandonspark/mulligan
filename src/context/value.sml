@@ -39,6 +39,10 @@ structure Value :
     infix |>
     fun x |> f = f x
 
+    fun snoc l =
+      ( List.take (l, List.length l - 1)
+      , List.nth (l, List.length l - 1)
+      )
     (* VALUE STUFF *)
 
     (* This is used purely so we acn have an exp for the surrounding context of
@@ -295,158 +299,410 @@ structure Value :
         matches
         value
 
-    fun merge_sigvals (Sigval {valspecs, dtyspecs, exnspecs, modspecs})
+    fun merge_sigvals (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs})
                       (Sigval { valspecs = valspecs'
+                              , tyspecs = tyspecs'
                               , dtyspecs = dtyspecs'
                               , exnspecs = exnspecs'
                               , modspecs = modspecs'
                               }) =
       Sigval
-        { valspecs = SymSet.union valspecs valspecs'
+        { valspecs = SymDict.union valspecs valspecs' (fn (_, _, snd) => snd)
+        , tyspecs = SymDict.union tyspecs tyspecs' (fn (_, _, snd) => snd)
         , dtyspecs = SymDict.union dtyspecs dtyspecs' (fn (_, _, snd) => snd)
-        , exnspecs = SymSet.union exnspecs exnspecs'
+        , exnspecs = SymDict.union exnspecs exnspecs' (fn (_, _, snd) => snd)
         , modspecs = SymDict.union modspecs modspecs' (fn (_, _, snd) => snd)
         }
 
     val empty_sigval =
       Sigval
-        { valspecs = SymSet.empty
+        { valspecs = SymDict.empty
+        , tyspecs = SymDict.empty
         , dtyspecs = SymDict.empty
-        , exnspecs = SymSet.empty
+        , exnspecs = SymDict.empty
         , modspecs = SymDict.empty
         }
 
-    fun evaluate_spec ctx spec (sigval as Sigval {valspecs, dtyspecs, exnspecs, modspecs}) =
-      case spec of
-        SPval valbinds =>
-          { valspecs =
-              List.foldl
-                (fn ({id, ...}, valspecs) =>
-                  SymSet.insert valspecs id
-                )
-                valspecs
-                valbinds
-          , dtyspecs = dtyspecs
-          , exnspecs = exnspecs
-          , modspecs = modspecs
-          }
-          |> Sigval
-      (* TODO: type stuff *)
-      | SPtype typdescs => sigval
-      | SPeqtype typdescs => sigval
-      | SPdatdec datbinds =>
-          let
-            val enum_datbinds =
-              List.map (fn datbind => (datbind, TyId.new ())) datbinds
+    fun evaluate_spec
+          ctx
+          spec
+          (sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) =
+      let
+        (* We search in the original tyspec, because all of these are
+         * "simultaneous" and don't see each other.
+         *)
+        fun spec_datatype_fn (sym, tyvals) =
+          case (SymDict.find tyspecs sym, SymDict.find dtyspecs sym) of
+            (SOME _, SOME _) => prog_err "should be impossible"
+          | (SOME { status = Abstract (_, id), ... }, _) => SOME (TVabs (tyvals, id))
+          | (SOME { status = Concrete (_, ty_fn), ... }, _) => SOME (ty_fn tyvals)
+          | (_, SOME {arity, tyid, cons}) => SOME (TVapp (tyvals, tyid))
+          | (NONE, NONE) => NONE
 
-            fun datatype_fn sym =
-              List.find
-                (fn ({tycon, ...}, _) => Symbol.eq (sym, tycon))
-                enum_datbinds
-              |> Option.map #2
-          in
+        fun get_type_scheme tyvars ty =
+          Context.mk_type_scheme
+            spec_datatype_fn
+            tyvars
+            ty
+            ctx
+
+        fun append_type_scheme (n, ty_fn) tyval =
+          (n, fn tyvals => TVarrow (ty_fn tyvals, tyval))
+
+        fun set_modspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) new =
+          Sigval
             { valspecs = valspecs
-            , dtyspecs =
-                List.foldl
-                  (fn (({tyvars, tycon, condescs}, tyid), dtyspecs) =>
-                    (* TODO: This means when doing signature matching, we have
-                     * to be able to check equality-up-to-self-TYids.
-                     *)
-                    SymDict.insert
-                      dtyspecs
-                      tycon
-                      { arity = List.length tyvars
-                      , tyid = tyid
-                      , cons =
-                        List.map
-                          (fn {id, ty} =>
-                            { id = id
-                            , tyscheme =
-                              case ty of
-                                NONE =>
-                                  Context.mk_type_scheme
-                                    datatype_fn
-                                    tyvars
-                                    (Tapp (List.map Ttyvar tyvars, [tycon]))
-                                    ctx
-                              | SOME ty =>
-                                  Context.mk_type_scheme datatype_fn tyvars ty ctx
-                            }
-                          )
-                          condescs
-                      }
-                  )
-                  dtyspecs
-                  enum_datbinds
+            , tyspecs = tyspecs
+            , dtyspecs = dtyspecs
+            , exnspecs = exnspecs
+            , modspecs = new
+            }
+
+        fun map_module (sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) longid f =
+          case longid of
+            [] => f sigval
+          | outer::rest =>
+              let
+                val (acc, new_sigval) =
+                  map_module (SymDict.lookup modspecs outer) rest f
+              in
+                (acc, set_modspecs sigval (SymDict.insert modspecs outer new_sigval))
+              end
+
+        fun get_module sigval longid =
+          let
+            exception Return of sigval
+          in
+            #2 (map_module sigval longid (fn sigval => raise Return sigval))
+            handle Return sigval => sigval
+          end
+
+        fun replace_tyspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) new =
+          Sigval
+            { valspecs = valspecs
+            , tyspecs = new
+            , dtyspecs = dtyspecs
             , exnspecs = exnspecs
             , modspecs = modspecs
             }
+
+        (* This code is kinda complicated because structure sharing allows
+         * enclosed types to be concrete, but only if they do not overlap in
+         * name with any types from the other structures.
+         *
+         * Also, we precompute whether this type is equality before changing it.
+         *)
+        fun share_type allow_concrete equality_flag tyspecs tycon absid =
+          case SymDict.find tyspecs tycon of
+            SOME {equality, status = Abstract (n, absid')} =>
+              (case absid of
+                NONE => (SOME (Abstract (n, absid')), tyspecs)
+              | SOME (Abstract (n', new_absid)) =>
+                  if n <> n' then
+                    prog_err "sharing type on inconsistent arities"
+                  else
+                    ( absid
+                    , SymDict.insert
+                        tyspecs
+                        tycon
+                        { equality = equality_flag
+                        , status = Abstract (n, new_absid)
+                        }
+                    )
+              | SOME (Concrete _) => prog_err "sharing type on non-abstract type"
+              )
+          | SOME {equality, status = Concrete res} =>
+              if allow_concrete then
+                (SOME (Concrete res), tyspecs)
+              else
+                prog_err "sharing type on concrete type"
+          | NONE => prog_err "sharing type on nonexistent type"
+
+        fun share_tycons allow_concrete tycons sigval =
+          let
+            val equality_flag =
+              List.foldl
+                (fn (tycon, acc) =>
+                  let
+                    val (xs, x) = snoc tycon
+                  in
+                    map_module sigval xs (fn Sigval sigval =>
+                      (#equality (SymDict.lookup (#tyspecs sigval) x), Sigval sigval)
+                    )
+                    |> (fn (b, _) => b orelse acc)
+                  end
+                )
+                false
+                tycons
+          in
+            List.foldl
+              (fn (tycon, (absid, Sigval sigval)) =>
+                let
+                  val (xs, x) = snoc tycon
+                in
+                  map_module (Sigval sigval) xs (fn Sigval sigval =>
+                    let
+                      val (absid, tyspecs) =
+                        share_type allow_concrete equality_flag (#tyspecs sigval) x absid
+                    in
+                      (absid, replace_tyspecs (Sigval sigval) tyspecs)
+                    end
+                  )
+                end
+              )
+              (NONE, sigval)
+              tycons
+            |> #2
           end
-          |> Sigval
-      | SPdatrepl {left_tycon, right_tycon} =>
-          { valspecs = valspecs
-          , dtyspecs =
+      in
+        case spec of
+          SPval valbinds =>
+            { valspecs =
+                List.foldl
+                  (fn ({id, ty}, valspecs) =>
+                    SymDict.insert valspecs id (get_type_scheme [] ty)
+                  )
+                  valspecs
+                  valbinds
+            , tyspecs = tyspecs
+            , dtyspecs = dtyspecs
+            , exnspecs = exnspecs
+            , modspecs = modspecs
+            }
+            |> Sigval
+        (* TODO: type stuff *)
+        | SPtype typdescs =>
+            { valspecs = valspecs
+            , tyspecs =
+                List.foldl
+                  (fn ({tyvars, tycon, ty}, tyspecs) =>
+                    case ty of
+                      NONE =>
+                        (* No type means that this is an abstract type, so we
+                         * generate it a unique identifier and add it to the
+                         * tyspec.
+                         *)
+                        SymDict.insert tyspecs tycon
+                          { equality = false
+                          , status = Abstract (List.length tyvars, AbsId.new (SOME tycon))
+                          }
+                    | SOME ty =>
+                        (* This must be a concrete type.
+                         * We should insert the type scheme where we replace all
+                         * instances of previously-declared types with their
+                         * instantiated counterparts.
+                         *)
+                        SymDict.insert tyspecs tycon
+                          { equality = false
+                          , status = Concrete (mk_type_scheme spec_datatype_fn tyvars ty ctx)
+                          }
+                  )
+                  tyspecs
+                  typdescs
+            , dtyspecs = dtyspecs
+            , exnspecs = exnspecs
+            , modspecs = modspecs
+            }
+            |> Sigval
+        | SPeqtype typdescs =>
+            { valspecs = valspecs
+            , tyspecs =
+                List.foldl
+                  (fn ({tyvars, tycon}, tyspecs) =>
+                    (* No type means that this is an abstract type, so we
+                     * generate it a unique identifier and add it to the
+                     * tyspec.
+                     *)
+                    SymDict.insert tyspecs tycon
+                      { equality = true
+                      , status = Abstract (List.length tyvars, AbsId.new (SOME tycon))
+                      }
+                  )
+                  tyspecs
+                  typdescs
+            , dtyspecs = dtyspecs
+            , exnspecs = exnspecs
+            , modspecs = modspecs
+            }
+            |> Sigval
+        | SPdatdec datbinds =>
             let
-              val {arity,cons} =
-                Context.get_datatype_with_id ctx right_tycon
+              val enum_datbinds =
+                List.map (fn datbind as {tycon, ...} => (datbind, TyId.new (SOME tycon))) datbinds
+
+              (* This function both can look through the previous typdescs, as
+               * well as any of the mutually recursive datatypes.
+               *)
+              fun datatype_fn (sym, tyvals) =
+                case
+                  ( spec_datatype_fn (sym, tyvals)
+                  , List.find
+                      (fn ({tycon, ...}, _) => Symbol.eq (sym, tycon))
+                      enum_datbinds
+                  )
+                of
+                  (NONE, NONE) => NONE
+                | (SOME _, SOME _) => raise Fail "shouldn't be possible"
+                | (SOME ty, _) => SOME (ty)
+                | (_, SOME (_, tyid)) => SOME (TVapp (tyvals, tyid))
             in
-              SymDict.insert
-                dtyspecs
-                left_tycon
-                {arity = arity, cons = cons, tyid = TyId.new ()}
+              { valspecs = valspecs
+              , tyspecs = tyspecs
+              , dtyspecs =
+                  List.foldl
+                    (fn (({tyvars, tycon, condescs}, tyid), dtyspecs) =>
+                      (* TODO: This means when doing signature matching, we have
+                       * to be able to check equality-up-to-self-TYids.
+                       *)
+                      SymDict.insert
+                        dtyspecs
+                        tycon
+                        { arity = List.length tyvars
+                        , tyid = tyid
+                        , cons =
+                          List.map
+                            (fn {id, ty} =>
+                              { id = id
+                              , tyscheme =
+                                case ty of
+                                  NONE =>
+                                    Context.mk_type_scheme
+                                      datatype_fn
+                                      tyvars
+                                      (Tapp (List.map Ttyvar tyvars, [tycon]))
+                                      ctx
+                                | SOME ty =>
+                                    Context.mk_type_scheme datatype_fn tyvars
+                                    (Tarrow (ty, Tident [tycon])) ctx
+                              }
+                            )
+                            condescs
+                        }
+                    )
+                    dtyspecs
+                    enum_datbinds
+              , exnspecs = exnspecs
+              , modspecs = modspecs
+              }
             end
-          , exnspecs = exnspecs
-          , modspecs = modspecs
-          }
-          |> Sigval
-      | SPexception exbinds =>
-          { valspecs = valspecs
-          , dtyspecs = dtyspecs
-          , exnspecs =
-              List.foldl
-                (fn ({id, ...}, exnspecs) =>
-                  SymSet.insert exnspecs id
+            |> Sigval
+        | SPdatrepl {left_tycon, right_tycon} =>
+            { valspecs = valspecs
+            , tyspecs = tyspecs
+            , dtyspecs =
+              let
+                val {arity, cons} =
+                  Context.get_datatype_with_id ctx right_tycon
+              in
+                SymDict.insert
+                  dtyspecs
+                  left_tycon
+                  {arity = arity, cons = cons, tyid = TyId.new (SOME left_tycon)}
+              end
+            , exnspecs = exnspecs
+            , modspecs = modspecs
+            }
+            |> Sigval
+        | SPexception exbinds =>
+            { valspecs = valspecs
+            , tyspecs = tyspecs
+            , dtyspecs = dtyspecs
+            , exnspecs =
+                List.foldl
+                  (fn ({id, ty, ...}, exnspecs) =>
+                    SymDict.insert exnspecs id
+                      (case ty of
+                        NONE => (0, fn tyvals => Basis.exn_ty)
+                      | SOME ty =>
+                          append_type_scheme
+                            (get_type_scheme [] ty)
+                            Basis.exn_ty
+                      )
+                  )
+                  exnspecs
+                  exbinds
+            , modspecs = modspecs
+            }
+            |> Sigval
+        | SPmodule modules =>
+            { valspecs = valspecs
+            , tyspecs = tyspecs
+            , dtyspecs = dtyspecs
+            , exnspecs = exnspecs
+            , modspecs =
+                List.foldl
+                  (fn ({signat, id}, modspecs) =>
+                    SymDict.insert
+                      modspecs
+                      id
+                      (evaluate_signat ctx signat)
+                  )
+                  modspecs
+                  modules
+            }
+            |> Sigval
+        | SPinclude signat =>
+            merge_sigvals sigval (evaluate_signat ctx signat)
+        | SPinclude_ids ids =>
+            List.map (fn id => get_sig ctx id) ids
+            |> List.foldl
+                 (fn (sigval, acc_sigval) =>
+                   merge_sigvals acc_sigval sigval
+                 )
+                 sigval
+        (* TODO: type stuff *)
+        | SPsharing_type {spec, tycons} =>
+            let
+              val sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs} =
+                evaluate_spec ctx spec sigval
+
+            in
+              share_tycons false tycons sigval
+            end
+        | SPsharing {spec, tycons} =>
+            let
+              val sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs} =
+                evaluate_spec ctx spec sigval
+
+              val mod_tys =
+                (* Accumulating a dictionary mapping type names to the
+                 * structures they can be found in.
+                 *)
+                List.foldl
+                  (fn (longstrid, mod_tys) =>
+                    let
+                      val Sigval sigval = get_module sigval longstrid
+                    in
+                      SymDict.foldl (fn (tyname, tyscheme, mod_tys) =>
+                        SymDict.insertMerge
+                          mod_tys
+                          tyname
+                          [longstrid]
+                          (fn strids => longstrid :: strids)
+                      ) mod_tys (#tyspecs sigval)
+                    end
+                  )
+                  SymDict.empty
+                  tycons
+            in
+              SymDict.foldl
+                (fn (tyname, longstrids, sigval) =>
+                  share_tycons
+                    true
+                    (List.map (fn longstrid => longstrid @ [tyname]) longstrids)
+                    sigval
                 )
-                exnspecs
-                exbinds
-          , modspecs = modspecs
-          }
-          |> Sigval
-      | SPmodule modules =>
-          { valspecs = valspecs
-          , dtyspecs = dtyspecs
-          , exnspecs = exnspecs
-          , modspecs =
-              List.foldl
-                (fn ({signat, id}, modspecs) =>
-                  SymDict.insert
-                    modspecs
-                    id
-                    (evaluate_signat ctx signat)
-                )
-                modspecs
-                modules
-          }
-          |> Sigval
-      | SPinclude signat =>
-          merge_sigvals sigval (evaluate_signat ctx signat)
-      | SPinclude_ids ids =>
-          List.map (fn id => get_sig ctx id) ids
-          |> List.foldl
-               (fn (sigval, acc_sigval) =>
-                 merge_sigvals acc_sigval sigval
-               )
-               sigval
-      (* TODO: type stuff *)
-      | SPsharing_type _ => sigval
-      | SPsharing _ => sigval
-      | SPseq specs =>
-          List.foldl
-            (fn (spec, acc) =>
-              evaluate_spec ctx spec acc
-            )
-            sigval
-            specs
+                sigval
+                mod_tys
+            end
+        | SPseq specs =>
+            List.foldl
+              (fn (spec, acc) =>
+                evaluate_spec ctx spec acc
+              )
+              sigval
+              specs
+      end
 
     and evaluate_signat ctx signat =
       case signat of

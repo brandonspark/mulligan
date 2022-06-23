@@ -15,6 +15,7 @@ sig
   val print_value : Context.t -> Context.value -> string
   val ctx_toString : Context.t -> string
   val location_toString : Context.t -> Location.location list -> string
+  val print_tyval : SMLSyntax.tyval -> string
 end =
 struct
   open PrettyPrintContext
@@ -302,6 +303,95 @@ struct
         | Tapp (([] | [_]), _)
         | Trecord _ ) => show_ty ty
       | _ => parensAround (show_ty ty)
+
+    and show_tyval tyval =
+      case tyval of
+        TVtyvar id =>
+          show_tyvar id
+      | TVapp (tyvals, tyid) =>
+          (case tyvals of
+            [] => text color (TyId.show tyid)
+          | [elem] => show_attyval elem +-+ text color (TyId.show tyid)
+          | _ =>
+            text_syntax "("
+            ++ show_list show_tyval ", " tyvals
+            ++ text_syntax ")"
+            +-+ text color (TyId.show tyid)
+          )
+      | TVprod tys =>
+          show_list show_tyval " * " tys
+      | TVarrow (t1, t2) =>
+          group (
+            show_attyval t1 +-+ text_syntax "->"
+            $$
+            show_attyval t2
+          )
+      | TVrecord fields =>
+        let
+          val fields_doc =
+            List.map
+              (fn {lab, tyval} =>
+                group (
+                  show_symbol_node blue lab +-+ text_syntax ":"
+                  $$
+                  spaces 2 ++ show_tyval tyval
+                ))
+              fields
+        in
+          group (
+            text_syntax "{"
+            ++
+            show_list_after (fn x => x) ", " fields_doc
+            ++
+            text_syntax "}"
+          )
+        end
+      | TVvar (ref NONE) =>
+          raise Fail "should not print unification var?"
+      | TVvar (ref (SOME (Ty tyval))) =>
+          show_tyval tyval
+      | TVvar (ref (SOME (Rows fields))) =>
+        let
+          val fields_doc =
+            List.map
+              (fn {lab, tyval} =>
+                group (
+                  show_symbol_node blue lab +-+ text_syntax ":"
+                  $$
+                  spaces 2 ++ show_tyval tyval
+                ))
+              fields
+        in
+          group (
+            text_syntax "{"
+            ++
+            show_list_after (fn x => x) ", " fields_doc
+            ++
+            text_syntax ", " +-+ text_syntax "..."
+            ++
+            text_syntax "}"
+          )
+        end
+      | TVabs (tyvals, absid) =>
+          (case tyvals of
+            [] => text color (AbsId.show absid)
+          | [elem] => show_attyval elem +-+ text color (AbsId.show absid)
+          | _ =>
+            text_syntax "("
+            ++ show_list show_tyval ", " tyvals
+            ++ text_syntax ")"
+            +-+ text color (AbsId.show absid)
+          )
+
+    and show_attyval tyval =
+      case tyval of
+        ( TVtyvar _
+        | TVapp (([] | [_]), _)
+        | TVabs (([] | [_]), _)
+        | TVrecord _
+        | TVvar (ref (SOME (Rows _)))) => show_tyval tyval
+      | TVvar (ref (SOME (Ty tyval))) => show_tyval tyval
+      | _ => parensAround (show_tyval tyval)
   end
 
   local
@@ -467,7 +557,7 @@ struct
       case exp_ of
         Enumber n => show_number n
       | Eparens exp => show_atexp exp
-      | Estring s => text_literal ("\"" ^ Symbol.toValue s ^ "\"")
+      | Estring s => text_syntax "\"" ++ text_literal (Symbol.toValue s) ++ text_syntax "\""
       | Echar c => show_char c
       | Erecord fields =>
           show_seq
@@ -478,7 +568,7 @@ struct
                 , SOME (show_exp exp) ] )
             "{"
             ","
-            "{"
+            "}"
             fields
       | Eselect lab =>
           text_syntax "#" ++ show_symbol_node blue lab
@@ -728,7 +818,7 @@ struct
       in
       case value of
         Vnumber n => show_number n
-      | Vstring s => text_literal ("\"" ^ Symbol.toValue s ^ "\"")
+      | Vstring s => text_syntax "\"" ++ text_literal (Symbol.toValue s) ++ text_syntax "\""
       | Vchar c => show_char c
       | Vrecord fields =>
           show_seq
@@ -1332,11 +1422,12 @@ struct
           end
       | SPeqtype typdescs =>
           let
-            fun mk_typdesc mark typdesc =
+            fun mk_typdesc mark {tyvars, tycon} =
               group (
                 separateWithSpaces
                   [ SOME (if mark then text "eqtype" else text "and")
-                  , SOME (show_typdesc typdesc)
+                  , show_tyvars_option tyvars
+                  , SOME (show_id tycon)
                   ]
               )
           in
@@ -1794,4 +1885,7 @@ struct
 
   fun print_value ctx value =
     PrettySimpleDoc.toString true (show_value ctx value)
+
+  fun print_tyval tyval =
+    PrettySimpleDoc.toString true (show_tyval tyval)
 end

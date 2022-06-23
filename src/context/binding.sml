@@ -182,7 +182,7 @@ structure Binding :
 
     fun get_sigval_bound_ids ctx (Sigval {valspecs, modspecs, ...})=
       marker_set_of_list
-        ( List.map VAL (SymSet.toList valspecs)
+        ( List.map VAL (SymDict.domain valspecs)
         @ List.map MOD (SymDict.domain modspecs)
         )
 

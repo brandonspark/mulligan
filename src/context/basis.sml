@@ -15,7 +15,6 @@ structure Basis :
   end =
   struct
     open SMLSyntax
-    open Value
     open Error
 
     val sym = Symbol.fromValue
@@ -122,22 +121,24 @@ structure Basis :
 
     (* Types *)
 
-    val int_tyid = TyId.new ()
+    fun some x = SOME (Symbol.fromValue x)
+
+    val int_tyid = TyId.new (some "int")
     val int_ty = nullary int_tyid
-    val string_tyid = TyId.new ()
+    val string_tyid = TyId.new (some "string")
     val string_ty = nullary string_tyid
-    val char_tyid = TyId.new ()
+    val char_tyid = TyId.new (some "char")
     val char_ty = nullary char_tyid
-    val real_tyid = TyId.new ()
+    val real_tyid = TyId.new (some "real")
     val real_ty = nullary real_tyid
-    val unit_tyid =TyId.new ()
+    val unit_tyid =TyId.new (some "unit")
     val unit_ty = nullary unit_tyid
 
-    val exn_tyid = TyId.new ()
+    val exn_tyid = TyId.new (some "exn")
 
     val option_info as (option_tyid, _, option_cons) =
       let
-        val self_tyid = TyId.new ()
+        val self_tyid = TyId.new (some "option")
       in
         ( self_tyid
         , 1
@@ -148,7 +149,7 @@ structure Basis :
       end
     val order_info as (order_tyid, _, order_cons) =
       let
-        val self_tyid = TyId.new ()
+        val self_tyid = TyId.new (some "order")
       in
         ( self_tyid
         , 0
@@ -160,7 +161,7 @@ structure Basis :
       end
     val list_info as (list_tyid, _, list_cons) =
       let
-        val self_tyid = TyId.new ()
+        val self_tyid = TyId.new (some "list")
         fun listof var = TVapp ([var], self_tyid)
       in
         ( self_tyid
@@ -172,7 +173,7 @@ structure Basis :
       end
     val bool_info as (bool_tyid, _, bool_cons) =
       let
-        val self_tyid = TyId.new()
+        val self_tyid = TyId.new (some "bool")
       in
         ( self_tyid
         , 0
@@ -286,7 +287,7 @@ structure Basis :
               Vstring (Symbol.fromValue (Symbol.toValue s1 ^ Symbol.toValue s2))
           | _ => eval_err "invalid args to ^"
           )
-        , TVarrow (string_ty, string_ty)
+        , TVarrow (TVprod [string_ty, string_ty], string_ty)
         )
       , ( "chr"
         , (fn Vnumber (Int i) => Vchar (Char.chr i)
@@ -353,12 +354,6 @@ structure Basis :
           )
         , TVarrow (int_ty, int_ty)
         )
-      , ( "="
-        , (fn Vtuple [left, right] => poly_eq left right
-          | _ => eval_err "invalid arg to `=`"
-          )
-        , TVarrow (alpha, alpha) (* TODO: equality types *)
-        )
       ]
       |> List.map
            (fn (name, value, tyval) =>
@@ -366,14 +361,32 @@ structure Basis :
              , (sym name, (Vsign, forall_none_tyval tyval))
              )
            )
+      |> (fn l =>
+          ( ( sym "="
+            , { function =
+                  (fn Vtuple [left, right] => poly_eq left right
+                  | _ => eval_err "invalid arg to `=`"
+                  )
+              , name = sym "="
+              } |> Vbasis |> V
+            )
+          , ( sym "="
+            , ( Vsign
+              , SMLSyntax.guard_tyscheme
+                  (1, fn [tyval] => TVarrow (tyval, tyval)
+                     | _ => raise Fail "impossible")
+              ) (* TODO: equality types *)
+            )
+          ) :: l
+        )
       |> ListPair.unzip
 
     (* Exceptions *)
 
     fun mk_exn name opt =
       case opt of
-        NONE => (name, ExnId.new (), exn_ty)
-      | SOME tyval => (name, ExnId.new (), TVarrow (tyval, exn_ty))
+        NONE => (name, ExnId.new (SOME (Symbol.fromValue name)), exn_ty)
+      | SOME tyval => (name, ExnId.new (SOME (Symbol.fromValue name)), TVarrow (tyval, exn_ty))
 
     val (initial_exns, initial_exns_tys) =
       [ mk_exn "Fail" (SOME string_ty)

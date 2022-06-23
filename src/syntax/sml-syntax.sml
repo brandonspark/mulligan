@@ -37,6 +37,7 @@ structure PreSMLSyntax =
       | TVarrow of tyval * tyval
       | TVrecord of {lab: symbol, tyval: tyval} list
       | TVvar of restrict option ref
+      | TVabs of tyval list * AbsId.t
 
     and restrict =
         Rows of {lab: symbol, tyval: tyval} list
@@ -327,15 +328,20 @@ structure PreSMLSyntax =
           }
       | Vbasis of { name : symbol, function : value -> value }
 
+    and typspec_status =
+        Abstract of int * AbsId.t
+      | Concrete of type_scheme
+
     and sigval =
       Sigval of
-        { valspecs : SymSet.set
+        { valspecs : type_scheme dict
+        , tyspecs : { equality : bool, status : typspec_status } dict
         , dtyspecs : { arity : int
                      , tyid : TyId.t
                      , cons : { id : symbol, tyscheme : type_scheme } list
                      } dict
         (* TODO: type stuff , tyspecs : ty option dict *)
-        , exnspecs : SymSet.set
+        , exnspecs : type_scheme dict
         , modspecs : sigval dict
         }
 
@@ -424,7 +430,7 @@ structure PreSMLSyntax =
           ty : ty
         } list
       | SPtype of typdesc list
-      | SPeqtype of typdesc list
+      | SPeqtype of { tyvars : symbol list, tycon : symbol } list
       | SPdatdec of {
           tyvars : symbol list,
           tycon : symbol,
@@ -543,6 +549,7 @@ signature SMLSYNTAX =
     val longid_eq : longid * longid -> bool
     val longid_to_str : longid -> string
     val tyvar_eq : PreSMLSyntax.tyvar * PreSMLSyntax.tyvar -> bool
+    val guard_tyscheme : PreSMLSyntax.type_scheme -> PreSMLSyntax.type_scheme
 
     (* TYPES *)
 
@@ -575,6 +582,7 @@ signature SMLSYNTAX =
     type valbinds = PreSMLSyntax.valbinds
 
     datatype value = datatype PreSMLSyntax.value
+    datatype typspec_status = datatype PreSMLSyntax.typspec_status
     datatype sigval = datatype PreSMLSyntax.sigval
     datatype functorval = datatype PreSMLSyntax.functorval
 
@@ -639,6 +647,14 @@ structure SMLSyntax : SMLSYNTAX =
       String.concatWith "." (List.map Symbol.toValue longid)
 
     val tyvar_eq = PreSMLSyntax.tyvar_eq
+    fun guard_tyscheme (n, ty_fn) =
+      ( n
+      , fn tyvals =>
+          if List.length tyvals <> n then
+            Error.prog_err "Instantiated type scheme with incorrect number of tyargs"
+          else
+            ty_fn tyvals
+      )
 
     (* TYPES *)
 
@@ -671,6 +687,7 @@ structure SMLSyntax : SMLSYNTAX =
     type valbinds = PreSMLSyntax.valbinds
 
     datatype value = datatype PreSMLSyntax.value
+    datatype typspec_status = datatype PreSMLSyntax.typspec_status
     datatype sigval = datatype PreSMLSyntax.sigval
     datatype functorval = datatype PreSMLSyntax.functorval
 

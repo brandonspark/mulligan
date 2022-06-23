@@ -81,11 +81,16 @@ structure Elaborate :
             |> Enumber
         | Token.CharConstant =>
             Token.toString tok
+            |> (fn s => String.extract (s, 2, NONE))
             |> Char.fromString
             |> Option.valOf
             |> Echar
         | Token.StringConstant =>
-            Estring (tok_to_sym tok)
+            let
+              val s = Token.toString tok
+            in
+              Estring (Symbol.fromValue (String.substring (s, 1, String.size s - 2)))
+            end
         | ( Token.Whitespace
           | Token.Comment
           | Token.MLtonReserved
@@ -205,7 +210,6 @@ structure Elaborate :
             (fn {tyvars, tycon} =>
               { tyvars = elab_tyvars tyvars
               , tycon = tok_to_sym tycon
-              , ty = NONE (* TODO? *)
               }
             )
             elems

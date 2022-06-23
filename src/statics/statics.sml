@@ -16,18 +16,23 @@ structure Statics :
      -> SMLSyntax.context
 
     datatype dec_status =
-            DEC_VAL of Context.t * Context.t * {tyvars : SMLSyntax.symbol list, valbinds : SMLSyntax.valbinds}
-          | DEC_FUN of Context.t * {tyvars : SMLSyntax.symbol list, fvalbinds : SMLSyntax.fvalbinds}
-          | DEC_CTX of Context.t
-          | DEC_CONT of
-               Location.location list
-             * (Location.location list -> SMLSyntax.dec -> Context.t -> Context.t)
-             -> Context.t
+        DEC_VAL of Context.t * Context.t * {tyvars : SMLSyntax.symbol list, valbinds : SMLSyntax.valbinds}
+      | DEC_FUN of Context.t * {tyvars : SMLSyntax.symbol list, fvalbinds : SMLSyntax.fvalbinds}
+      | DEC_CTX of Context.t
+      | DEC_CONT of
+           Location.location list
+         * (Location.location list -> SMLSyntax.dec -> Context.t -> Context.t)
+         -> Context.t
 
     val synth_dec :
         SMLSyntax.context
      -> SMLSyntax.dec
      -> dec_status
+
+    val ascribe :
+        Context.scope
+     -> { opacity : SMLSyntax.opacity, sigval : SMLSyntax.sigval} option
+     -> Context.scope
   end =
   struct
     open SMLSyntax
@@ -90,6 +95,7 @@ structure Statics :
       case tyval of
         TVtyvar _ => false
       | ( TVapp (tyvals, _)
+        | TVabs (tyvals, _)
         | TVprod tyvals ) =>
           List.foldl
             (fn (tyval, b) =>
@@ -183,7 +189,8 @@ structure Statics :
     fun collect_tyvars_tyval tyval =
       case tyval of
         TVtyvar sym => [Proper sym]
-      | TVapp (tyvals, id) =>
+      | ( TVapp (tyvals, _)
+        | TVabs (tyvals, _) ) =>
           (List.concat o List.map collect_tyvars_tyval) tyvals
       | TVprod tyvals =>
           (List.concat o List.map collect_tyvars_tyval) tyvals
@@ -405,20 +412,22 @@ structure Statics :
           |> union_sets
       | Dhole => raise Fail "should not happen"
 
-    fun norm_tyval ctx tyval =
+    fun norm_tyval tyval =
       case tyval of
         TVvar (r as ref NONE) => tyval
       | TVvar (r as ref (SOME (Ty tyval))) => tyval
       | TVvar (r as ref (SOME (Rows _))) => tyval
       | TVapp (tyvals, tyid) =>
-          TVapp (List.map (norm_tyval ctx) tyvals, tyid)
+          TVapp (List.map norm_tyval tyvals, tyid)
+      | TVabs (tyvals, absid) =>
+          TVabs (List.map norm_tyval tyvals, absid)
       | TVprod tyvals =>
-          TVprod (List.map (norm_tyval ctx) tyvals)
+          TVprod (List.map norm_tyval tyvals)
       | TVrecord fields =>
           TVrecord
-            (List.map (fn {lab, tyval} => {lab = lab, tyval = norm_tyval ctx tyval}) fields)
+            (List.map (fn {lab, tyval} => {lab = lab, tyval = norm_tyval tyval}) fields)
       | TVarrow (t1, t2) =>
-          TVarrow (norm_tyval ctx t1, norm_tyval ctx t2)
+          TVarrow (norm_tyval t1, norm_tyval t2)
       | TVtyvar sym => TVtyvar sym
 
     (* This is so we can facilitate a little bit of code reuse between the
@@ -443,7 +452,7 @@ structure Statics :
       let
         val quantify_tyval = fn ctx => fn ty => quantify_tyval tyvar_fn ctx ty
       in
-        case (norm_tyval ctx ty) of
+        case (norm_tyval ty) of
           TVtyvar sym =>
             (case tyvar_fn (Proper sym) of
               NONE => TVtyvar sym
@@ -451,6 +460,8 @@ structure Statics :
             )
         | TVapp (tys, tyid) =>
             TVapp (List.map (quantify_tyval ctx) tys, tyid)
+        | TVabs (tyvals, absid) =>
+            TVabs (List.map (quantify_tyval ctx) tyvals, absid)
         | TVprod tys =>
             TVprod (List.map (quantify_tyval ctx) tys)
         | TVarrow (t1, t2) =>
@@ -470,16 +481,16 @@ structure Statics :
       end
 
 
-    and norm ctx exp = norm_tyval ctx (synth ctx exp)
+    and norm ctx exp = norm_tyval (synth ctx exp)
 
-    and fields_subset ctx fields1 fields2 =
+    and fields_subset fields1 fields2 =
       ( List.foldl
           (fn ({lab, tyval}, ()) =>
             ( case
                 List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields2
               of
                 NONE => prog_err "failed to unify record types"
-              | SOME {tyval = tyval', ...} => unify ctx tyval tyval'
+              | SOME {tyval = tyval', ...} => unify tyval tyval'
             ; ()
             )
           )
@@ -489,8 +500,8 @@ structure Statics :
       )
 
 
-    and unify ctx t1 t2 =
-      case (norm_tyval ctx t1, norm_tyval ctx t2) of
+    and unify t1 t2 =
+      case (norm_tyval t1, norm_tyval t2) of
       (* At this point, shoud only be able to be a
        * TVvar NONE, TVtyvar, TVapp, TVprod, TVarrow, TVrecord
        *)
@@ -499,9 +510,9 @@ structure Statics :
       | (_, TVvar (r as ref NONE)) =>
           (occurs_check r t1; r := SOME (Ty t1); t1)
       | (TVvar (r as ref (SOME (Ty t1))), _) =>
-          unify ctx t1 t2
+          unify t1 t2
       | (_, TVvar (r as ref (SOME (Ty t2)))) =>
-          unify ctx t1 t2
+          unify t1 t2
       | ( TVvar (r1 as ref (SOME (Rows fields1)))
         , TVvar (r2 as ref (SOME (Rows fields2)))
         ) =>
@@ -509,7 +520,7 @@ structure Statics :
             val res =
               List.foldl
                 (fn ({lab, tyval}, acc) =>
-                  SymDict.insertMerge acc lab tyval (fn tyval' => unify ctx tyval tyval')
+                  SymDict.insertMerge acc lab tyval (fn tyval' => unify tyval tyval')
                 )
                 SymDict.empty
                 (fields1 @ fields2)
@@ -523,40 +534,45 @@ structure Statics :
             )
           end
       | (TVvar (r as ref (SOME (Rows rows_fields))), TVrecord record_fields) =>
-          ( fields_subset ctx rows_fields record_fields
+          ( fields_subset rows_fields record_fields
           ; r := SOME (Ty t2)
           ; t2
           )
       | (TVrecord record_fields, TVvar (r as ref (SOME (Rows rows_fields)))) =>
-          ( fields_subset ctx rows_fields record_fields
+          ( fields_subset rows_fields record_fields
           ; r := SOME (Ty t1)
           ; t1
           )
       | (TVrecord fields1, TVrecord fields2) =>
-          ( fields_subset ctx fields1 fields2
-          ; fields_subset ctx fields2 fields1
+          ( fields_subset fields1 fields2
+          ; fields_subset fields2 fields1
           ; t1
           )
       | (TVtyvar sym1, TVtyvar sym2) =>
           if Symbol.eq (sym1, sym2) then t2
           else prog_err "failed to unify tyvars"
       | (TVapp (tys1, id1), TVapp (tys2, id2)) =>
-          ( List.map (fn (t1, t2) => unify ctx t1 t2) (ListPair.zipEq (tys1, tys2))
+          ( List.map (fn (t1, t2) => unify t1 t2) (ListPair.zipEq (tys1, tys2))
           ; if TyId.eq (id1, id2) then () else prog_err "non-matching tyids"
           ; t1
           )
       | (TVprod tys1, TVprod tys2) =>
-          ( List.map (fn (t1, t2) => unify ctx t1 t2) (ListPair.zipEq (tys1, tys2))
+          ( List.map (fn (t1, t2) => unify t1 t2) (ListPair.zipEq (tys1, tys2))
           ; t1
           )
       | (TVarrow (t1', t2'), TVarrow (t1'', t2'')) =>
-          ( unify ctx t1' t1''
-          ; unify ctx t2' t2''
+          ( unify t1' t1''
+          ; unify t2' t2''
           ; t1
           )
-      | _ => prog_err "TODO"
+      | _ =>
+          prog_err ( "Failed to unify different types: "
+                   ^ PrettyPrintAst.print_tyval t1
+                   ^ " and "
+                   ^ PrettyPrintAst.print_tyval t2
+                   )
 
-    and unify_row ctx r (sym, tyopt) =
+    and unify_row r (sym, tyopt) =
       let
         val new =
           case tyopt of
@@ -570,7 +586,7 @@ structure Statics :
             )
         | ref (SOME (Ty (TVrecord fields))) =>
             (case List.find (fn {lab, ...} => Symbol.eq (lab, sym)) fields of
-              NONE => prog_err "TODO"
+              NONE => prog_err "Accessing nonexistent field in record type"
             | SOME {lab, tyval} => tyval
             )
         | ref (SOME (Rows fields)) =>
@@ -583,16 +599,18 @@ structure Statics :
             )
         | ref (SOME (Ty (TVprod tys))) =>
             (case Int.fromString (Symbol.toValue sym) of
-              NONE => prog_err "TODO"
+              NONE => prog_err "Accessing non-numeral field in product type"
             | SOME i =>
                 if i - 1 < List.length tys then
-                  ( unify ctx (List.nth (tys, i - 1)) new
+                  ( unify (List.nth (tys, i - 1)) new
                   ; (List.nth (tys, i - 1))
                   )
                 else
-                  prog_err "TODO"
+                  prog_err "Accessing out-of-bounds numeral field in product type"
             )
-        | _ => prog_err "TODO"
+        | ref (SOME (Ty (TVvar r'))) =>
+            unify_row r' (sym, tyopt)
+        | _ => prog_err "Accessing field of non-record, non-product type"
       end
 
     and synth ctx exp =
@@ -625,7 +643,7 @@ structure Statics :
       | Elist exps =>
           List.foldl
             (fn (exp, ty) =>
-              unify ctx ty (synth ctx exp)
+              unify ty (synth ctx exp)
             )
             (new ())
             exps
@@ -646,22 +664,22 @@ structure Statics :
       | Eparens exp => synth ctx exp
       | Eapp {left = Eselect sym, right} =>
           ( case (norm ctx right) of
-              TVvar r => unify_row ctx r (sym, NONE)
+              TVvar r => unify_row r (sym, NONE)
             | TVprod tys =>
                 (case Int.fromString (Symbol.toValue sym) of
-                  NONE => prog_err "TODO"
+                  NONE => prog_err "Selecting non-numeral label from product type"
                 | SOME i =>
                     if i - 1 < List.length tys then
                       List.nth (tys, i - 1)
                     else
-                      prog_err "TODO"
+                      prog_err "Selecting out-of-bounds label in product type"
                 )
             | TVrecord fields =>
                 (case List.find (fn {lab, ...} => Symbol.eq (lab, sym)) fields of
-                  NONE => prog_err "TODO"
+                  NONE => prog_err "Selecting nonexistent field in record type"
                 | SOME {lab, tyval} => tyval
                 )
-            | _ => prog_err "TODO"
+            | _ => prog_err "Invalid type to select label from"
           )
       | Eapp {left, right} =>
           (case norm ctx left of
@@ -674,8 +692,8 @@ structure Statics :
                 out_ty
               end
           | TVarrow (t1, t2) =>
-              (unify ctx t1 (synth ctx right); t2)
-          | _ => prog_err "TODO"
+              (unify t1 (synth ctx right); t2)
+          | _ => prog_err "Invalid type for left application"
           )
       | Einfix {left, id, right} =>
           (case norm ctx (Eident {opp = false, id = [id]}) of
@@ -689,16 +707,16 @@ structure Statics :
                 out_ty
               end
           | TVarrow (t1, t2) =>
-              (unify ctx t1 (TVprod [synth ctx left, synth ctx right]); t2)
-          | _ => prog_err "TODO"
+              (unify t1 (TVprod [synth ctx left, synth ctx right]); t2)
+          | _ => prog_err "Invalid type for infix identifier"
           )
       | Etyped {exp, ty} =>
-          unify ctx
+          unify
             (synth ctx exp) (* TODO: check these functions *)
             (Context.synth_ty (fn _ => NONE) (fn _ => NONE) ctx ty)
       | ( Eandalso {left, right} | Eorelse {left, right} ) =>
-          ( unify ctx (synth ctx left) bool_ty
-          ; unify ctx (synth ctx right) bool_ty
+          ( unify (synth ctx left) bool_ty
+          ; unify (synth ctx right) bool_ty
           ; bool_ty
           )
       | Ehandle {exp, matches} =>
@@ -711,23 +729,23 @@ structure Statics :
                  *)
                 val new_ctx = Context.add_unquantified_val_ty_bindings ctx bindings
               in
-                ( unify ctx pat_ty Basis.exn_ty
-                ; unify new_ctx (synth new_ctx exp) body_ty
+                ( unify pat_ty Basis.exn_ty
+                ; unify (synth new_ctx exp) body_ty
                 )
               end
             )
             (synth ctx exp)
             matches
       | Eraise exp =>
-          ( unify ctx (synth ctx exp) Basis.exn_ty
+          ( unify (synth ctx exp) Basis.exn_ty
           ; new ()
           )
       | Eif {exp1, exp2, exp3} =>
-          ( unify ctx (synth ctx exp1) bool_ty
-          ; unify ctx (synth ctx exp2) (synth ctx exp3)
+          ( unify (synth ctx exp1) bool_ty
+          ; unify (synth ctx exp2) (synth ctx exp3)
           )
       | Ewhile {exp1, exp2} =>
-          ( unify ctx (synth ctx exp1) bool_ty
+          ( unify (synth ctx exp1) bool_ty
           ; Basis.unit_ty
           )
       | Ecase {exp, matches} =>
@@ -737,8 +755,8 @@ structure Statics :
                 val (bindings, pat_ty') = synth_pat ctx pat
                 val new_ctx = Context.add_unquantified_val_ty_bindings ctx bindings
               in
-                ( unify ctx pat_ty' pat_ty
-                , unify new_ctx (synth new_ctx exp) body_ty
+                ( unify pat_ty' pat_ty
+                , unify (synth new_ctx exp) body_ty
                 )
               end
             )
@@ -752,8 +770,8 @@ structure Statics :
                 val (bindings, pat_ty') = synth_pat ctx pat
                 val new_ctx = Context.add_unquantified_val_ty_bindings ctx bindings
               in
-                ( unify ctx pat_ty' pat_ty
-                , unify new_ctx (synth new_ctx exp) body_ty
+                ( unify pat_ty' pat_ty
+                , unify (synth new_ctx exp) body_ty
                 )
               end
             )
@@ -764,6 +782,8 @@ structure Statics :
 
     and quantify_binding (id, tyval) ctx =
       let
+        val tyval = norm_tyval tyval
+
         fun tyvars_remove l tyvar =
           List.foldr
             (fn (tyvar', acc) =>
@@ -879,7 +899,7 @@ structure Statics :
         val () =
           List.foldr
             (fn (({exp, ...}, pat_ty), ()) =>
-              ( unify ctx (synth exp_ctx exp) pat_ty
+              ( unify (synth exp_ctx exp) pat_ty
               ; ()
               )
             )
@@ -971,7 +991,6 @@ structure Statics :
                     NONE => ()
                   | SOME ty =>
                       ( unify
-                          ctx
                           out_ty
                           (Context.synth_ty (fn _ => NONE) (fn _ => NONE) ctx ty)
                       ; ()
@@ -990,7 +1009,7 @@ structure Statics :
                           NONE => id'
                         | SOME (id, _, _, _) =>
                           if Symbol.eq (id, id') then id
-                          else prog_err "TODO"
+                          else prog_err "Function names non-matching in clauses"
                     in
                       (* For each function clause, we're accumulating that
                        * clause's bindings and body expression.
@@ -1002,7 +1021,7 @@ structure Statics :
                         NONE => SOME (id, [bindings'], pat_tys', [exp])
                       | SOME (_, bindings, pat_tys, exps) =>
                           ( List.map
-                              (fn (pat_ty1, pat_ty2) => unify ctx pat_ty1 pat_ty2)
+                              (fn (pat_ty1, pat_ty2) => unify pat_ty1 pat_ty2)
                               (ListPair.zipEq (pat_tys, pat_tys'))
                           ; SOME (id, bindings' :: bindings, pat_tys, exp :: exps)
                           )
@@ -1051,7 +1070,6 @@ structure Statics :
                       Context.add_unquantified_val_ty_bindings new_ctx bindings
                   in
                     ( unify
-                        new_ctx
                         (synth new_ctx exp)
                         out_ty
                     ; ()
@@ -1070,7 +1088,7 @@ structure Statics :
           List.map (fn binding => quantify_binding binding orig_ctx) fn_bindings
       in
         ( validate_clauses fn_data
-        ; Context.add_val_ty_bindings ctx quantified_bindings
+        ; Context.add_val_ty_bindings orig_ctx quantified_bindings
         )
       end
 
@@ -1087,7 +1105,7 @@ structure Statics :
         pats
 
     and instantiate_tyscheme ctx (arity, ty_fn) =
-      norm_tyval ctx (ty_fn (List.tabulate (arity, fn _ => new ())))
+      norm_tyval (ty_fn (List.tabulate (arity, fn _ => new ())))
 
     and synth_pat ctx pat =
       case pat of
@@ -1119,7 +1137,7 @@ structure Statics :
                 | PRlab {lab, pat} =>
                     let
                       val (bindings', ty) = synth_pat ctx pat
-                      val _ = unify_row ctx row_ref (lab, SOME ty)
+                      val _ = unify_row row_ref (lab, SOME ty)
                     in
                       (bindings @ bindings', acc)
                     end
@@ -1142,12 +1160,12 @@ structure Statics :
                               val _ =
                                 case ty of
                                   NONE => ()
-                                | SOME ty'' => (unify ctx ty' (Context.synth_ty' ctx ty''); ())
+                                | SOME ty'' => (unify ty' (Context.synth_ty' ctx ty''); ())
                             in
                               ((id, ty') :: bindings @ bindings', ty')
                             end
                     in
-                      ( unify_row ctx row_ref (id, SOME ty)
+                      ( unify_row row_ref (id, SOME ty)
                       ; (bindings, acc)
                       )
                     end
@@ -1188,7 +1206,7 @@ structure Statics :
               let
                 val (bindings', ty') = synth_pat ctx pat
               in
-                (bindings @ bindings', unify ctx ty ty')
+                (bindings @ bindings', unify ty ty')
               end
             )
             ([], new ())
@@ -1204,7 +1222,7 @@ structure Statics :
                         (fn ((id, ty), ()) =>
                           case List.find (fn (id', _) => Symbol.eq (id, id')) bindings2 of
                             NONE => prog_err "bindings not same"
-                          | SOME (_, ty') => ( unify ctx ty ty'; () )
+                          | SOME (_, ty') => ( unify ty ty'; () )
                         )
                         ()
                         bindings1
@@ -1217,7 +1235,7 @@ structure Statics :
                     val (bindings', ty') = synth_pat ctx pat
                     val _ = assert_bindings_same ctx bindings bindings'
                   in
-                    SOME (bindings, unify ctx ty ty')
+                    SOME (bindings, unify ty ty')
                   end
                 )
                 NONE
@@ -1229,24 +1247,25 @@ structure Statics :
       | Papp {id, atpat, ...} =>
           ( case (Context.get_ident_ty_opt ctx id) of
               NONE =>
-                prog_err "TODO"
+                prog_err "Invalid type for applied identifier in pattern"
             | SOME ((Esign | Csign), tyscheme) =>
                 let
                   val (bindings, ty'') = synth_pat ctx atpat
                 in
                   ( case instantiate_tyscheme ctx tyscheme of
                       TVarrow (t1, t2) =>
-                        ( unify ctx t1 ty''
+                        ( unify t1 ty''
                         ; (bindings, ty'')
                         )
                     | _ => raise Fail "prob shouldn't happen"
                   )
                 end
-            | SOME (Vsign, _) => prog_err "TODO"
+            | SOME (Vsign, _) =>
+                prog_err "Applied pattern identifier a non-constructor"
           )
       | Pinfix {left, id, right} =>
           ( case Context.get_ident_ty_opt ctx [id] of
-              NONE => prog_err "TODO"
+              NONE => prog_err "Nonexistent type for infix pattern identifier"
             | SOME ((Csign | Esign), tyscheme) =>
                 (case instantiate_tyscheme ctx tyscheme of
                   TVarrow (t1, t2) =>
@@ -1254,27 +1273,28 @@ structure Statics :
                       val (bindings, ty'') = synth_pat ctx left
                       val (bindings', ty''') = synth_pat ctx right
                     in
-                      ( unify ctx t1 (TVprod [ty'', ty'''])
+                      ( unify t1 (TVprod [ty'', ty'''])
                       ; (bindings @ bindings', t2)
                       )
                     end
                 | _ => raise Fail "should not happen"
                 )
-            | SOME (Vsign, _) => prog_err "TODO"
+            | SOME (Vsign, _) =>
+                prog_err "Infix pattern identifier a non-cosntructor"
           )
       | Ptyped {pat, ty} =>
           let
             val (bindings, ty') = synth_pat ctx pat
             val tyval = Context.synth_ty' ctx ty
           in
-            (bindings, unify ctx tyval ty')
+            (bindings, unify tyval ty')
           end
       | Playered {id, ty, aspat, ...} =>
           let
             val (bindings, ty') = synth_pat ctx aspat
             val tyval =
               case ty of
-                SOME ty => unify ctx ty' (Context.synth_ty' ctx ty)
+                SOME ty => unify ty' (Context.synth_ty' ctx ty)
               | NONE => ty'
           in
             (bindings, tyval)
@@ -1321,7 +1341,7 @@ structure Statics :
       | Ddatdec {datbinds, withtypee} =>
           let
             val enum_datbinds =
-              List.map (fn datbind => (datbind, TyId.new ())) datbinds
+              List.map (fn datbind as {tycon, ...} => (datbind, TyId.new (SOME tycon))) datbinds
 
             val withtypee_bindings =
               case withtypee of
@@ -1356,7 +1376,7 @@ structure Statics :
 
                       fun mk_type_scheme tys =
                         if List.length tys <> num then
-                          prog_err "TODO"
+                          prog_err "Invalid number of tyargs to instantiate type scheme"
                         else
                           Context.synth_ty datatype_fn (mk_tyvar_fn tys) ctx ty
                     in
@@ -1381,9 +1401,9 @@ structure Statics :
             val ctx =
               List.foldl
                 (fn ((datbind, tyid), ctx) =>
-                  Context.add_datbind (fn sym =>
+                  Context.add_datbind (fn (sym, tyvals) =>
                     List.find (fn ({tycon, ...}, _) => Symbol.eq (tycon, sym)) enum_datbinds
-                    |> Option.map #2
+                    |> Option.map (fn (_, tyid) => TVapp (tyvals, tyid))
                   ) ctx (tyid, datbind)
                 )
                 ctx
@@ -1399,7 +1419,7 @@ structure Statics :
             (fn (exbind, new_ctx) =>
               case exbind of
                 Xnew {id, ty, ...} =>
-                  Context.add_exn new_ctx (ExnId.new ())
+                  Context.add_exn new_ctx (ExnId.new (SOME id))
                     ( id
                     , ( 0
                       , case ty of
@@ -1505,6 +1525,296 @@ structure Statics :
             )
       | Dhole => raise Fail "shouldn't eval dhole"
 
+    fun ascribe (scope as Scope {identdict, valtydict, moddict, infixdict, tydict, tynamedict}) seal =
+      case seal of
+        NONE => scope
+      | SOME {opacity, sigval = Sigval { valspecs, tyspecs, dtyspecs, exnspecs, modspecs }} =>
+          let
+            (* First, add all the abstract types.
+             *)
+            val abstydict =
+              SymDict.foldl
+                (fn (tyname, {equality, status}, abstydict) =>
+                  case status of
+                    Concrete _ => abstydict
+                  | Abstract (n, absid) =>
+                      case SymDict.find tynamedict tyname of
+                        NONE => prog_err "cannot find abstract type during signature matching"
+                      | SOME (ans as Scheme (n', ty_fn)) =>
+                          if n <> n' then
+                            prog_err "abstract type cannot match type of \
+                                     \different arity in signature matching"
+                          else
+                            AbsIdDict.insert abstydict absid ty_fn
+                      | SOME (ans as Datatype tyid) =>
+                          if n <> #arity (TyIdDict.lookup tydict tyid) then
+                            prog_err "abstract type cannot match type of \
+                                     \different arity in signature matching"
+                          else
+                            AbsIdDict.insert abstydict absid (fn tyvals => TVapp (tyvals, tyid))
+                )
+                AbsIdDict.empty
+                tyspecs
+
+            (* Next, lets establish a map between all the tyids used within the
+             * signature and their tyid counterparts in the actual module.
+             *)
+            val dtydict =
+              SymDict.foldl
+                (fn (dtyname, {arity, tyid, cons}, dtydict) =>
+                  case SymDict.find tynamedict dtyname of
+                    NONE =>
+                      prog_err "failed to find datatype during signature matching"
+                  | SOME (Datatype tyid') =>
+                      TyIdDict.insert dtydict tyid tyid'
+                  | SOME (Scheme _) =>
+                      prog_err "found type instead of datatype during signature matching"
+                )
+                TyIdDict.empty
+                dtyspecs
+
+            fun verify_tyval tyval =
+              case tyval of
+                TVtyvar sym => tyval
+              | TVapp (tyvals, tyid) =>
+                  (case TyIdDict.find dtydict tyid of
+                    NONE => tyval
+                  | SOME tyid => TVapp (tyvals, tyid)
+                  )
+              | TVabs (tyvals, absid) =>
+                  (case AbsIdDict.find abstydict absid of
+                    NONE => prog_err "should not happen"
+                  | SOME ty_fn => ty_fn tyvals
+                  )
+              | TVprod tyvals =>
+                  TVprod (List.map verify_tyval tyvals)
+              | TVrecord fields =>
+                  TVrecord
+                    (List.map (fn {lab, tyval} => {lab=lab, tyval = verify_tyval tyval}) fields)
+              | TVarrow (t1, t2) =>
+                  TVarrow (verify_tyval t1, verify_tyval t2)
+              | TVvar (ref NONE | ref (SOME (Rows _))) => raise Fail "should not happen"
+              | TVvar (r as ref (SOME (Ty ty))) =>
+                  ( r := SOME (Ty (verify_tyval ty))
+                  ; tyval
+                  )
+
+            fun eq_tyschemes (n, ty_fn) (n', ty_fn') =
+              if n <> n' then
+                prog_err "mismatching arity when comparing types in sig matching"
+              else
+                let
+                  val tyvars = List.tabulate (n, fn _ => TVvar (ref NONE))
+                in
+                  unify
+                    (verify_tyval (ty_fn tyvars))
+                    (verify_tyval (ty_fn' tyvars))
+                end
+
+
+            val new_tynamedict =
+              SymDict.foldl
+                (fn (tyname, {equality, status}, new_tynamedict) =>
+                  (* For testing equality of polymorphic types, we just generate
+                   * some fresh TVvars and then check equality.
+                   *
+                   * For the signature's type, we need to first transform it by
+                   * substituting all abstract types from the signature with
+                   * their instantiated counterparts, as well as all signature
+                   * datatypes with these datatypes.
+                   *)
+                  case (status, SymDict.find tynamedict tyname) of
+                    (Concrete (n, ty_fn), SOME (old as Datatype tyid)) =>
+                      let
+                        val tyvars = List.tabulate (n, fn _ => TVvar (ref NONE))
+                      in
+                        ( unify (verify_tyval (ty_fn tyvars)) (TVapp (tyvars, tyid))
+                        ; SymDict.insert new_tynamedict tyname old
+                        )
+                      end
+                  | (Concrete (n, ty_fn), SOME (old as Scheme (n', ty_fn'))) =>
+                      if n <> n' then
+                        prog_err "arity mismatch in types during signature matching"
+                      else
+                        let
+                          val tyvars = List.tabulate (n, fn _ => TVvar (ref NONE))
+                        in
+                          ( unify (verify_tyval (ty_fn tyvars)) (ty_fn' tyvars)
+                          ; SymDict.insert new_tynamedict tyname old
+                          )
+                        end
+                  | (Abstract (n, absid), SOME old) =>
+                      SymDict.insert new_tynamedict tyname old
+                  | (_, NONE) =>
+                      prog_err "cannot find type during signature matching"
+                )
+                SymDict.empty
+                tyspecs
+
+            (* For all the datatypes, check that they have matching
+             * constructors, then populate the tydict.
+             *
+             * We also want all of the cons, so we can later add them to the
+             * environment.
+             *)
+            val (cons, new_tydict) =
+              SymDict.foldl
+                (fn ( dtyname
+                  , {arity = sig_arity, tyid = sig_tyid, cons = sig_cons}
+                  , (cons, new_tydict)
+                  ) =>
+                  let
+                    val mod_tyid = TyIdDict.lookup dtydict sig_tyid
+                    val old as {arity = mod_arity, cons = mod_cons} =
+                      TyIdDict.lookup tydict mod_tyid
+                    val tyvars = List.tabulate (mod_arity, fn _ => TVvar (ref NONE))
+
+                    (* Could be more efficient, but the number of constructors
+                     * has gotta be real low.
+                     *)
+                    fun subset cons1 cons2 =
+                      List.foldl
+                        (fn ({id, tyscheme}, ()) =>
+                          case List.find (fn {id = id', ...} => Symbol.eq (id, id')) cons2 of
+                            NONE => prog_err "unmatched con in signature matching"
+                          | SOME {tyscheme = tyscheme', ...} =>
+                              ( eq_tyschemes tyscheme tyscheme'
+                              ; ()
+                              )
+                        )
+                        ()
+                        cons1
+
+                    val cons_to_add =
+                      List.map (fn {id, tyscheme} => (id, tyscheme, mod_tyid)) mod_cons
+                  in
+                    if mod_arity <> sig_arity then
+                      prog_err "arity does not match in signature matching"
+                    else
+                      ( subset mod_cons sig_cons
+                      ; subset sig_cons mod_cons
+                      ; ( cons_to_add @ cons
+                        , TyIdDict.insert new_tydict mod_tyid old
+                        )
+                      )
+                  end
+                )
+                ([], TyIdDict.empty)
+                dtyspecs
+
+            (* Populate the valtydict and identdict by iterating over all the
+             * specifications for values.
+             *)
+            val (new_valtydict, new_identdict) =
+              SymDict.foldl
+                (fn (id, sig_tyscheme, (acc_valtydict, acc_identdict)) =>
+                  let
+                    val (_, mod_tyscheme) = SymDict.lookup valtydict id
+                  in
+                    (* Check that the types of the values are the same.
+                     * If so, then we want to add this identifier with a value
+                     * tag to the identdict and valtydict.
+                     *)
+                    ( eq_tyschemes mod_tyscheme sig_tyscheme
+                    ; ( SymDict.insert
+                          acc_valtydict
+                          id
+                          (Vsign, mod_tyscheme)
+                      , case SymDict.find identdict id of
+                          SOME (V value) =>
+                            SymDict.insert
+                              acc_identdict
+                              id
+                              (V value)
+                          (* TODO: check this
+                           * if it was originally a constructor or exception, just
+                           * add it back as a constr for its val
+                           *)
+                        | SOME (C _ | E _) =>
+                            SymDict.insert
+                              acc_identdict
+                              id
+                              (V (Vconstr {id = [id], arg = NONE}))
+                        | _ =>
+                          prog_err
+                            ("Failed to find value identifier " ^ lightblue (Symbol.toValue id)
+                            ^ " during signature ascription"
+                            )
+                    )
+                  )
+                end
+              )
+              (SymDict.empty, SymDict.empty)
+              valspecs
+
+            (* Add exns *)
+            val (new_valtydict, new_identdict) =
+              SymDict.foldl
+                (fn (id, sig_tyscheme, (acc_valtydict, acc_identdict)) =>
+                  let
+                    val (_, mod_tyscheme) = SymDict.lookup valtydict id
+                  in
+                    ( eq_tyschemes sig_tyscheme mod_tyscheme
+                    ; case SymDict.find identdict id of
+                        SOME (ans as E _) =>
+                          ( SymDict.insert acc_valtydict id (Esign, mod_tyscheme)
+                          , SymDict.insert acc_identdict id ans
+                          )
+                      | _ =>
+                        prog_err
+                          ("Failed to find exception " ^ lightblue (Symbol.toValue id)
+                          ^ " during signature ascription"
+                          )
+                    )
+                  end
+                )
+                (new_valtydict, new_identdict)
+                exnspecs
+
+            (* Add cons *)
+            val (new_valtydict, new_identdict) =
+               List.foldl
+                (fn ((id, tyscheme, tyid), (acc_valtydict, acc_identdict)) =>
+                  ( SymDict.insert acc_valtydict id (Csign, tyscheme)
+                  , SymDict.insert acc_identdict id (C tyid)
+                  )
+                )
+                (new_valtydict, new_identdict)
+                cons
+
+            val new_moddict =
+              SymDict.foldl
+                (fn (id, sigval, acc_moddict) =>
+                  SymDict.insert
+                    acc_moddict
+                    id
+                    ( ascribe
+                        (SymDict.lookup moddict id)
+                        ( SOME
+                            { opacity = Transparent
+                            , sigval = sigval
+                            }
+                        )
+                    )
+                  handle SymDict.Absent =>
+                  prog_err
+                    ("Could not find module " ^ lightblue (Symbol.toValue id)
+                    ^ " during signature ascription"
+                    )
+                )
+                SymDict.empty
+                modspecs
+          in
+            Scope
+              { identdict = new_identdict
+              , valtydict = new_valtydict
+              , moddict = new_moddict
+              , infixdict = SymDict.empty
+              , tydict = new_tydict
+              , tynamedict = new_tynamedict
+              }
+          end
+
 
     (*
     fun validate_bind pat exp ctx =
@@ -1603,7 +1913,7 @@ structure Statics :
             (* Generate new ty IDs for each datatype declaration.
              *)
             val ty_ids =
-              List.map (fn {tycon, ...} => (tycon, TyId.new ())) datbinds
+              List.map (fn {tycon, ...} => (tycon, TyId.new (SOME tycon))) datbinds
 
             (* For every withtype, evaluate that type to a tyval with the new
              * datatypes.
@@ -1638,7 +1948,7 @@ structure Statics :
 
                     fun mk_type_scheme tys =
                       if List.length tys <> num then
-                        prog_err "TODO"
+                        prog_err "Invalid number of tyargs to instantiate type scheme"
                       else
                         Context.synth_ty datatype_fn (mk_tyvar_fn tys) ctx ty
                   in
@@ -1683,7 +1993,7 @@ structure Statics :
             (fn (exbind, new_ctx) =>
               case exbind of
                 Xnew {id, ty} =>
-                  Context.add_exn new_ctx (id, (ExnId.new (),ty))
+                  Context.add_exn new_ctx (id, (ExnId.new (SOME id),ty))
               | Xrepl {left_id, right_id, ...} =>
                   Context.add_exn new_ctx (id, (Context.get_exn_id ctx right_id))
             )
