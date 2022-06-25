@@ -140,27 +140,6 @@ structure Debugger :
           raise Context.Raise (Vconstr {id = [Symbol.fromValue "Match"], arg = NONE})
       | _ => raise exn
 
-    (*
-    fun craise exn =
-      if Basis.do_raise () then
-        raise exn
-      else
-        case exn of
-          Perform (Break (_, cont)) => Cont.throw cont ()
-        | Perform
-            (Step { context
-                  , location
-                  , focus
-                  , stop
-                  }) =>
-            case focus of
-              EXP (exp, cont) =>
-                eval location exp context cont
-            | VAL (_, value, cont) =>
-                Cont.throw cont value
-        | _ => raise exn
-     *)
-
     (* Does a left-to-right application of the function to each element.
      *
      * This continuation will throw the currently evaluated expression, as a
@@ -492,6 +471,7 @@ structure Debugger :
                 )
             )
         | Eraise exp =>
+            (* TODO: check if exn *)
             (case eval' (Eraise Ehole) exp ctx of
               (constr as Vconstr _) => (raise Context.Raise constr)
             | (constr as Vinfix _) => raise Context.Raise constr
@@ -607,6 +587,15 @@ structure Debugger :
         Cont.throw cont value
       end
 
+    (* After the statics are finished, we only have a couple things we need to
+     * do extra.
+     * The dec_status value will signal to us what we should do.
+     * In particular, we either need to:
+     * 1) add the value bindings from a val declaration to the ctx
+     * 2) add the value bindings from a fun declaration to the ctx
+     * 3) proceed with the new context
+     * 4) recurse on a sub-argument, which means providing the `eval_dec` function
+     *)
     and eval_dec location dec orig_ctx =
       case Statics.synth_dec orig_ctx dec of
         Statics.DEC_VAL (new_ctx, exp_ctx, {tyvars, valbinds}) =>
@@ -768,7 +757,7 @@ structure Debugger :
       | Statics.DEC_CONT f =>
           f (location, eval_dec)
 
-    (* Should put all of the resulting bindings into the top-most scope.
+    (* INVARIANT: Should put all of the resulting bindings into the top-most scope.
      *)
     and eval_module location module ctx =
       case module of

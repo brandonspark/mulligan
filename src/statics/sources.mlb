@@ -4,10 +4,12 @@ $(SML_LIB)/basis/basis.mlb
 ../context/sources.mlb
 ../../cmlib/cmlib.mlb
 ../util/sources.mlb
-local
-  ../pretty-print/sources.mlb
-in
-  structure PrettyPrintAst
-end
+../pretty-print/sources.mlb
 
-statics.sml
+local
+  common.sml
+  collect_tyvars.sml
+  statics.sml
+in
+  structure Statics
+end

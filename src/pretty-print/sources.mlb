@@ -1,9 +1,12 @@
+$(SML_LIB)/basis/basis.mlb
 
- $(SML_LIB)/basis/basis.mlb
+local
+  ../util/sources.mlb
+  ../../cmlib/cmlib.mlb
+  ../syntax/sources.mlb
+  ../context/sources.mlb
 
-../util/sources.mlb
-../../cmlib/cmlib.mlb
-../syntax/sources.mlb
-../context/sources.mlb
-
-PrettyPrintAst.sml
+  PrettyPrintAst.sml
+in
+  structure PrettyPrintAst
+end

@@ -1,5 +1,5 @@
-../../cmlib/cmlib.mlb
-../util/sources.mlb
+../../../cmlib/cmlib.mlb
+../../util/sources.mlb
 
 local
   token.sml

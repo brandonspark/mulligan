@@ -36,7 +36,7 @@ structure PreSMLSyntax =
       | TVprod of tyval list
       | TVarrow of tyval * tyval
       | TVrecord of {lab: symbol, tyval: tyval} list
-      | TVvar of restrict option ref
+      | TVvar of restrict option Ref.t
       | TVabs of tyval list * AbsId.t
 
     and restrict =
@@ -56,7 +56,7 @@ structure PreSMLSyntax =
      *)
     datatype tyvar =
         Proper of symbol
-      | Unconstrained of restrict option ref
+      | Unconstrained of restrict option Ref.t
 
     fun tyvar_eq (t1, t2) =
       case (t1, t2) of
@@ -550,6 +550,8 @@ signature SMLSYNTAX =
     val longid_to_str : longid -> string
     val tyvar_eq : PreSMLSyntax.tyvar * PreSMLSyntax.tyvar -> bool
     val guard_tyscheme : PreSMLSyntax.type_scheme -> PreSMLSyntax.type_scheme
+    val number_eq : PreSMLSyntax.number * PreSMLSyntax.number -> bool
+    val norm_tyval : PreSMLSyntax.tyval -> PreSMLSyntax.tyval
 
     (* TYPES *)
 
@@ -651,10 +653,46 @@ structure SMLSyntax : SMLSYNTAX =
       ( n
       , fn tyvals =>
           if List.length tyvals <> n then
-            Error.prog_err "Instantiated type scheme with incorrect number of tyargs"
+            raise Fail "Instantiated type scheme with incorrect number of tyargs"
           else
             ty_fn tyvals
       )
+
+    local
+      open PreSMLSyntax
+    in
+      fun number_eq (n1, n2) =
+        case (n1, n2) of
+          (Int i1, Int i2) => i1 = i2
+        | (Real _, Real _) => raise Fail "comparing reals for equality"
+        | (Word w1, Word w2) => w1 = w2
+        | _ => false
+    end
+
+    local
+      open PreSMLSyntax
+    in
+      fun norm_tyval tyval =
+        case tyval of
+          TVvar (_, r as ref NONE) => tyval
+            (* May loop forever if the tyval contains the same ref.
+             *)
+        | TVvar (_, r as ref (SOME (Ty tyval))) =>
+            norm_tyval tyval
+        | TVvar (_, r as ref (SOME (Rows _))) => tyval
+        | TVapp (tyvals, tyid) =>
+            TVapp (List.map norm_tyval tyvals, tyid)
+        | TVabs (tyvals, absid) =>
+            TVabs (List.map norm_tyval tyvals, absid)
+        | TVprod tyvals =>
+            TVprod (List.map norm_tyval tyvals)
+        | TVrecord fields =>
+            TVrecord
+              (List.map (fn {lab, tyval} => {lab = lab, tyval = norm_tyval tyval}) fields)
+        | TVarrow (t1, t2) =>
+            TVarrow (norm_tyval t1, norm_tyval t2)
+        | TVtyvar sym => TVtyvar sym
+    end
 
     (* TYPES *)
 

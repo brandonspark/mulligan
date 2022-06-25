@@ -14,11 +14,6 @@ closure, and then generate the text as needed.
 
 So we never have to actually do substitution, we can just alter the context.
 
-constructor equivalence when shadowing exceptions or datatypes
-
-replicating datatypes and exceptions warrants a separate thing in context for
-them
-
 users will be able to enter non-typechecking inputs if we have no type
 information...
 
@@ -37,10 +32,6 @@ This means that breaking functions persists beyond names, but are attached to
 the exact function value.
 
 KNOWN ISSUES:
-- Types don't exist yet
-- Constructor and exception generativity doesn't exist, matching happens only on
-  the basis of names. This isn't actually an issue because of type safety, but
-  later will need to be fixed.
 - It looks like shit
 - should probably stop before entering a Let body
 - Sources in CM files are processed in linear order, which may not be correct.

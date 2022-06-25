@@ -12,6 +12,8 @@ structure Value :
     val value_to_exp : value -> SMLSyntax.exp
     val exp_to_value : t -> SMLSyntax.exp -> value option
 
+    val value_eq : value * value -> bool
+
     val apply_fn :
            {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list * t * scope option
         -> value
@@ -165,6 +167,45 @@ structure Value :
         | Ewhile _
         | Ecase _ ) => NONE
       | Ehole => raise Fail "shouldn't happen?"
+
+    fun value_eq values =
+      case values of
+        (Vnumber num, Vnumber num') => number_eq (num, num')
+      | (Vstring s, Vstring s') => Symbol.eq (s, s')
+      | (Vchar c, Vchar c') => c = c'
+      | (Vrecord fields, Vrecord fields') =>
+          let
+            fun field_subset fields1 fields2 =
+              List.foldl
+                (fn ({lab, value}, acc) =>
+                  case List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields2 of
+                    NONE => false
+                  | SOME {value = value', ...} =>
+                      value_eq (value, value') andalso acc
+                )
+                true
+                fields1
+          in
+            field_subset fields fields'
+            andalso field_subset fields' fields
+          end
+      | (Vunit, Vunit) => true
+      | (Vconstr {id, arg = NONE}, Vconstr {id = id', arg = NONE}) =>
+          longid_eq (id, id')
+      | (Vconstr {id, arg = SOME value}, Vconstr {id = id', arg = SOME value'}) =>
+          longid_eq (id, id') andalso value_eq (value, value')
+      | (Vselect sym, Vselect sym') => Symbol.eq (sym, sym')
+      | (Vtuple values, Vtuple values') =>
+          ListPair.allEq value_eq (values, values')
+      | (Vlist values, Vlist values') =>
+          ListPair.allEq value_eq (values, values')
+      | (Vinfix {left, id, right}, Vinfix {left = left', id = id', right = right'}) =>
+          value_eq (left, left') andalso Symbol.eq (id, id') andalso value_eq (right, right')
+      | (Vfn _, Vfn _) => false
+      (* For basis values *)
+      | (Vbasis {name, function}, Vbasis {name = name', ...}) =>
+          Symbol.eq (name, name')
+      | _ => false
 
 
     exception Mismatch of string

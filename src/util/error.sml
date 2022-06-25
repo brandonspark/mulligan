@@ -13,7 +13,7 @@ datatype warning =
 datatype error =
   ParseError of (string * string list)
 | LexError of {reason : string, pos : int, rest : char list}
-| GeneralError of {filename : string, reason : string}
+| TypeError of {reason : string}
 | EvalError of string
 | UserError of string
 | InvalidProgramError of string
@@ -33,16 +33,22 @@ signature ERROR =
 
     val err : (error -> 'a)
 
+    val error_eq : (error * error) -> bool
+    val show_error : error -> string
+
     val eval_err : string -> 'a
     val user_err : string -> 'a
     val prog_err : string -> 'a
+    val type_err : string -> 'a
 
     val mk_reason : string -> string
     val lightblue : string -> string
     val orange : string -> string
+    val red : string -> string
 
     val surround : TerminalColors.color -> string -> string
   end
+
 structure Error :> ERROR =
   struct
     structure TC = TerminalColors
@@ -75,6 +81,7 @@ structure Error :> ERROR =
 
     fun text color s = TC.foreground color ^ s ^ TC.reset
     fun orange s = text TC.orange s
+    fun red s = text TC.red s
     fun lightblue s = text TC.lightblue s
 
     fun source (filename, pos) =
@@ -140,11 +147,41 @@ structure Error :> ERROR =
       ; x
       )
 
+    fun error_eq (error1, error2) =
+      case (error1, error2) of
+        (ParseError (s, strs), ParseError (s', strs')) =>
+          s = s' andalso ListPair.allEq (op=) (strs, strs')
+      | ( LexError {reason, pos, rest}
+        , LexError {reason = reason', pos = pos', rest = rest'}
+        ) =>
+          reason = reason' andalso pos = pos' andalso ListPair.allEq (op=)
+          (rest, rest')
+      | (TypeError {reason}, TypeError {reason = reason'}) =>
+          reason = reason'
+      | (EvalError s, EvalError s') =>
+          s = s'
+      | (UserError s, UserError s') =>
+          s = s'
+      | (InvalidProgramError s, InvalidProgramError s') =>
+          s = s'
+      | _ => false
+
+    fun show_error error =
+      case error of
+        ParseError (s, strs) => s
+      | LexError {reason, pos, ...} => lightblue (Int.toString pos) ^ ": " ^ reason
+      | TypeError {reason, ...} => reason
+      | EvalError s => s
+      | UserError s => s
+      | InvalidProgramError s => s
+
+
     fun err error = raise Signal (SigError error)
 
     fun eval_err s = raise Signal (SigError (EvalError s))
     fun user_err s = raise Signal (SigError (UserError s))
     fun prog_err s = raise Signal (SigError (InvalidProgramError s))
+    fun type_err s = raise Signal (SigError (TypeError {reason = s}))
 
     fun mk_reason s = lightblue "Reason" ^ ": " ^ s ^ "\n"
   end

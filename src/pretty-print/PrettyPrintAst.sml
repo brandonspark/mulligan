@@ -5,18 +5,29 @@
 
 structure PrettyPrintAst :
 sig
+  include PRINTF
+
   val pretty: Context.t -> SMLSyntax.ast -> bool -> string
+
   val report :
     Context.t -> SMLSyntax.exp -> int -> Location.location list -> string
-  val report_doc :
-    Context.t -> PrettySimpleDoc.t -> int -> Location.location list -> string
-  val show_value : Context.t -> Context.value -> PrettySimpleDoc.t
-  val show_exp : Context.t -> SMLSyntax.exp -> PrettySimpleDoc.t
-  val print_value : Context.t -> Context.value -> string
+
   val ctx_toString : Context.t -> string
   val location_toString : Context.t -> Location.location list -> string
+
+  val print_value : Context.t -> Context.value -> string
+  val print_pat : Context.t -> SMLSyntax.pat -> string
+  val print_exp : Context.t -> SMLSyntax.exp -> string
   val print_tyval : SMLSyntax.tyval -> string
+
+  (* Some format flags for Printf.
+   *)
+  val ftv : (SMLSyntax.tyval -> 'a, 'b, 'state) Printf.t * string -> ('a, 'b, 'state) Printf.t
+  val fp : (SMLSyntax.pat -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
+  val fe : (SMLSyntax.exp -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
+  val fv : (SMLSyntax.value -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
 end =
+
 struct
   open PrettyPrintContext
 
@@ -24,6 +35,7 @@ struct
   structure PD = PrettySimpleDoc
   open PD
   open Location
+  open Printf
 
   structure TC = TerminalColors
 
@@ -346,11 +358,11 @@ struct
             text_syntax "}"
           )
         end
-      | TVvar (ref NONE) =>
-          raise Fail "should not print unification var?"
-      | TVvar (ref (SOME (Ty tyval))) =>
+      | TVvar (r as (_, ref NONE)) =>
+          text color (Ref.print r)
+      | TVvar (_, ref (SOME (Ty tyval))) =>
           show_tyval tyval
-      | TVvar (ref (SOME (Rows fields))) =>
+      | TVvar (_, ref (SOME (Rows fields))) =>
         let
           val fields_doc =
             List.map
@@ -389,8 +401,8 @@ struct
         | TVapp (([] | [_]), _)
         | TVabs (([] | [_]), _)
         | TVrecord _
-        | TVvar (ref (SOME (Rows _)))) => show_tyval tyval
-      | TVvar (ref (SOME (Ty tyval))) => show_tyval tyval
+        | TVvar (_, ref (SOME (Rows _)))) => show_tyval tyval
+      | TVvar (_, ref (SOME (Ty tyval))) => show_tyval tyval
       | _ => parensAround (show_tyval tyval)
   end
 
@@ -546,6 +558,7 @@ struct
     fun show_exp ctx exp = show_exp_ ctx exp
     and show_exp_ ctx exp_ =
       let
+        val show_exp' = show_exp_
         val show_exp = show_exp_ ctx
         val show_atexp = show_atexp ctx
         val color = white
@@ -646,7 +659,7 @@ struct
       | Ehandle {exp, matches} =>
           show_atexp exp +-+ text_syntax "handle"
           $$
-          show_list (show_match ctx) "| " matches
+          show_list (show_match ctx NONE) "| " matches
       | Eraise exp =>
           text_syntax "raise" +-+ show_exp exp
       | Eif {exp1, exp2, exp3} =>
@@ -725,19 +738,15 @@ struct
           let
             val ctx = Option.getOpt (ctx_opt, ctx)
             val {pat, exp} = List.nth (matches, 0)
+
             val inner =
-              (text_syntax "fn" +-+ show_pat ctx pat +-+ text_syntax "=>")
-              \\ show_exp exp
+              show_match ctx (SOME "fn") (List.nth (matches, 0))
           in
             group (
               List.foldl
-                  (fn ({pat, exp}, acc) =>
+                  (fn (match, acc) =>
                     acc $$
-                    ( space ++
-                        ( (text_syntax "|" +-+ show_pat ctx pat +-+ text_syntax "=>")
-                          \\ show_exp exp
-                        )
-                    )
+                    ( space ++ show_match ctx (SOME "|") match )
                   )
                   inner
                   (List.drop (matches, 1))
@@ -847,7 +856,7 @@ struct
           )
       | Vfn {matches, env, ...} =>
           let
-            val inner = group (text_syntax "fn" +-+ (show_match env) (List.nth (matches, 0)))
+            val inner = group (show_match env (SOME "fn") (List.nth (matches, 0)))
           in
             case matches of
               [] => raise Fail "empty matches in fn"
@@ -857,7 +866,7 @@ struct
                     inner
                   else
                   inner $$
-                  space ++ show_list_base false (show_match env) "| " true true tl
+                  space ++ show_list_base false (show_match env NONE) "| " true true tl
                 )
           end
       | Vbasis {name, ...} => show_id name
@@ -882,15 +891,19 @@ struct
         ) => parensAround (show_value ctx value)
 
 
-    and show_match ctx {pat, exp} =
+    and show_match ctx prefix {pat, exp} =
       let
         val bound_ids = Binding.get_pat_bindings ctx pat
         val new_ctx = Binding.remove_bound_ids ctx bound_ids
       in
         group (
-          show_pat ctx pat +-+ text_syntax "=>"
-          $$
-          show_exp new_ctx exp
+          ( case prefix of
+              NONE => text_syntax ""
+            | SOME thing => text_syntax thing ++ spaces 1
+          )
+          ++
+            show_pat ctx pat +-+ text_syntax "=>"
+            \\ show_exp new_ctx exp
         )
       end
     and show_rec_match_equal ctx {recc, pat, exp} =
@@ -1813,8 +1826,6 @@ struct
         | (n, PROG topdecs :: _) => raise Fail "PROG not outermost"
       end
 
-    val report_doc = fn ctx => fn doc => fn n => fn location =>
-      PrettySimpleDoc.toString true (report ctx empty_set doc n location)
     val report = fn ctx => fn exp => fn n => fn location =>
       PrettySimpleDoc.toString
         true
@@ -1885,7 +1896,21 @@ struct
 
   fun print_value ctx value =
     PrettySimpleDoc.toString true (show_value ctx value)
+  fun print_exp ctx exp =
+    PrettySimpleDoc.toString true (show_exp ctx exp)
+  fun print_pat ctx pat =
+    PrettySimpleDoc.toString true (show_pat ctx pat)
 
   fun print_tyval tyval =
-    PrettySimpleDoc.toString true (show_tyval tyval)
+    PrettySimpleDoc.toString true (show_tyval (norm_tyval tyval))
+
+
+  fun promote' f =
+    fn ctx => fn x => f ctx x
+
+  val op ftv = fn z => newFormat (fn _ => fn x => print_tyval x) z
+  val op fe = fn acc => newFormat (promote' print_exp) acc
+  val op fv = fn acc => newFormat (promote' print_value) acc
+  val op fp = fn acc => newFormat (promote' print_pat) acc
+
 end

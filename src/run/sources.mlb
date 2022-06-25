@@ -7,8 +7,6 @@ $(SML_LIB)/basis/basis.mlb
 ../context/sources.mlb
 ../pretty-print/sources.mlb
 ../debugger/sources.mlb
-../cm_parser/sources.mlb
-../run/sources.mlb
 
 local
   ../../parse-sml/src/base/sources.mlb
@@ -24,4 +22,7 @@ in
   structure CommandLineArgs
 end
 
-top.sml
+common.sml
+mk_run.sml
+run_debugger.sml
+run_test.sml

@@ -14,6 +14,7 @@ sig
   val blue: color
   val lightblue: color
   val softred: color
+  val softgreen: color
   val orange: color
   val purple: color
   val yellow: color
@@ -71,6 +72,7 @@ struct
 
   val lightblue = hsv {h = 199.0, s = 0.8, v = 0.99}
   val softred = hsv {h = 0.0, s = 0.66, v = 0.83}
+  val softgreen = hsv {h = 129.0, s = 0.82, v = 1.0}
   val orange = hsv {h = 35.0, s = 0.85, v = 0.84}
   val purple = hsv {h=283.0,s=0.87,v=0.87}
   val yellow = hsv {h =59.0, s=0.74, v = 0.95}

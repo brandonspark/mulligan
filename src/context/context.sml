@@ -106,10 +106,8 @@ structure Context :
       -> SMLSyntax.ty
       -> t
       -> SMLSyntax.type_scheme
-    val add_typbinds : t -> SMLSyntax.typbind list -> t
+
     val replicate_datatype : t -> SMLSyntax.symbol * SMLSyntax.symbol list -> t
-    (*val replicate_exception : t -> SMLSyntax.symbol * SMLSyntax.symbol list -> t
-     *)
 
     val get_current_tyvars : (SMLSyntax.tyval -> SMLSyntax.tyvar list) -> t -> SMLSyntax.tyvar list
 
@@ -119,18 +117,12 @@ structure Context :
      -> TyId.t * SMLSyntax.datbind
      -> t
 
-    (*
-    val ascribe : scope -> { opacity : SMLSyntax.opacity
-                           , sigval : SMLSyntax.sigval
-                           } option -> scope
-    *)
-
-    (* Value stuff *)
   end =
   struct
     open PrettyPrintContext
     open SMLSyntax
     open Error
+    open Printf
 
     type value = SMLSyntax.value
     type scope = SMLSyntax.scope
@@ -473,6 +465,10 @@ structure Context :
 
     fun is_exn ctx id = case get_exn_opt ctx id of NONE => false | _ => true
 
+    (* Exceptions are also cons.
+     *)
+    val is_con = fn ctx => fn id => is_con ctx id orelse is_exn ctx id
+
     fun open_path ctx path =
       merge_scope
         ctx
@@ -664,20 +660,6 @@ structure Context :
         end
       ) ctx
 
-    (* TODO: change this *)
-    (*
-    fun add_con ctx id =
-      lift (fn (scope, rest) =>
-        let
-          val condict = scope_condict scope
-        in
-          ( scope_set_condict scope (SymSet.insert condict id)
-          , rest
-          )
-        end
-      ) ctx
-    *)
-
     fun add_infix ctx (id, infixity, precedence) =
       lift (fn (scope, rest) =>
         let
@@ -758,14 +740,11 @@ structure Context :
             (fn s =>
               (s, get_module ctx' [s])
               handle CouldNotFind =>
-                err
-                  (GeneralError
-                    { filename = path
-                    , reason =
-                          "Failed to find module " ^ (orange (Symbol.toValue s))
-                        ^ " to export in " ^ (lightblue path)
-                    }
-                  )
+                Printf.printf
+                  (`"Failed to find module "fs" to export in "fs"")
+                  (orange (Symbol.toValue s))
+                  (lightblue path)
+                |> prog_err
             )
             structs
 
@@ -774,14 +753,11 @@ structure Context :
             (fn s =>
               case get_sigval_opt ctx' s of
                 NONE =>
-                  err
-                    (GeneralError
-                      { filename = path
-                      , reason =
-                            "Failed to find signature " ^ (orange (Symbol.toValue s))
-                          ^ " to export in " ^ (lightblue path)
-                      }
-                    )
+                  Printf.printf
+                    (`"Failed to find signature "fs" to export in "fs"")
+                    (orange (Symbol.toValue s))
+                    (lightblue path)
+                  |> prog_err
               | SOME ans => (s, ans)
             )
             sigs
@@ -791,14 +767,11 @@ structure Context :
             (fn s =>
               case get_functorval_opt ctx' s of
                 NONE =>
-                  err
-                    (GeneralError
-                      { filename = path
-                      , reason =
-                            "Failed to find functor " ^ (orange (Symbol.toValue s))
-                          ^ " to export in " ^ (lightblue path)
-                      }
-                    )
+                  Printf.printf
+                    (`"Failed to find functor "fs" to export in "fs"")
+                    (orange (Symbol.toValue s))
+                    (lightblue path)
+                  |> prog_err
               | SOME ans => (s, ans)
             )
             functors
@@ -999,15 +972,19 @@ structure Context :
         )
       end
 
-
     (* TYPE STUFF *)
+
+    (* This is here because add_datbind needs mk_type_scheme, which needs
+     * synth_ty.
+     *)
+
     fun synth_ty datatype_fn tyvar_fn ctx ty =
       let
         val synth_ty = fn ctx => fn ty => synth_ty datatype_fn tyvar_fn ctx ty
 
         fun handle_type_synonym tyvals id =
           case get_type_synonym ctx id of
-            Datatype tyid => TVapp ([], tyid)
+            Datatype tyid => TVapp (tyvals, tyid)
           | Scheme (n, f) =>
               if List.length tyvals <> n then
                 prog_err "invalid arity for type synonym"
@@ -1098,17 +1075,17 @@ structure Context :
                 , tyscheme =
                   case ty of
                     NONE =>
-                    mk_type_scheme
-                      datatype_fn
-                      tyvars
-                      (Tapp (List.map Ttyvar tyvars, [tycon]))
-                      ctx
+                      mk_type_scheme
+                        datatype_fn
+                        tyvars
+                        (Tapp (List.map Ttyvar tyvars, [tycon]))
+                        ctx
                   | SOME ty =>
-                    mk_type_scheme
-                      datatype_fn
-                      tyvars
-                      (Tarrow (ty, Tapp (List.map Ttyvar tyvars, [tycon])))
-                      ctx
+                      mk_type_scheme
+                        datatype_fn
+                        tyvars
+                        (Tarrow (ty, Tapp (List.map Ttyvar tyvars, [tycon])))
+                        ctx
                 }
               )
               conbinds
@@ -1151,9 +1128,7 @@ structure Context :
         end
       ) ctx
 
-    (* TODO: implement type stuff *)
-    fun add_typbinds ctx typbinds = ctx
-
+    (* TODO: add cons *)
     fun replicate_datatype orig_ctx (left_id, right_id) =
       lift (fn ctx as (scope, rest) =>
         let
@@ -1169,179 +1144,34 @@ structure Context :
         end
       ) orig_ctx
 
-    fun insert_tyvar tyvar l =
-      case
-        List.find (fn tyvar' => tyvar_eq (tyvar, tyvar')) l
-      of
-        NONE => tyvar :: l
-      | SOME _ => l
-
-    (* Gets all the tyvars currently in the valtydict (implicit), as well as
-     * those which have been deliberately added to the tyvarseqs (explicit).
-     *)
-    fun get_current_tyvars collect_tyvars_tyval
-          ({scope, outer_scopes, tyvars = cur_tyvars, ...} : SMLSyntax.context) =
-      List.foldl
-        (fn (scope, tyvars) =>
-          SymDict.foldl
-            (fn (_, (sign, (arity, ty_fn)), tyvars) =>
-              collect_tyvars_tyval (ty_fn (List.tabulate (arity, fn _ => TVprod []))) @ tyvars
-            )
-            tyvars
-            (scope_valtydict scope)
-        )
-        []
-        (scope :: outer_scopes)
-      |> List.foldl
-          (fn (tyvar, acc) => insert_tyvar tyvar acc)
+    local
+      fun insert_tyvar tyvar l =
+        case
+          List.find (fn tyvar' => tyvar_eq (tyvar, tyvar')) l
+        of
+          NONE => tyvar :: l
+        | SOME _ => l
+    in
+      (* Gets all the tyvars currently in the valtydict (implicit), as well as
+       * those which have been deliberately added to the tyvarseqs (explicit).
+       *)
+      fun get_current_tyvars collect_tyvars_tyval
+            ({scope, outer_scopes, tyvars = cur_tyvars, ...} : SMLSyntax.context) =
+        List.foldl
+          (fn (scope, tyvars) =>
+            SymDict.foldl
+              (fn (_, (sign, (arity, ty_fn)), tyvars) =>
+                collect_tyvars_tyval (ty_fn (List.tabulate (arity, fn _ => TVprod []))) @ tyvars
+              )
+              tyvars
+              (scope_valtydict scope)
+          )
           []
-      |> (fn valty_tyvars => valty_tyvars @ List.map Proper (SymSet.toList cur_tyvars))
+          (scope :: outer_scopes)
+        |> List.foldl
+            (fn (tyvar, acc) => insert_tyvar tyvar acc)
+            []
+        |> (fn valty_tyvars => valty_tyvars @ List.map Proper (SymSet.toList cur_tyvars))
+    end
 
-    (*
-    fun ascribe scope seal =
-      case seal of
-        NONE => scope
-      | SOME {opacity, sigval = Sigval { valspecs, dtyspecs, exnspecs, modspecs }} =>
-          let
-            val identdict = scope_identdict scope
-            val valtydict = scope_valtydict scope
-            val moddict = scope_moddict scope
-            val tydict = scope_tydict scope
-            val tynamedict = scope_tynamedict scope
-
-            (* TODO: check types *)
-            val new_identdict =
-              SymSet.foldl
-                (fn (id, acc_identdict) =>
-                  case SymDict.find identdict id of
-                    SOME (V value) =>
-                      SymDict.insert
-                        acc_identdict
-                        id
-                        (V value)
-                    (* TODO: check this
-                     * if it was originally a constructor or exception, just
-                     * add it back as a constr for its val
-                     *)
-                  | SOME (C _ | E _) =>
-                      SymDict.insert
-                        acc_identdict
-                        id
-                        (V (Vconstr {id = [id], arg = NONE}))
-                  | _ =>
-                    prog_err
-                      ("Failed to find value identifier " ^ lightblue (Symbol.toValue id)
-                      ^ " during signature ascription"
-                      )
-                )
-                SymDict.empty
-                valspecs
-
-            (* TODO: vals here too *)
-            val (cons, new_tydict, new_tynamedict) =
-              SymDict.foldl
-                (fn (id, {arity, tyid, cons}, (acc_cons, acc_tydict, acc_tynamedict)) =>
-                  let
-                    (* Look for the information of the type named "id" *)
-                    val tyid =
-                      case SymDict.find tynamedict id of
-                        SOME (Datatype tyid) => tyid
-                      | _ =>
-                        prog_err
-                          ("Failed to find datatype " ^ lightblue (Symbol.toValue id)
-                          ^ " during signature ascription"
-                          )
-
-                    val {arity = arity', cons = cons'} = TyIdDict.lookup tydict tyid
-                      handle TyIdDict.Absent =>
-                        prog_err "TODO"
-                  in
-                    (* TODO: type stuff *)
-                    if arity' = arity
-                       andalso
-                        ListPair.allEq
-                          Symbol.eq
-                          (List.map #id cons, List.map #id cons') then
-                      ( (tyid, List.map #id cons) :: acc_cons
-                      , TyIdDict.insert
-                          acc_tydict
-                          tyid
-                          {arity = arity, cons = cons}
-                      , SymDict.insert
-                          acc_tynamedict
-                          id
-                          (Datatype tyid)
-                      )
-                    else
-                      prog_err
-                        ("Arity mismatch for type " ^ lightblue (Symbol.toValue id)
-                        ^ " during signature ascription"
-                        )
-                  end
-                )
-                ([], TyIdDict.empty, SymDict.empty)
-                dtyspecs
-
-            (* Add exns *)
-            val new_identdict =
-              SymSet.foldl
-                (fn (id, acc_identdict) =>
-                  case SymDict.find identdict id of
-                    SOME (ans as E _) => SymDict.insert acc_identdict id ans
-                  | _ =>
-                    prog_err
-                      ("Failed to find exception " ^ lightblue (Symbol.toValue id)
-                      ^ " during signature ascription"
-                      )
-                )
-                new_identdict
-                exnspecs
-
-            (* Add cons *)
-            val new_identdict =
-               List.foldl
-                (fn ((tyid, cons), acc_identdict) =>
-                  List.foldl
-                    (fn (con, acc_identdict) =>
-                      SymDict.insert acc_identdict con (C tyid)
-                    )
-                    acc_identdict
-                    cons
-                )
-                new_identdict
-                cons
-
-            val new_moddict =
-              SymDict.foldl
-                (fn (id, sigval, acc_moddict) =>
-                  SymDict.insert
-                    acc_moddict
-                    id
-                    ( ascribe
-                        (SymDict.lookup moddict id)
-                        ( SOME
-                            { opacity = Transparent
-                            , sigval = sigval
-                            }
-                        )
-                    )
-                  handle SymDict.Absent =>
-                  prog_err
-                    ("Could not find module " ^ lightblue (Symbol.toValue id)
-                    ^ " during signature ascription"
-                    )
-                )
-                SymDict.empty
-                modspecs
-          in
-            Scope
-              { identdict = new_identdict
-              , valtydict = valtydict (* TODO: change *)
-              , moddict = new_moddict
-              , infixdict = SymDict.empty
-              , tydict = new_tydict
-              , tynamedict = new_tynamedict
-              }
-          end
-                                       *)
   end
