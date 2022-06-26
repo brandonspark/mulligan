@@ -16,6 +16,7 @@ structure Token =
       | REPORT
       | LAST
       | HELP
+      | TYPEOF
 
       | EQUAL
       | SET
@@ -40,6 +41,7 @@ structure Token =
       | REPORT => "REPORT"
       | LAST => "LAST"
       | HELP => "HELP"
+      | TYPEOF => "TYPEOF"
       | EOF => "EOF"
 
   end

@@ -19,6 +19,7 @@ structure Directive =
       | Report of Symbol.symbol
       | Last of int option
       | Help
+      | TypeOf of Symbol.symbol
 
     datatype ('a, 'b) either = INL of 'a | INR of 'b
   end

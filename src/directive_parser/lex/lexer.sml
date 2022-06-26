@@ -52,6 +52,7 @@ structure Lexer :> LEXER =
           , ("report", REPORT)
           , ("last", LAST)
           , ("help", HELP)
+          , ("typeof", TYPEOF)
           ]
 
         val keywords : DToken.t Table.table = Table.table 60

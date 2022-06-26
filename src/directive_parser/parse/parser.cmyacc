@@ -17,6 +17,7 @@ terminal BIND
 terminal REPORT
 terminal LAST
 terminal HELP
+terminal TYPEOF
 terminal EOF
 
 nonterminal Directive : directive =
@@ -37,6 +38,7 @@ nonterminal Directive : directive =
   LAST => bare_last
   LAST 1:NUM => num_last
   HELP => do_help
+  TYPEOF 1:SYMBOL => typeof_id
   RUN => run
 
 nonterminal Main : directive =

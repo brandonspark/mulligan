@@ -19,6 +19,7 @@ sig
   val print_pat : Context.t -> SMLSyntax.pat -> string
   val print_exp : Context.t -> SMLSyntax.exp -> string
   val print_tyval : SMLSyntax.tyval -> string
+  val print_tyscheme : SMLSyntax.type_scheme -> string
 
   (* Some format flags for Printf.
    *)
@@ -332,12 +333,33 @@ struct
           )
       | TVprod tys =>
           show_list show_tyval " * " tys
-      | TVarrow (t1, t2) =>
-          group (
-            show_attyval t1 +-+ text_syntax "->"
-            $$
-            show_attyval t2
-          )
+      | TVarrow (left, right) =>
+          let
+            fun show_side tyval =
+              case tyval of
+                TVprod _ => show_tyval tyval
+              | _ => show_attyval tyval
+
+            fun show_arrow l mark r =
+              case (r, right) of
+                (TVarrow (l', r'), _) =>
+                  (if mark then
+                    text_syntax "->" +-+ show_side l
+                  else
+                    spaces 3 ++ show_side l
+                  )
+                  $$ show_arrow l' true r'
+              | (_, TVarrow _) =>
+                  (if mark then
+                    text_syntax "->" +-+ show_side l
+                   else
+                     spaces 3 ++ show_side l
+                  )
+                  $$ (text_syntax "->"  +-+ show_side r)
+              | _ => show_side l +-+ text_syntax "->" +-+ show_side r
+          in
+            group (show_arrow left false right)
+          end
       | TVrecord fields =>
         let
           val fields_doc =
@@ -398,12 +420,14 @@ struct
     and show_attyval tyval =
       case tyval of
         ( TVtyvar _
-        | TVapp (([] | [_]), _)
-        | TVabs (([] | [_]), _)
+        | TVapp _
+        | TVabs _
         | TVrecord _
+        | TVvar (_, ref NONE)
         | TVvar (_, ref (SOME (Rows _)))) => show_tyval tyval
       | TVvar (_, ref (SOME (Ty tyval))) => show_tyval tyval
-      | _ => parensAround (show_tyval tyval)
+      | ( TVprod _
+        | TVarrow _ ) => parensAround (show_tyval tyval)
   end
 
   local
@@ -1902,11 +1926,25 @@ struct
   fun print_tyval tyval =
     PrettySimpleDoc.toString true (show_tyval (norm_tyval tyval))
 
+  fun print_tyscheme (arity, ty_fn) =
+    if arity = 0 then
+      print_tyval (ty_fn [])
+    else if arity > 26 then
+      raise Fail "TODO"
+    else
+      List.tabulate (arity, fn i => i)
+      |> List.map (fn num => Char.toString (Char.chr (97 + num)))
+      |> List.map (fn s => "'" ^ s)
+      |> List.map Symbol.fromValue
+      |> List.map TVtyvar
+      |> ty_fn
+      |> norm_tyval
+      |> print_tyval
 
   fun promote' f =
     fn ctx => fn x => f ctx x
 
-  val op ftv = fn z => newFormat (fn _ => fn x => print_tyval x) z
+  val op ftv = fn z => newFormat (fn _ => fn x => print_tyval (norm_tyval x)) z
   val op fe = fn acc => newFormat (promote' print_exp) acc
   val op fv = fn acc => newFormat (promote' print_value) acc
   val op fp = fn acc => newFormat (promote' print_pat) acc

@@ -289,6 +289,12 @@ functor MkRun
                   )
             | SOME Directive.Help =>
                 recur (print help_message)
+            | SOME (Directive.TypeOf sym) =>
+                (* TODO: support longids *)
+                (case Context.get_ident_ty_opt ctx [sym] of
+                  NONE => recur (print "Cannot find type of unbound identifier.\n")
+                | SOME (_, tyscheme) => recur (println (PrettyPrintAst.print_tyscheme tyscheme))
+                )
             | NONE =>
                 recur (print "Unrecognized command.\n")
           )

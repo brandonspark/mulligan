@@ -613,7 +613,19 @@ structure Statics :
               l1
               l2
 
+          (* This is big quadratic complexity, but we're not using sets because
+           * we want the tyvars to be numbered in a "sensible" ordering. This
+           * means that we want the order.
+           *
+           * There shouldn't be that many tyvars anyways. So it should be fine.
+           *)
+          fun tyvars_dedup l =
+            case l of
+              [] => []
+            | x::xs => x :: tyvars_dedup (tyvars_remove xs x)
+
           val tyvars = CollectTyvars.collect_tyvars_tyval tyval
+
           val current_tyvars = Context.get_current_tyvars CollectTyvars.collect_tyvars_tyval ctx
 
           (* We want to talk about all the unification vars that have been introduced in
@@ -626,7 +638,7 @@ structure Statics :
            * So we'll do the search.
            *)
           val quantified_tyvars =
-            tyvars_difference tyvars current_tyvars
+            tyvars_dedup (tyvars_difference tyvars current_tyvars)
 
           (* This leaves behind any implicit tyvars within the current
            * binding that have nothing to do with the outer context, as
@@ -936,6 +948,8 @@ structure Statics :
             ()
             fn_data
 
+        val _ = validate_clauses fn_data
+
         (* Set all the new tyvars to quantified variables.
          *)
         val quantified_bindings =
@@ -943,9 +957,7 @@ structure Statics :
             (fn binding => quantify_binding binding orig_ctx)
             (List.map (fn binding => (binding, true)) fn_bindings)
       in
-        ( validate_clauses fn_data
-        ; Context.add_val_ty_bindings orig_ctx quantified_bindings
-        )
+        Context.add_val_ty_bindings orig_ctx quantified_bindings
       end
 
     and get_pat_list_ty_bindings ctx pats =

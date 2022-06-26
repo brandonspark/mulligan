@@ -55,6 +55,7 @@ structure DirectiveParser :> PARSER =
         fun bare_last () = Last NONE
         fun num_last i = Last (SOME i)
         val do_help = null Help
+        val typeof_id = TypeOf
 
         exception Error of DToken.t StreamStreamable.t
         fun error x = Error x
