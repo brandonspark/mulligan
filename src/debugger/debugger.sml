@@ -779,7 +779,7 @@ structure Debugger :
           eval_module (MSEAL {opacity = opacity, signat = signat} :: location) module ctx
           |> Context.pop_scope
           |> (fn scope =>
-              Statics.ascribe
+              Statics.ascribe ctx
                 scope
                 (SOME { opacity = opacity
                       , sigval = Value.evaluate_signat ctx signat
@@ -807,7 +807,7 @@ structure Debugger :
                       } = Context.get_functor ctx functor_id
 
                 val ascribed_arg =
-                  Statics.ascribe
+                  Statics.ascribe ctx
                     scope
                     ( SOME
                         { opacity = Transparent
@@ -828,7 +828,7 @@ structure Debugger :
                       add_module ctx id ascribed_arg
                 )
                 |> pop_scope
-                |> (fn scope => Statics.ascribe scope seal)
+                |> (fn scope => Statics.ascribe ctx scope seal)
               end
         in
           (case arg of
@@ -885,7 +885,7 @@ structure Debugger :
           |> List.map (fn (id, seal, ctx) => (id, seal, Context.pop_scope ctx))
           |> List.map (fn (id, seal, scope) =>
               ( id
-              , Statics.ascribe
+              , Statics.ascribe ctx
                   scope
                   ( Option.map
                       (fn {opacity, signat} => { opacity = opacity

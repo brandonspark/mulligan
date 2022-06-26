@@ -633,7 +633,7 @@ structure Value :
             , dtyspecs =
               let
                 val {arity, cons} =
-                  Context.get_datatype_with_id ctx right_tycon
+                  Context.get_datatype_with_longid ctx right_tycon
               in
                 SymDict.insert
                   dtyspecs

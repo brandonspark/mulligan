@@ -30,7 +30,8 @@ structure Statics :
      -> dec_status
 
     val ascribe :
-        Context.scope
+        SMLSyntax.context
+     -> Context.scope
      -> { opacity : SMLSyntax.opacity, sigval : SMLSyntax.sigval} option
      -> Context.scope
 
@@ -1415,11 +1416,13 @@ structure Statics :
     (* TODO: add a wrapper around this that says what module and signature it
      * failed to ascribe
      *)
-    fun ascribe (scope as Scope {identdict, valtydict, moddict, infixdict, tydict, tynamedict}) seal =
+    fun ascribe ctx (scope as Scope {identdict, valtydict, moddict, infixdict, tynamedict}) seal =
       case seal of
         NONE => scope
       | SOME {opacity, sigval = Sigval { valspecs, tyspecs, dtyspecs, exnspecs, modspecs }} =>
           let
+            val dtydict = Context.get_dtydict ctx
+
             (* First, add all the abstract types.
              *)
             val abstydict =
@@ -1445,7 +1448,7 @@ structure Statics :
                           else
                             AbsIdDict.insert abstydict absid ty_fn
                       | SOME (ans as Datatype tyid) =>
-                          if n <> #arity (TyIdDict.lookup tydict tyid) then
+                          if n <> #arity (TyIdDict.lookup dtydict tyid) then
                             Printf.printf
                               (`"Arity mismatch in type definition for abstract type "fi"\
                                 \ during signature matching.")
@@ -1460,16 +1463,16 @@ structure Statics :
             (* Next, lets establish a map between all the tyids used within the
              * signature and their tyid counterparts in the actual module.
              *)
-            val dtydict =
+            val tyiddict =
               SymDict.foldl
-                (fn (dtyname, {arity, tyid, cons}, dtydict) =>
+                (fn (dtyname, {arity, tyid, cons}, tyiddict) =>
                   case SymDict.find tynamedict dtyname of
                     NONE =>
                       Printf.printf (`"Failed to find datatype definition for "fi" during signature matching.")
                                                                              dtyname
                       |> prog_err
                   | SOME (Datatype tyid') =>
-                      TyIdDict.insert dtydict tyid tyid'
+                      TyIdDict.insert tyiddict tyid tyid'
                   | SOME (Scheme _) =>
                       Printf.printf
                         (`"Found type definition instead of datatype for "fi"\
@@ -1484,7 +1487,7 @@ structure Statics :
               case tyval of
                 TVtyvar sym => tyval
               | TVapp (tyvals, tyid) =>
-                  (case TyIdDict.find dtydict tyid of
+                  (case TyIdDict.find tyiddict tyid of
                     NONE => tyval
                   | SOME tyid => TVapp (tyvals, tyid)
                   )
@@ -1570,21 +1573,21 @@ structure Statics :
                 tyspecs
 
             (* For all the datatypes, check that they have matching
-             * constructors, then populate the tydict.
+             * constructors.
              *
              * We also want all of the cons, so we can later add them to the
              * environment.
              *)
-            val (cons, new_tydict) =
+            val cons =
               SymDict.foldl
                 (fn ( dtyname
                   , {arity = sig_arity, tyid = sig_tyid, cons = sig_cons}
-                  , (cons, new_tydict)
+                  , cons
                   ) =>
                   let
-                    val mod_tyid = TyIdDict.lookup dtydict sig_tyid
+                    val mod_tyid = TyIdDict.lookup tyiddict sig_tyid
                     val old as {arity = mod_arity, cons = mod_cons} =
-                      TyIdDict.lookup tydict mod_tyid
+                      TyIdDict.lookup dtydict mod_tyid
                     val tyvars = List.tabulate (mod_arity, fn _ => new ())
 
                     (* Could be more efficient, but the number of constructors
@@ -1618,13 +1621,11 @@ structure Statics :
                     else
                       ( subset mod_cons sig_cons
                       ; subset sig_cons mod_cons
-                      ; ( cons_to_add @ cons
-                        , TyIdDict.insert new_tydict mod_tyid old
-                        )
+                      ; cons_to_add @ cons
                       )
                   end
                 )
-                ([], TyIdDict.empty)
+                []
                 dtyspecs
 
             (* Populate the valtydict and identdict by iterating over all the
@@ -1715,7 +1716,7 @@ structure Statics :
                   SymDict.insert
                     acc_moddict
                     id
-                    ( ascribe
+                    ( ascribe ctx
                         (SymDict.lookup moddict id)
                         ( SOME
                             { opacity = Transparent
@@ -1737,7 +1738,6 @@ structure Statics :
               , valtydict = new_valtydict
               , moddict = new_moddict
               , infixdict = SymDict.empty
-              , tydict = new_tydict
               , tynamedict = new_tynamedict
               }
           end

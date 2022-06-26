@@ -200,7 +200,7 @@ structure Basis :
       ]
       |> List.map (fn (id, tyscheme) => (sym id, tyscheme))
 
-    val (initial_tys, initial_cons_pair) =
+    val (initial_dtys, initial_cons_pair) =
       [ option_info
       , order_info
       , list_info
@@ -448,7 +448,6 @@ structure Basis :
               (initial_values_tys @ initial_cons_tys @ initial_exns_tys)
         , moddict = dict_from_list initial_mods
         , infixdict = dict_from_list initial_infix
-        , tydict = tyid_dict_from_list initial_tys
         , tynamedict = dict_from_list initial_tynames
         }
 
@@ -456,6 +455,7 @@ structure Basis :
     val initial =
       { scope = initial_scope
       , outer_scopes = []
+      , dtydict = ref (tyid_dict_from_list initial_dtys)
       , sigdict = SymDict.empty
       , functordict = SymDict.empty
       , tyvars = SymSet.empty

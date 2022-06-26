@@ -159,9 +159,10 @@ structure PreSMLSyntax =
         conbinds : conbind list
       }
 
-    type tyinfo = { arity : int
-                  , cons : { id : symbol, tyscheme : type_scheme } list
-                  }
+    type dtyinfo = { arity : int
+                   , cons : { id : symbol, tyscheme : type_scheme } list
+                   }
+    type dtydict = dtyinfo TyIdDict.dict
 
     type settings =
       { break_assigns : SymSet.set ref
@@ -370,7 +371,6 @@ structure PreSMLSyntax =
         , valtydict : valtydict (* val identifiers -> types *)
         , moddict : moddict (* maps to module scopes *)
         , infixdict : infixdict (* all currently infixed operators *)
-        , tydict : tydict (* information for each datatype *)
         , tynamedict : tynamedict
         }
 
@@ -480,7 +480,6 @@ structure PreSMLSyntax =
     and identdict = id_info dict
     and infixdict = (infixity * int) dict
     and valtydict = (sign * type_scheme) dict
-    and tydict = tyinfo TyIdDict.dict
     and moddict = scope dict
     and tynamedict = synonym dict
 
@@ -493,6 +492,7 @@ structure PreSMLSyntax =
     and context =
       { scope : scope
       , outer_scopes : scope list
+      , dtydict : dtydict ref
       , sigdict : sigval dict
       , functordict : functorval dict
       , tyvars : SymSet.set
@@ -597,11 +597,11 @@ signature SMLSYNTAX =
     type identdict = PreSMLSyntax.identdict
     type valtydict = PreSMLSyntax.valtydict
     type infixdict = PreSMLSyntax.infixdict
-    type tydict = PreSMLSyntax.tydict
+    type dtydict = PreSMLSyntax.dtydict
     type moddict = PreSMLSyntax.moddict
     type tynamedict = PreSMLSyntax.tynamedict
 
-    type tyinfo = PreSMLSyntax.tyinfo
+    type dtyinfo = PreSMLSyntax.dtyinfo
     type settings = PreSMLSyntax.settings
 
     type context = PreSMLSyntax.context
@@ -738,11 +738,11 @@ structure SMLSyntax : SMLSYNTAX =
     type identdict = PreSMLSyntax.identdict
     type valtydict = PreSMLSyntax.valtydict
     type infixdict = PreSMLSyntax.infixdict
-    type tydict = PreSMLSyntax.tydict
+    type dtydict = PreSMLSyntax.dtydict
     type moddict = PreSMLSyntax.moddict
     type tynamedict = PreSMLSyntax.tynamedict
 
-    type tyinfo = PreSMLSyntax.tyinfo
+    type dtyinfo = PreSMLSyntax.dtyinfo
     type settings = PreSMLSyntax.settings
 
     type context = PreSMLSyntax.context

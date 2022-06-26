@@ -23,6 +23,6 @@ in
 end
 
 common.sml
-mk_run.sml
+mk_run.fun
 run_debugger.sml
 run_test.sml

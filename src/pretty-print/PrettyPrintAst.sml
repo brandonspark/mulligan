@@ -1262,8 +1262,6 @@ struct
             )
             |> inject right_bound_ids
           end
-      | DMseq [] => raise Fail "empty dmseq"
-      | DMseq [strdec] => show_strdec' ctx strdec
       | DMseq strdecs =>
           List.foldl
             (fn (strdec, (acc, ctx, acc_boundids)) =>
@@ -1849,7 +1847,7 @@ struct
 
       val show_doc = PrettySimpleDoc.toString true
 
-      fun scope_toString (Scope {identdict, moddict, infixdict, tydict, ...}) =
+      fun scope_toString (Scope {identdict, moddict, infixdict, ...}) =
         "< valdict: " (*^ dict_toString (show_doc o show_value ctx) valdict*) ^ ">"
       (* ^ "  condict: " ^ set_toString Symbol.toValue condict ^ "\n"
       ^ "  exndict: " ^ set_toString Symbol.toValue exndict ^ "\n"

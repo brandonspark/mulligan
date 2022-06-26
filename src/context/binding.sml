@@ -151,7 +151,7 @@ structure Binding :
         scope_set_moddict scope (SymDict.remove moddict id)
       end
 
-    fun remove_bound_id_base f {scope, outer_scopes, sigdict, functordict,
+    fun remove_bound_id_base f {scope, outer_scopes, dtydict, sigdict, functordict,
     tyvars, hole_print_fn, settings} id =
       let
         val scope = f scope id
@@ -162,6 +162,7 @@ structure Binding :
       in
         { scope = scope
         , outer_scopes = outer_scopes
+        , dtydict = dtydict
         , sigdict = sigdict
         , functordict = functordict
         , tyvars = tyvars
@@ -249,10 +250,11 @@ structure Binding :
     fun generate_sigbinding ctx {id, signat} =
       (id, Value.evaluate_signat ctx signat)
 
-    fun add_sigbindings {scope, outer_scopes, sigdict, functordict,
+    fun add_sigbindings {scope, outer_scopes, dtydict, sigdict, functordict,
     tyvars, hole_print_fn, settings} sigbindings =
       { scope = scope
       , outer_scopes = outer_scopes
+      , dtydict = dtydict
       , sigdict =
             ( List.foldl
                 (fn ((id, sigval), sigdict) =>
@@ -267,11 +269,12 @@ structure Binding :
       , settings = settings
       }
 
-    fun add_funbind (ctx as {scope, outer_scopes, sigdict, functordict, tyvars
+    fun add_funbind (ctx as {scope, outer_scopes, dtydict, sigdict, functordict, tyvars
     , hole_print_fn, settings})
                     {id, funarg, seal, body} =
       { scope = scope
       , outer_scopes = outer_scopes
+      , dtydict = dtydict
       , sigdict = sigdict
       , functordict =
           SymDict.insert

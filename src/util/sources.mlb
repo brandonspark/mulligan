@@ -8,6 +8,12 @@ PrettySimpleDoc.sml
 temp_id.sml
 cont.sml
 either.sml
-error.sml
 mk_temp.fun
 id-dict.sml
+ref.sml
+test-framework.sml
+printf.sml
+error.sml
+
+infix.sml
+pervasive.sml

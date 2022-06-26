@@ -38,7 +38,8 @@ structure Context :
     val get_module : t -> SMLSyntax.longid -> scope
     val get_sig : t -> SMLSyntax.symbol -> SMLSyntax.sigval
     val get_functor : t -> SMLSyntax.symbol -> SMLSyntax.functorval
-    val get_datatype_with_id : t -> SMLSyntax.longid -> SMLSyntax.tyinfo
+    val get_dtydict : t -> SMLSyntax.dtydict
+    val get_datatype_with_longid : t -> SMLSyntax.longid -> SMLSyntax.dtyinfo
     val get_infixity : t -> SMLSyntax.symbol -> SMLSyntax.infixity * int
 
     val is_con : t -> SMLSyntax.longid -> bool
@@ -158,13 +159,14 @@ structure Context :
 
     (* Some types *)
 
-    fun lift f {scope, outer_scopes, sigdict, functordict, tyvars, hole_print_fn,
+    fun lift f {scope, outer_scopes, dtydict, sigdict, functordict, tyvars, hole_print_fn,
     settings } =
       let
         val (scope, outer_scopes) = f (scope, outer_scopes)
       in
         { scope = scope
         , outer_scopes = outer_scopes
+        , dtydict = dtydict
         , sigdict = sigdict
         , tyvars = tyvars
         , functordict = functordict
@@ -183,7 +185,6 @@ structure Context :
         , valtydict = SymDict.empty
         , moddict = SymDict.empty
         , infixdict = SymDict.empty
-        , tydict = TyIdDict.empty
         , tynamedict = SymDict.empty
         }
 
@@ -191,61 +192,46 @@ structure Context :
     fun scope_valtydict (Scope {valtydict, ...}) = valtydict
     fun scope_moddict (Scope {moddict, ...}) = moddict
     fun scope_infixdict (Scope {infixdict, ...}) = infixdict
-    fun scope_tydict (Scope {tydict, ...}) = tydict
     fun scope_tynamedict (Scope {tynamedict, ...}) = tynamedict
 
     fun scope_set_identdict (Scope {  identdict, valtydict, moddict, infixdict,
-                                    tydict, tynamedict}) new =
+                                    tynamedict}) new =
       Scope { identdict = new
             , valtydict = valtydict
             , moddict = moddict
             , infixdict = infixdict
-            , tydict = tydict
             , tynamedict = tynamedict
             }
     fun scope_set_valtydict (Scope {  identdict, valtydict, moddict, infixdict,
-                                    tydict, tynamedict}) new =
+                                    tynamedict}) new =
       Scope { identdict = identdict
             , valtydict = new
             , moddict = moddict
             , infixdict = infixdict
-            , tydict = tydict
             , tynamedict = tynamedict
             }
     fun scope_set_moddict (Scope {  identdict, valtydict, moddict, infixdict,
-                                    tydict, tynamedict}) new =
+                                    tynamedict}) new =
       Scope { identdict = identdict
             , valtydict = valtydict
             , moddict = new
             , infixdict = infixdict
-            , tydict = tydict
             , tynamedict = tynamedict
             }
     fun scope_set_infixdict (Scope {  identdict, valtydict, moddict, infixdict,
-                                    tydict, tynamedict}) new =
+                                    tynamedict}) new =
       Scope { identdict = identdict
             , valtydict = valtydict
             , moddict = moddict
             , infixdict = new
-            , tydict = tydict
-            , tynamedict = tynamedict
-            }
-    fun scope_set_tydict (Scope {  identdict, valtydict, moddict, infixdict,
-                                    tydict, tynamedict}) new =
-      Scope { identdict = identdict
-            , valtydict = valtydict
-            , moddict = moddict
-            , infixdict = infixdict
-            , tydict = new
             , tynamedict = tynamedict
             }
     fun scope_set_tynamedict (Scope {  identdict, valtydict, moddict, infixdict,
-                                    tydict, tynamedict}) new =
+                                    tynamedict}) new =
       Scope { identdict = identdict
             , valtydict = valtydict
             , moddict = moddict
             , infixdict = infixdict
-            , tydict = tydict
             , tynamedict = new
             }
 
@@ -271,11 +257,6 @@ structure Context :
                 SymDict.union
                   (scope_infixdict cur_scope)
                   (scope_infixdict scope)
-                  (fn (_, _, snd) => snd)
-            , tydict =
-                TyIdDict.union
-                  (scope_tydict cur_scope)
-                  (scope_tydict scope)
                   (fn (_, _, snd) => snd)
             , tynamedict =
                 SymDict.union
@@ -306,7 +287,7 @@ structure Context :
     (* For looking backwards through all contexts, stopping on the first scope
      * that returns SOME.
      *)
-    fun map_scope_id f (ctx as {scope, outer_scopes, sigdict, functordict,
+    fun map_scope_id f (ctx as {scope, outer_scopes, dtydict, sigdict, functordict,
     tyvars, hole_print_fn, settings}) id =
       let
         fun map_thing' scopes =
@@ -324,6 +305,7 @@ structure Context :
       in
         { scope = scope
         , outer_scopes = rest
+        , dtydict = dtydict
         , sigdict = sigdict
         , functordict = functordict
         , tyvars = tyvars
@@ -335,7 +317,7 @@ structure Context :
     (* For mapping the first module fitting the identifier, stopping on the
      * first instance found.
      *)
-    fun map_module f (ctx as {sigdict, functordict, tyvars, hole_print_fn,
+    fun map_module f (ctx as {dtydict, sigdict, functordict, tyvars, hole_print_fn,
     settings, ...} : SMLSyntax.context) id =
       case id of
         [] => raise Fail "map module on an empty path is a bad idea, because it can pick up extra scopes"
@@ -370,6 +352,7 @@ structure Context :
                     map_module f
                       { scope = scope
                       , outer_scopes = rest
+                      , dtydict = dtydict
                       , sigdict = sigdict
                       , functordict = functordict
                       , tyvars = tyvars
@@ -571,13 +554,13 @@ structure Context :
           prog_err ("Nonexistent type synonym " ^ lightblue (longid_to_str id))
       | SOME ans => ans
 
-    fun get_datatype ctx tyid =
-      iter_scopes
-        (fn scope => TyIdDict.find (scope_tydict scope) tyid)
-        (ctx_scopes ctx)
-      handle CouldNotFind => prog_err "could not find datatype with tyid"
+    fun get_dtydict (ctx : SMLSyntax.context) = ! (#dtydict ctx)
 
-    fun get_datatype_with_id ctx id =
+    fun get_datatype ctx tyid =
+      TyIdDict.lookup (! (#dtydict ctx)) tyid
+      handle TyIdDict.Absent => prog_err "could not find datatype with tyid"
+
+    fun get_datatype_with_longid ctx id =
       (case get_type_synonym ctx id of
         Datatype tyid => get_datatype ctx tyid
       | _ => prog_err "could not find datatype with id"
@@ -686,10 +669,11 @@ structure Context :
         end
       ) ctx
 
-    fun add_sig {scope, outer_scopes, sigdict, functordict, tyvars, hole_print_fn,
+    fun add_sig {scope, outer_scopes, dtydict, sigdict, functordict, tyvars, hole_print_fn,
     settings} id sigval =
       { scope = scope
       , outer_scopes = outer_scopes
+      , dtydict = dtydict
       , sigdict = SymDict.insert sigdict id sigval
       , functordict = functordict
       , tyvars = tyvars
@@ -697,10 +681,11 @@ structure Context :
       , settings = settings
       }
 
-    fun add_functor {scope, outer_scopes, sigdict, functordict, tyvars, hole_print_fn,
+    fun add_functor {scope, outer_scopes, dtydict, sigdict, functordict, tyvars, hole_print_fn,
     settings} id functorval =
       { scope = scope
       , outer_scopes = outer_scopes
+      , dtydict = dtydict
       , sigdict = sigdict
       , functordict = SymDict.insert functordict id functorval
       , tyvars = tyvars
@@ -708,7 +693,7 @@ structure Context :
       , settings = settings
       }
 
-    fun add_scoped_tyvars {scope, outer_scopes, sigdict, functordict, tyvars,
+    fun add_scoped_tyvars {scope, outer_scopes, dtydict, sigdict, functordict, tyvars,
     hole_print_fn, settings} new_tyvars =
       let
         val tyvars =
@@ -724,6 +709,7 @@ structure Context :
       in
         { scope = scope
         , outer_scopes = outer_scopes
+        , dtydict = dtydict
         , sigdict = sigdict
         , functordict = functordict
         , tyvars = tyvars
@@ -884,9 +870,10 @@ structure Context :
       ) ctx
 
     fun add_hole_print_fn
-        {scope, outer_scopes, sigdict, functordict, tyvars, hole_print_fn, settings} f =
+        {scope, outer_scopes, dtydict, sigdict, functordict, tyvars, hole_print_fn, settings} f =
       { scope = scope
       , outer_scopes = outer_scopes
+      , dtydict = dtydict
       , sigdict = sigdict
       , functordict = functordict
       , tyvars = tyvars
@@ -1062,8 +1049,8 @@ structure Context :
     fun add_datbind datatype_fn ctx (tyid, {tyvars, tycon, conbinds}) =
       lift (fn (scope, rest) =>
         let
+          val dtydict = ! (#dtydict ctx)
           val tynamedict = scope_tynamedict scope
-          val tydict = scope_tydict scope
           val identdict = scope_identdict scope
           val valtydict = scope_valtydict scope
 
@@ -1090,10 +1077,11 @@ structure Context :
               )
               conbinds
 
-          val new_tydict =
-            TyIdDict.insert tydict tyid { arity = arity
+          val new_dtydict =
+            TyIdDict.insert dtydict tyid { arity = arity
                                         , cons = cons
                                         }
+          val _ = #dtydict ctx := new_dtydict
 
           val new_tynamedict =
             SymDict.insert tynamedict tycon (Datatype tyid)
@@ -1116,10 +1104,7 @@ structure Context :
         in
           ( scope_set_identdict
               (scope_set_valtydict
-                (scope_set_tydict
-                  (scope_set_tynamedict scope new_tynamedict)
-                  new_tydict
-                )
+                (scope_set_tynamedict scope new_tynamedict)
                 new_valtydict
               )
               new_identdict
@@ -1129,17 +1114,43 @@ structure Context :
       ) ctx
 
     (* TODO: add cons *)
+    (* TODO: there may be an issue with scoping of datatypes
+     * if a datatype goes out of scope but is copied, we want to still be able
+     * to refer to its tydict entry
+     *)
     fun replicate_datatype orig_ctx (left_id, right_id) =
       lift (fn ctx as (scope, rest) =>
         let
           val tynamedict = scope_tynamedict scope
+          val identdict = scope_identdict scope
+          val valtydict = scope_valtydict scope
         in
           case get_type_synonym orig_ctx right_id of
             Datatype tyid =>
-              ( SymDict.insert tynamedict left_id (Datatype tyid)
-                |> scope_set_tynamedict scope
+              let
+                val {arity, cons} = get_datatype orig_ctx tyid
+                val (new_identdict, new_valtydict) =
+                  List.foldl
+                    (fn ({id, tyscheme}, (new_identdict, new_valtydict)) =>
+                      ( SymDict.insert new_identdict id (C tyid)
+                      , SymDict.insert new_valtydict id (Csign, tyscheme)
+                      )
+                    )
+                    (identdict, valtydict)
+                    cons
+              in
+              ( scope_set_tynamedict
+                  (scope_set_identdict
+                    (scope_set_valtydict
+                      scope
+                      new_valtydict
+                    )
+                    new_identdict
+                  )
+                  (SymDict.insert tynamedict left_id (Datatype tyid))
               , rest
               )
+              end
           | _ => prog_err "copying a non-datatype"
         end
       ) orig_ctx

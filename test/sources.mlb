@@ -1,0 +1,20 @@
+
+../src/util/sources.mlb
+../src/syntax/sources.mlb
+../src/context/sources.mlb
+../src/run/sources.mlb
+
+local
+  ../../parse-sml/src/base/sources.mlb
+  ../../parse-sml/src/parse/sources.mlb
+  ../../parse-sml/src/syntax-highlighting/sources.mlb
+in
+  structure ParseSMLError = Error
+  structure Parser
+  structure FilePath
+  structure TCS = TerminalColorString
+  structure SyntaxHighlighter
+  structure CommandLineArgs
+end
+
+test.sml
