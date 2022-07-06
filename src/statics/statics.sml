@@ -1490,218 +1490,231 @@ structure Statics :
      * type of the purported thing passed in?
      * *)
     fun match_pat ctx pat v tyval =
-      case (pat, v, Context.norm_tyval ctx tyval) of
-        (Pnumber i1, Vnumber (Int i2), _) =>
-          if i1 = i2 then
-            (unify ctx tyval Basis.int_ty; [])
-          else
-            raise Mismatch "num pats did not match"
-      | (Pword s, Vnumber (Word s'), _) =>
-          if Symbol.toValue s = s' then
-            (* TODO: words *) []
-          else
-            raise Mismatch "word pats did not match"
-      | (Pstring s, Vstring s', _) =>
-          if Symbol.eq (s, s') then
-            (unify ctx tyval Basis.string_ty; [])
-          else
-            raise Mismatch "string pats did not match"
-      | (Pchar c, Vchar c', _) =>
-          if c = c' then
-            (unify ctx tyval Basis.char_ty; [])
-          else
-            raise Mismatch "char pats did not match"
-      | (Pwild, _, _) => []
-      | (Pident {opp, id}, Vconstr {id = id', arg = NONE}, _) =>
-          if Context.is_con ctx id then
-            if longid_eq (id, id') then
-              []
+      ( case (pat, v, Context.norm_tyval ctx tyval) of
+          (Pnumber i1, Vnumber (Int i2), _) =>
+            if i1 = i2 then
+              (unify ctx tyval Basis.int_ty; [])
             else
-              raise Mismatch "constructors did not match"
-          else
-            (case id of
-              [id] => [(id, v, tyval)]
-            | _ => raise Mismatch "pattern matching against nonexistent constr"
-            )
-      | (Pident {opp, id}, _, _) =>
-          if Context.is_con ctx id then
-            raise Mismatch "cannot match nullary constructor"
-          else
-            (case id of
-              [id] => [(id, v, tyval)]
-            | _ => raise Mismatch "pattern matching against nonexistent constr"
-            )
-      | (Precord patrows, Vrecord fields, _) =>
-          let
-            fun to_tyfields tyval =
-              case Context.norm_tyval ctx tyval of
-                TVprod tyvals =>
-                  (mapi (fn (tyval, i) => { lab = Symbol.fromValue (Int.toString i)
-                                   , tyval = tyval
-                                   }
-                        )
-                        tyvals
-                  )
-              | TVrecord fields => fields
-              | _ => raise Fail "TODO"
+              raise Mismatch "num pats did not match"
+        | (Pword s, Vnumber (Word s'), _) =>
+            if Symbol.toValue s = s' then
+              (* TODO: words *) []
+            else
+              raise Mismatch "word pats did not match"
+        | (Pstring s, Vstring s', _) =>
+            if Symbol.eq (s, s') then
+              (unify ctx tyval Basis.string_ty; [])
+            else
+              raise Mismatch "string pats did not match"
+        | (Pchar c, Vchar c', _) =>
+            if c = c' then
+              (unify ctx tyval Basis.char_ty; [])
+            else
+              raise Mismatch "char pats did not match"
+        | (Pwild, _, _) => []
+        | (Pident {opp, id}, Vconstr {id = id', arg = NONE}, _) =>
+            if Context.is_con ctx id then
+              if longid_eq (id, id') then
+                []
+              else
+                raise Mismatch "constructors did not match"
+            else
+              (case id of
+                [id] => [(id, v, tyval)]
+              | _ => raise Mismatch "pattern matching against nonexistent constr"
+              )
+        | (Pident {opp, id}, _, _) =>
+            if Context.is_con ctx id then
+              raise Mismatch "cannot match nullary constructor"
+            else
+              (case id of
+                [id] => [(id, v, tyval)]
+              | _ => raise Mismatch "pattern matching against nonexistent constr"
+              )
+        | (Precord patrows, Vrecord fields, _) =>
+            let
+              fun to_tyfields tyval =
+                case Context.norm_tyval ctx tyval of
+                  TVprod tyvals =>
+                    (mapi (fn (tyval, i) => { lab = Symbol.fromValue (Int.toString i)
+                                     , tyval = tyval
+                                     }
+                          )
+                          tyvals
+                    )
+                | TVrecord fields => fields
+                | _ => raise Fail "TODO"
 
-            fun unite fields tyfields =
+              fun unite fields tyfields =
+                List.foldl
+                  (fn ({lab, value}, acc) =>
+                    case List.find (fn {lab = lab', tyval = _} => Symbol.eq (lab, lab))
+                      tyfields
+                    of
+                      NONE => raise Fail "failed to find label in tyfield"
+                    | SOME {tyval, ...} =>
+                        { lab = lab, value = value, tyval = tyval } :: acc
+                  )
+                  []
+                  fields
+
+              val combined = unite fields (to_tyfields tyval)
+            in
               List.foldl
-                (fn ({lab, value}, acc) =>
-                  case List.find (fn {lab = lab', tyval = _} => Symbol.eq (lab, lab))
-                    tyfields
-                  of
-                    NONE => raise Fail "failed to find label in tyfield"
-                  | SOME {tyval, ...} =>
-                      { lab = lab, value = value, tyval = tyval } :: acc
+                (fn (patrow, acc) =>
+                  case patrow of
+                    PRellipsis => acc
+                  | PRlab {lab, pat} =>
+                      (case
+                        List.find (fn {lab = lab', value, tyval} => Symbol.eq (lab, lab')) combined
+                      of
+                        NONE => raise Mismatch "val did not match patrow"
+                      | SOME {lab, value, tyval} => match_pat ctx pat value tyval @ acc
+                      )
+                  | PRas {id, ty, aspat} =>
+                      (case
+                        List.find (fn {lab, value, tyval} => Symbol.eq (lab, id)) combined
+                      of
+                        NONE => raise Mismatch "val did not match patrow"
+                      | SOME {lab, value, tyval} =>
+                          let
+                            fun some_unify tyopt =
+                              case tyopt of
+                                NONE => tyval
+                              | SOME ty => unify ctx tyval (Context.synth_ty' ctx ty)
+                          in
+                            case aspat of
+                              NONE => (id, value, some_unify ty) :: acc
+                            | SOME pat => (id, value, some_unify ty) :: match_pat ctx pat value (some_unify ty) @ acc
+                          end
+                      )
                 )
                 []
-                fields
+                patrows
+            end
+        | (Pparens pat, v, _) => match_pat ctx pat v tyval
+        | (Punit, Vunit, _) =>
+            (unify ctx tyval Basis.unit_ty; [])
+        | (Ptuple pats, Vtuple vals, _) =>
+            let
+              fun to_tuple tyval =
+                case Context.norm_tyval ctx tyval of
+                  TVrecord fields =>
+                    raise Fail "TODO: change record to tuple"
+                | TVprod tyvals => tyvals
+                | _ => raise Fail "TODO"
 
-            val combined = unite fields (to_tyfields tyval)
-          in
-            List.foldl
-              (fn (patrow, acc) =>
-                case patrow of
-                  PRellipsis => acc
-                | PRlab {lab, pat} =>
-                    (case
-                      List.find (fn {lab = lab', value, tyval} => Symbol.eq (lab, lab')) combined
-                    of
-                      NONE => raise Mismatch "val did not match patrow"
-                    | SOME {lab, value, tyval} => match_pat ctx pat value tyval @ acc
+              (* May need to change a record type.
+               *)
+              val tuple_ty = to_tuple tyval
+            in
+              ListPair.zipEq (ListPair.zipEq (pats, vals), tuple_ty)
+              |> (List.concat o List.map (fn ((pat, value), tyval) => match_pat ctx pat value tyval))
+            end
+        | (Plist pats, Vlist vals, TVapp ([tyval_arg], tyid)) =>
+            if TyId.eq (tyid, Basis.list_tyid) then
+              ListPair.zipEq (pats, vals)
+              |> (List.concat o List.map (fn (pat, value) => match_pat ctx pat value tyval_arg))
+            else
+              raise Fail "TODO"
+        | (Por pats, _, _) =>
+            ( case
+                List.foldl
+                  (fn (pat, NONE) =>
+                    ( SOME (match_pat ctx pat v tyval)
+                      handle Mismatch _ => NONE
                     )
-                | PRas {id, ty, aspat} =>
-                    (case
-                      List.find (fn {lab, value, tyval} => Symbol.eq (lab, id)) combined
-                    of
-                      NONE => raise Mismatch "val did not match patrow"
-                    | SOME {lab, value, tyval} =>
-                        let
-                          fun some_unify tyopt =
-                            case tyopt of
-                              NONE => tyval
-                            | SOME ty => unify ctx tyval (Context.synth_ty' ctx ty)
-                        in
-                          case aspat of
-                            NONE => (id, value, some_unify ty) :: acc
-                          | SOME pat => (id, value, some_unify ty) :: match_pat ctx pat value (some_unify ty) @ acc
-                        end
-                    )
-              )
-              []
-              patrows
-          end
-      | (Pparens pat, v, _) => match_pat ctx pat v tyval
-      | (Punit, Vunit, _) =>
-          (unify ctx tyval Basis.unit_ty; [])
-      | (Ptuple pats, Vtuple vals, _) =>
-          let
-            fun to_tuple tyval =
-              case Context.norm_tyval ctx tyval of
-                TVrecord fields =>
-                  raise Fail "TODO: change record to tuple"
-              | TVprod tyvals => tyvals
-              | _ => raise Fail "TODO"
-
-            (* May need to change a record type.
-             *)
-            val tuple_ty = to_tuple tyval
-          in
-            ListPair.zipEq (ListPair.zipEq (pats, vals), tuple_ty)
-            |> (List.concat o List.map (fn ((pat, value), tyval) => match_pat ctx pat value tyval))
-          end
-      | (Plist pats, Vlist vals, TVapp ([tyval_arg], tyid)) =>
-          if TyId.eq (tyid, Basis.list_tyid) then
-            ListPair.zipEq (pats, vals)
-            |> (List.concat o List.map (fn (pat, value) => match_pat ctx pat value tyval_arg))
-          else
-            raise Fail "TODO"
-      | (Por pats, _, _) =>
-          ( case
-              List.foldl
-                (fn (pat, NONE) =>
-                  ( SOME (match_pat ctx pat v tyval)
-                    handle Mismatch _ => NONE
+                  | (_, SOME ans) => SOME ans
                   )
-                | (_, SOME ans) => SOME ans
-                )
-                NONE
-                pats
-            of
-              NONE => raise Mismatch "failed to match any or cases"
-            | SOME res => res
-          )
-      | ( Papp {opp, id, atpat}
-        , Vconstr {id = id', arg = SOME v}
-        , TVapp (tyvals, tyid)
-        ) =>
-          if longid_eq (id, id') then
-            case Context.get_ident_ty_opt ctx id of
-              SOME (Csign, tyscheme) =>
-                (case instantiate_tyscheme ctx tyscheme of
-                  TVarrow (in_ty, TVapp (tyvals', tyid')) =>
-                    if TyId.eq (tyid, tyid') then
-                      ( List.map (fn (x, y) => unify ctx x y) (ListPair.zipEq (tyvals, tyvals'))
-                      ; match_pat ctx atpat v in_ty
-                      )
-                    else
-                      raise Fail "TODO"
-                | _ => raise Fail "TODO"
-                )
-            | _ => raise Fail "TODO"
+                  NONE
+                  pats
+              of
+                NONE => raise Mismatch "failed to match any or cases"
+              | SOME res => res
+            )
+        | ( Papp {opp, id, atpat}
+          , Vconstr {id = id', arg = SOME v}
+          , TVapp (tyvals, tyid)
+          ) =>
+            if longid_eq (id, id') then
+              case Context.get_ident_ty_opt ctx id of
+                SOME (Csign, tyscheme) =>
+                  (case instantiate_tyscheme ctx tyscheme of
+                    TVarrow (in_ty, TVapp (tyvals', tyid')) =>
+                      if TyId.eq (tyid, tyid') then
+                        ( List.map (fn (x, y) => unify ctx x y) (ListPair.zipEq (tyvals, tyvals'))
+                        ; match_pat ctx atpat v in_ty
+                        )
+                      else
+                        raise Fail "TODO"
+                  | _ => raise Fail "TODO"
+                  )
+              | _ => raise Fail "TODO"
+            else
+              raise Mismatch "failed to match constructors with args"
+        | ( Pinfix {left, id, right}
+          , Vlist values
+          , TVapp ([tyval], tyid)
+          ) =>
+          if TyId.eq (tyid, Basis.list_tyid) andalso Symbol.eq (id, Symbol.fromValue "::") then
+            case values of
+              [] => raise Context.Raise (Vconstr {id = [Symbol.fromValue "Match"], arg = NONE})
+            | hd::tl =>
+                  match_pat ctx left hd tyval
+                @ match_pat ctx right (Vlist tl) (TVapp ([tyval], tyid))
           else
-            raise Mismatch "failed to match constructors with args"
-      | (Pinfix {left, id, right}
-        , Vinfix {left = left', id = id', right = right'}
-        , TVapp (tyvals, tyid)
-        ) =>
-          (* TODO: constructors need more than just name equality *)
-          if Symbol.eq (id, id') then
-            case Context.get_ident_ty_opt ctx [id] of
-              SOME (Csign, tyscheme) =>
-                (case instantiate_tyscheme ctx tyscheme of
-                  TVarrow (TVprod [left_ty, right_ty], TVapp (tyvals', tyid')) =>
-                    if TyId.eq (tyid, tyid') then
-                      ( List.map (fn (x, y) => unify ctx x y)  (ListPair.zipEq (tyvals, tyvals'))
-                      ; match_pat ctx left left' left_ty
-                      @ match_pat ctx right right' right_ty
-                      )
-                    else
-                      raise Fail "TODO"
-                | _ => raise Fail "TODO"
-                )
-            | _ => raise Fail "TODO"
-          else
-            raise Mismatch "idents not equal"
-      | (Ptyped {pat, ty}, _, _) =>
-          (* TODO: maybe don't ignore this
-           * The reason why this doesn't actually check is because this will
-           * cause something like:
-           * (fn x : 'a => 'a) 1
-           * to cause a type error.
-           *
-           * The thing is, constraints on typed patterns is already checked by
-           * the general expression type-checker. The typed pattern contributes
-           * to the type of the function, which is checked against the input
-           * argument's type.
-           *
-           * The point of this function is to assign each binding a type, but
-           * maybe it doesn't need to do any extra work in terms of rejection.
-           * Maybe it can just let things pass, because it would be caught by
-           * expression type-checking anyways.
-           * *)
-          match_pat ctx pat v tyval
-      | (Playered {opp, id, ty, aspat}, _, _) =>
-          let
-            val new_tyval =
-              case ty of
-              NONE => tyval
-            | SOME ty => unify ctx (Context.synth_ty' ctx ty) tyval
-          in
-            (id, v, new_tyval) :: match_pat ctx aspat v new_tyval
-          end
-      | _ => raise Mismatch "pats don't match"
+            prog_err "TODO"
+        | ( Pinfix {left, id, right}
+          , Vinfix {left = left', id = id', right = right'}
+          , TVapp (tyvals, tyid)
+          ) =>
+            (* TODO: constructors need more than just name equality *)
+            if Symbol.eq (id, id') then
+              case Context.get_ident_ty_opt ctx [id] of
+                SOME (Csign, tyscheme) =>
+                  (case instantiate_tyscheme ctx tyscheme of
+                    TVarrow (TVprod [left_ty, right_ty], TVapp (tyvals', tyid')) =>
+                      if TyId.eq (tyid, tyid') then
+                        ( List.map (fn (x, y) => unify ctx x y)  (ListPair.zipEq (tyvals, tyvals'))
+                        ; match_pat ctx left left' left_ty
+                        @ match_pat ctx right right' right_ty
+                        )
+                      else
+                        raise Fail "TODO"
+                  | _ => raise Fail "TODO"
+                  )
+              | _ => raise Fail "TODO"
+            else
+              raise Mismatch "idents not equal"
+        | (Ptyped {pat, ty}, _, _) =>
+            (* TODO: maybe don't ignore this
+             * The reason why this doesn't actually check is because this will
+             * cause something like:
+             * (fn x : 'a => 'a) 1
+             * to cause a type error.
+             *
+             * The thing is, constraints on typed patterns is already checked by
+             * the general expression type-checker. The typed pattern contributes
+             * to the type of the function, which is checked against the input
+             * argument's type.
+             *
+             * The point of this function is to assign each binding a type, but
+             * maybe it doesn't need to do any extra work in terms of rejection.
+             * Maybe it can just let things pass, because it would be caught by
+             * expression type-checking anyways.
+             * *)
+            match_pat ctx pat v tyval
+        | (Playered {opp, id, ty, aspat}, _, _) =>
+            let
+              val new_tyval =
+                case ty of
+                NONE => tyval
+              | SOME ty => unify ctx (Context.synth_ty' ctx ty) tyval
+            in
+              (id, v, new_tyval) :: match_pat ctx aspat v new_tyval
+            end
+        | _ => raise Mismatch "pats don't match"
+      ) handle ListPair.UnequalLengths => raise Mismatch "todo"
 
     (* Matching a value with a given tyval against a bunch of clauses.
      *)
