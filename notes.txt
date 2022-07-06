@@ -31,6 +31,31 @@ mutually recursive functions.
 This means that breaking functions persists beyond names, but are attached to
 the exact function value.
 
+ABSTRACT TYPES
+
+A key issue with abstract types is that the debugger steps into the code of a
+function upon invocation.
+
+The code of a function within a module which binds an abstract type has full
+knowledge of what the type is, but at the later step in the program, upon
+stepping that expression, the type-checker will operate on the premise that it
+does not know the implementation of the abstract type, and thus type err.
+
+Normally, problems like this are fixed with the fact that function values
+contain their own contexts. However, contexts are not powerful enough to recover
+types from opaque ascription. This is because, at function-declaration time, the
+program has no idea what types in the scope are later going to be made abstract.
+That is something which is only known at ascription time.
+
+So the solution is to modify each valspec to store the known abstract types at
+its binding time, and then cause ascription to percolate that information to the
+function value itself. So then we can have full knowledge of the proper type,
+within the function value itself.
+
+The downside is that we're gonna have to make sure we call a contextual `norm_tyval`
+anywhere that might actually rely on what a tyval is.
+
+
 KNOWN ISSUES:
 - It looks like shit
 - should probably stop before entering a Let body
@@ -40,4 +65,7 @@ KNOWN ISSUES:
 - No support for .mlb files
 - Substitution does not work properly for referring to bindings in a module that
   is currently being evaluated
+- abstract types
+- equality types
+
 

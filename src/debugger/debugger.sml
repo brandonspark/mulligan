@@ -93,7 +93,7 @@ structure Debugger :
         val break_assigns = !(Context.get_break_assigns ctx)
       in
         List.foldl
-          (fn ((id, value), acc) =>
+          (fn ((id, value, _), acc) =>
             if SymSet.member break_assigns id then
               true
             else
@@ -136,7 +136,7 @@ structure Debugger :
 
     fun match_handler exn =
       case exn of
-        Value.Mismatch _ =>
+        Statics.Mismatch _ =>
           raise Context.Raise (Vconstr {id = [Symbol.fromValue "Match"], arg = NONE})
       | _ => raise exn
 
@@ -256,20 +256,22 @@ structure Debugger :
               | exps => eval (CLOSURE ctx :: location) (Eseq exps) new_ctx cont
             end
         | Eparens exp => eval location exp ctx cont
-        | Eapp {left, right} =>
+        | Eapp {left, right = right_exp} =>
             let
               val left =
-                eval' (Eapp {left = Ehole, right = right}) left ctx
+                eval' (Eapp {left = Ehole, right = right_exp}) left ctx
               val right =
-                eval' (Eapp {left = Value.value_to_exp left, right = Ehole}) right ctx
+                eval' (Eapp {left = Value.value_to_exp left, right = Ehole}) right_exp ctx
             in
               case (left, right) of
                 (constr as Vconstr {id, arg = NONE}, v) =>
                   throw (Vconstr { id = id, arg = SOME v})
-              | (Vfn {matches, env, rec_env, break}, v) =>
+              | (Vfn {matches, env, rec_env, break, abstys}, v) =>
                   ( let
                       val (bindings, new_ctx, new_exp) =
-                        Value.apply_fn (matches, env, rec_env) v
+                        Statics.apply_fn (matches, env, rec_env) v
+                          (Statics.synth ctx right_exp)
+                          abstys
 
                       (* Check if any of these bindings are under `break bind`
                        *)
@@ -314,26 +316,28 @@ structure Debugger :
                     ctx left ^ " and " ^ PrettyPrintAst.print_value ctx right
                     )
             end
-        | Einfix {left, id, right} =>
+        | Einfix {left = left_exp, id, right = right_exp} =>
             let
               val left =
                 eval'
-                  (Einfix {left = Ehole, id = id, right = right})
-                  left
+                  (Einfix {left = Ehole, id = id, right = right_exp})
+                  left_exp
                   ctx
               val right =
                 eval'
                   (Einfix {left = Value.value_to_exp left, id = id, right = Ehole})
-                  right
+                  right_exp
                   ctx
 
               val value = Context.get_val ctx [id]
             in
               case value of
-                (Vfn {matches, env, rec_env, break}) =>
+                (Vfn {matches, env, rec_env, break, abstys}) =>
                   ( let
                       val (bindings, new_ctx, new_exp) =
-                        Value.apply_fn (matches, env, rec_env) (Vtuple [left, right])
+                        Statics.apply_fn (matches, env, rec_env) (Vtuple [left, right])
+                          (TVprod [Statics.synth ctx left_exp, Statics.synth ctx right_exp])
+                          abstys
 
                       val _ =
                         break_check_ids ctx bindings
@@ -461,13 +465,14 @@ structure Debugger :
                 (eval' (Ehandle {exp = Ehole, matches = matches}) exp' ctx)
               handle Context.Raise value =>
                 ( let
-                    val (bindings, new_ctx, exp) = Value.match_against ctx matches value
+                    val (bindings, new_ctx, exp) =
+                      Statics.match_against ctx matches value Basis.exn_ty
                     val _ =
                       break_check_ids ctx bindings
                   in
                     redex (CLOSURE ctx :: location) exp new_ctx cont
                   end
-                  handle Value.Mismatch _ => raise Context.Raise value
+                  handle Statics.Mismatch _ => raise Context.Raise value
                 )
             )
         | Eraise exp =>
@@ -534,7 +539,8 @@ structure Debugger :
                 val value =
                   eval' (Ecase {exp = Ehole, matches = matches}) exp ctx
                 val (bindings, new_ctx, new_exp) =
-                  Value.match_against ctx matches value
+                  Statics.match_against ctx matches value
+                    (Statics.synth ctx exp)
 
                 val _ =
                   break_check_ids ctx bindings
@@ -550,7 +556,14 @@ structure Debugger :
            * This breaks down if we ever call eval twice.
            *)
         | Efn (matches, NONE) =>
-            throw (Vfn {matches = matches, env = ctx, rec_env = NONE, break = ref NONE})
+            throw (
+              Vfn { matches = matches
+                  , env = ctx
+                  , rec_env = NONE
+                  , break = ref NONE
+                  , abstys = AbsIdDict.empty
+                  }
+            )
         | Efn (matches, SOME _) =>
             raise Fail "shouldn't eval an Efn with a closure"
         | Ehole => raise Fail "shouldn't happen, evaling Ehole"
@@ -632,15 +645,19 @@ structure Debugger :
                       exp_ctx
                       false
                 in
-                  Value.match_pat exp_ctx pat new_value @ pairs
+                  Statics.match_pat exp_ctx pat new_value (Statics.synth exp_ctx exp) @ pairs
                 end
                 handle exn => match_handler exn
               )
               []
               valbinds
+            |> List.map (fn (id, value, _) => (id, value))
             |> (fn bindings =>
                 (* If any say rec, then we must recursively make all the lambda
                  * expressions contain the others in their closure.
+                 *
+                 * These are just the value bindings, since the type bindings
+                 * have already been added during the synth_dec step.
                  *)
                 if List.foldl (fn (x, y) => x orelse y) false (List.map #recc valbinds) then
                   Context.add_rec_bindings new_ctx bindings
@@ -691,6 +708,7 @@ structure Debugger :
                               , env = ctx
                               , rec_env = NONE
                               , break = ref NONE
+                              , abstys = AbsIdDict.empty
                               }
                         | _ => raise Fail "empty args for fvalbind, shouldn't happen"
                         )
@@ -739,6 +757,7 @@ structure Debugger :
                                                      , env = ctx
                                                      , rec_env = NONE
                                                      , break = ref NONE
+                                                     , abstys = AbsIdDict.empty
                                                      }
                           | _ => raise Fail "empty args for fvalbind, shouldn't happen"
                         )

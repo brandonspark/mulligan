@@ -152,7 +152,7 @@ structure Binding :
       end
 
     fun remove_bound_id_base f {scope, outer_scopes, dtydict, sigdict, functordict,
-    tyvars, hole_print_fn, settings} id =
+    tyvars, hole_print_fn, settings, abstys} id =
       let
         val scope = f scope id
         val outer_scopes =
@@ -168,6 +168,7 @@ structure Binding :
         , tyvars = tyvars
         , hole_print_fn = hole_print_fn
         , settings = settings
+        , abstys = abstys
         }
       end
 
@@ -251,7 +252,7 @@ structure Binding :
       (id, Value.evaluate_signat ctx signat)
 
     fun add_sigbindings {scope, outer_scopes, dtydict, sigdict, functordict,
-    tyvars, hole_print_fn, settings} sigbindings =
+    tyvars, hole_print_fn, settings, abstys} sigbindings =
       { scope = scope
       , outer_scopes = outer_scopes
       , dtydict = dtydict
@@ -267,10 +268,11 @@ structure Binding :
       , tyvars = tyvars
       , hole_print_fn = hole_print_fn
       , settings = settings
+      , abstys = abstys
       }
 
     fun add_funbind (ctx as {scope, outer_scopes, dtydict, sigdict, functordict, tyvars
-    , hole_print_fn, settings})
+    , hole_print_fn, settings, abstys})
                     {id, funarg, seal, body} =
       { scope = scope
       , outer_scopes = outer_scopes
@@ -299,5 +301,6 @@ structure Binding :
       , tyvars = tyvars
       , hole_print_fn = hole_print_fn
       , settings = settings
+      , abstys = abstys
       }
   end

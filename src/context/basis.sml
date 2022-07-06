@@ -373,7 +373,7 @@ structure Basis :
           , ( sym "="
             , ( Vsign
               , SMLSyntax.guard_tyscheme
-                  (1, fn [tyval] => TVarrow (tyval, tyval)
+                  (1, fn [tyval] => TVarrow (TVprod [tyval, tyval], bool_ty)
                      | _ => raise Fail "impossible")
               ) (* TODO: equality types *)
             )
@@ -468,5 +468,6 @@ structure Basis :
           , print_dec = ref true
           , print_depth = ref 1
           }
+      , abstys = AbsIdDict.empty
       }
   end

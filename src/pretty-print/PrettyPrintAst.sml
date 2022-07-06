@@ -1924,7 +1924,7 @@ struct
     PrettySimpleDoc.toString true (show_pat ctx pat)
 
   fun print_tyval tyval =
-    PrettySimpleDoc.toString true (show_tyval (norm_tyval tyval))
+    PrettySimpleDoc.toString true (show_tyval (Context.norm_tyval Basis.initial tyval))
 
   fun print_tyscheme (arity, ty_fn) =
     if arity = 0 then
@@ -1938,13 +1938,13 @@ struct
       |> List.map Symbol.fromValue
       |> List.map TVtyvar
       |> ty_fn
-      |> norm_tyval
+      |> Context.norm_tyval Basis.initial
       |> print_tyval
 
   fun promote' f =
     fn ctx => fn x => f ctx x
 
-  val op ftv = fn z => newFormat (fn _ => fn x => print_tyval (norm_tyval x)) z
+  val op ftv = fn z => newFormat (fn _ => fn x => print_tyval (Context.norm_tyval Basis.initial x)) z
   val op fe = fn acc => newFormat (promote' print_exp) acc
   val op fv = fn acc => newFormat (promote' print_value) acc
   val op fp = fn acc => newFormat (promote' print_pat) acc

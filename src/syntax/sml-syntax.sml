@@ -324,6 +324,7 @@ structure PreSMLSyntax =
       | Vfn of
           { matches : { pat : pat, exp : exp } list
           , env : context
+          , abstys : type_scheme AbsIdDict.dict
           , rec_env : scope option
           , break : symbol option ref
           }
@@ -335,7 +336,7 @@ structure PreSMLSyntax =
 
     and sigval =
       Sigval of
-        { valspecs : type_scheme dict
+        { valspecs : (type_scheme * AbsId.t list) dict
         , tyspecs : { equality : bool, status : typspec_status } dict
         , dtyspecs : { arity : int
                      , tyid : TyId.t
@@ -498,6 +499,7 @@ structure PreSMLSyntax =
       , tyvars : SymSet.set
       , hole_print_fn : unit -> PrettySimpleDoc.t
       , settings : settings
+      , abstys : type_scheme AbsIdDict.dict
       }
 
     and fvalbinds =
@@ -551,7 +553,6 @@ signature SMLSYNTAX =
     val tyvar_eq : PreSMLSyntax.tyvar * PreSMLSyntax.tyvar -> bool
     val guard_tyscheme : PreSMLSyntax.type_scheme -> PreSMLSyntax.type_scheme
     val number_eq : PreSMLSyntax.number * PreSMLSyntax.number -> bool
-    val norm_tyval : PreSMLSyntax.tyval -> PreSMLSyntax.tyval
 
     (* TYPES *)
 
@@ -669,30 +670,152 @@ structure SMLSyntax : SMLSYNTAX =
         | _ => false
     end
 
-    local
-      open PreSMLSyntax
-    in
-      fun norm_tyval tyval =
-        case tyval of
-          TVvar (_, r as ref NONE) => tyval
-            (* May loop forever if the tyval contains the same ref.
-             *)
-        | TVvar (_, r as ref (SOME (Ty tyval))) =>
-            norm_tyval tyval
-        | TVvar (_, r as ref (SOME (Rows _))) => tyval
-        | TVapp (tyvals, tyid) =>
-            TVapp (List.map norm_tyval tyvals, tyid)
-        | TVabs (tyvals, absid) =>
-            TVabs (List.map norm_tyval tyvals, absid)
-        | TVprod tyvals =>
-            TVprod (List.map norm_tyval tyvals)
-        | TVrecord fields =>
-            TVrecord
-              (List.map (fn {lab, tyval} => {lab = lab, tyval = norm_tyval tyval}) fields)
-        | TVarrow (t1, t2) =>
-            TVarrow (norm_tyval t1, norm_tyval t2)
-        | TVtyvar sym => TVtyvar sym
-    end
+    (*
+    fun make_maps f_exp f_dec =
+      let
+        fun map_exp exp =
+          ( case exp of
+              ( Enumber _
+              | Estring _
+              | Echar _
+              | Eunit
+              | Eselect _
+              | Eident _
+              | Ehole
+              ) => exp
+            | Erecord fields =>
+                List.map
+                  (fn {lab, exp} => {lab = lab, map_exp exp})
+                  fields
+                |> Erecord
+            | Etuple exps =>
+                List.map map_exp exps
+                |> Etuple
+            | Elist exps =>
+                List.map map_exp exps
+                |> Elist
+            | Eseq exps =>
+                List.map map_exp exps
+                |> Elist
+            | Elet {dec, exps} =>
+                { dec = map_dec dec
+                , exps = List.map map_exp exps
+                }
+                |> Elet
+            | Eparens exp =>
+                Eparens (map_exp exp)
+            | Eapp {left, right} =>
+                Eapp {left = map_exp left, right = map_exp right}
+            | Einfix {left, id, right} =>
+                Einfix { left = map_exp left, id = id, right = map_exp right }
+            | Etyped {exp, ty} =>
+                Etyped {exp = map_exp exp, ty = map_ty ty}
+            | Eandalso {left, right} =
+                Eandalso {left = map_exp left, right = map_exp right}
+            | Eorelse {left, right} =
+                Eorelse {left = map_exp left, right = map_exp right}
+            | Ehandle {exp, matches} =>
+                Ehandle {exp = map_exp exp, matches = map_matches matches}
+            | Eraise exp =>
+                Eraise (map_exp exp)
+            | Eif {exp1, exp2, exp3} =>
+                Eif { exp1 = map_exp exp1
+                    , exp2 = map_exp exp2
+                    , exp3 = map_exp exp3
+                    }
+            | Ewhile {exp1, exp2} =>
+                Ewhile { exp1 = map_exp exp1
+                       , exp2 = map_exp exp2
+                       }
+            | Ecase {exp, matches} =>
+                Ecase {exp = map_exp exp, matches = map_matches matches}
+            | Efn (matches, ctxopt) =>
+                Efn (map_matches matches, ctxopt)
+          ) |> f_exp
+
+        and map_dec f_exp dec =
+          ( case dec of
+              Dval {tyvars, valbinds} =>
+                Dval { tyvars = tyvars
+                     , valbinds =
+                         List.map
+                           (fn {recc, pat, exp} =>
+                             { recc = recc
+                             , pat = map_pat pat
+                             , exp = map_exp exp
+                             }
+                           )
+                           valbinds
+                    }
+            | Dfun {tyvars, fvalbinds} =>
+                Dfun { tyvars = tyvars
+                     , fvalbinds =
+                         List.map
+                           (List.map
+                             (fn {fname_args, ty, exp} =>
+                               { fname_args = map_fname_args fname_args
+                               , ty = Option.map map_ty ty
+                               }
+                             )
+                           )
+                           fvalbinds
+                     }
+            | Dtype typbinds =>
+                Dtype (
+                  List.map
+                    (fn {tyvars, tycon, ty} => {tyvars = tyvars, tycon = tycon, ty = map_ty ty})
+                    typbinds
+                )
+            | Ddatdec {datbinds, withtypee} =>
+                Ddatdec
+                  { datbinds = List.map map_datbind datbinds
+                  , withtypee = Option.map (List.map map_typbind) withtypee
+                  }
+            | Dabstype {datbinds, withtypee, withh} =>
+                Dabstype
+                  { datbinds = List.map map_datbind datbinds
+                  , withtypee = Option.map (List.map map_typbind) withtypee
+                  , withh = map_dec withh
+                  }
+            | Dexception exbinds =>
+                Dexception
+                  (List.map
+                    (fn Xnew {opp, id, ty} =>
+                        Xnew {opp = opp, id = id, ty = Option.map map_ty ty}
+                    | other as Xrepl _ => other
+                    )
+                    exbinds
+                  )
+            | Dlocal {left_dec, right_dec} =>
+                Dlocal { left_dec = map_dec left_dec, right_dec = map_dec }
+            | Dseq decs =>
+                Dseq (List.map map_dec decs)
+            | ( Dopen _
+              | Ddatrepl _
+              | Dinfix
+              | Dinfixr
+              | Dnonfix
+              | Dhole _ ) => dec
+          ) |> f_dec
+
+        and map_ty ty =
+          case ty of
+            ( Tident _
+            | Ttyvar _
+            ) => ty
+          | Tapp (tys, longid) => Tapp (List.map map_ty tys, longid)
+          | Tprod tys => Tprod (List.map map_ty tys)
+          | Tarrow (ty1, ty2) => Tarrow (map_ty ty1, map_ty ty2)
+          | Trecord fields =>
+
+      in
+
+      end
+     *)
+
+
+
+
 
     (* TYPES *)
 

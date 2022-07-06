@@ -55,6 +55,7 @@ structure Context :
     val add_module : t -> SMLSyntax.symbol -> scope -> t
     val add_sig : t -> SMLSyntax.symbol -> SMLSyntax.sigval -> t
     val add_functor : t -> SMLSyntax.symbol -> SMLSyntax.functorval -> t
+    val add_abstys : t -> SMLSyntax.type_scheme AbsIdDict.dict -> t
     val add_scoped_tyvars : t -> SymSet.set -> t
 
     val cm_export :
@@ -86,6 +87,7 @@ structure Context :
     val open_path : t -> SMLSyntax.symbol list -> t
 
     val add_bindings : t -> (SMLSyntax.symbol * value) list -> t
+    val add_bindings_combined : t -> (SMLSyntax.symbol * value * SMLSyntax.tyval) list -> t
     val add_rec_bindings : t -> (SMLSyntax.symbol * value) list -> t
 
     (* Type stuff. *)
@@ -99,6 +101,11 @@ structure Context :
     val synth_ty' :
          SMLSyntax.context
       -> SMLSyntax.ty
+      -> SMLSyntax.tyval
+
+    val norm_tyval :
+         t
+      -> SMLSyntax.tyval
       -> SMLSyntax.tyval
 
     val mk_type_scheme :
@@ -160,7 +167,7 @@ structure Context :
     (* Some types *)
 
     fun lift f {scope, outer_scopes, dtydict, sigdict, functordict, tyvars, hole_print_fn,
-    settings } =
+    settings, abstys } =
       let
         val (scope, outer_scopes) = f (scope, outer_scopes)
       in
@@ -172,6 +179,7 @@ structure Context :
         , functordict = functordict
         , hole_print_fn = hole_print_fn
         , settings = settings
+        , abstys = abstys
         }
       end
 
@@ -270,11 +278,12 @@ structure Context :
 
     fun ctx_rec (scope as Scope { identdict, ... }) =
       SymDict.map
-        (fn V (Vfn {matches, env, rec_env, break}) =>
+        (fn V (Vfn {matches, env, rec_env, break, abstys}) =>
             V (Vfn { matches = matches
                   , env = env
                   , rec_env = SOME scope
                   , break = break
+                  , abstys = abstys
                   }
               )
         | other => other
@@ -288,7 +297,7 @@ structure Context :
      * that returns SOME.
      *)
     fun map_scope_id f (ctx as {scope, outer_scopes, dtydict, sigdict, functordict,
-    tyvars, hole_print_fn, settings}) id =
+    tyvars, hole_print_fn, settings, abstys}) id =
       let
         fun map_thing' scopes =
           case scopes of
@@ -311,6 +320,7 @@ structure Context :
         , tyvars = tyvars
         , hole_print_fn = hole_print_fn
         , settings = settings
+        , abstys = abstys
         }
       end
 
@@ -318,7 +328,7 @@ structure Context :
      * first instance found.
      *)
     fun map_module f (ctx as {dtydict, sigdict, functordict, tyvars, hole_print_fn,
-    settings, ...} : SMLSyntax.context) id =
+    settings, abstys, ...} : SMLSyntax.context) id =
       case id of
         [] => raise Fail "map module on an empty path is a bad idea, because it can pick up extra scopes"
       | _ =>
@@ -358,6 +368,7 @@ structure Context :
                       , tyvars = tyvars
                       , hole_print_fn = hole_print_fn
                       , settings = settings
+                      , abstys = abstys
                       } id
                 in
                   (scope, inner_scope :: rest)
@@ -670,7 +681,7 @@ structure Context :
       ) ctx
 
     fun add_sig {scope, outer_scopes, dtydict, sigdict, functordict, tyvars, hole_print_fn,
-    settings} id sigval =
+    settings, abstys} id sigval =
       { scope = scope
       , outer_scopes = outer_scopes
       , dtydict = dtydict
@@ -679,10 +690,11 @@ structure Context :
       , tyvars = tyvars
       , hole_print_fn = hole_print_fn
       , settings = settings
+      , abstys = abstys
       }
 
     fun add_functor {scope, outer_scopes, dtydict, sigdict, functordict, tyvars, hole_print_fn,
-    settings} id functorval =
+    settings, abstys} id functorval =
       { scope = scope
       , outer_scopes = outer_scopes
       , dtydict = dtydict
@@ -691,10 +703,25 @@ structure Context :
       , tyvars = tyvars
       , hole_print_fn = hole_print_fn
       , settings = settings
+      , abstys = abstys
+      }
+
+  fun add_abstys (ctx as {scope, outer_scopes, dtydict, sigdict, functordict, tyvars
+    , hole_print_fn, settings, abstys})
+                    new =
+      { scope = scope
+      , outer_scopes = outer_scopes
+      , dtydict = dtydict
+      , sigdict = sigdict
+      , functordict = functordict
+      , tyvars = tyvars
+      , hole_print_fn = hole_print_fn
+      , settings = settings
+      , abstys = new
       }
 
     fun add_scoped_tyvars {scope, outer_scopes, dtydict, sigdict, functordict, tyvars,
-    hole_print_fn, settings} new_tyvars =
+    hole_print_fn, settings, abstys} new_tyvars =
       let
         val tyvars =
           SymSet.foldl
@@ -715,6 +742,7 @@ structure Context :
         , tyvars = tyvars
         , hole_print_fn = hole_print_fn
         , settings = settings
+        , abstys = abstys
         }
       end
 
@@ -830,6 +858,28 @@ structure Context :
     fun open_scope ctx new_scope =
       merge_scope ctx new_scope
 
+    fun add_bindings_combined ctx bindings =
+      lift (fn (scope, rest) =>
+        let
+          val identdict = scope_identdict scope
+          val valtydict = scope_valtydict scope
+          val (new_identdict, new_valtydict) =
+            List.foldl
+              (fn ((id, value, tyval), (identdict, valtydict)) =>
+                ( SymDict.insert identdict id (V value)
+                , SymDict.insert valtydict id (Vsign, (0, fn _ => tyval))
+                )
+              )
+              (identdict, valtydict)
+              bindings
+        in
+            scope_set_identdict
+              (scope_set_valtydict scope new_valtydict)
+              new_identdict
+          |> (fn scope => (scope, rest))
+        end
+      ) ctx
+
     fun add_bindings ctx bindings =
       lift (fn (scope, rest) =>
         let
@@ -870,7 +920,8 @@ structure Context :
       ) ctx
 
     fun add_hole_print_fn
-        {scope, outer_scopes, dtydict, sigdict, functordict, tyvars, hole_print_fn, settings} f =
+        {scope, outer_scopes, dtydict, sigdict, functordict, tyvars,
+         hole_print_fn, settings, abstys} f =
       { scope = scope
       , outer_scopes = outer_scopes
       , dtydict = dtydict
@@ -879,6 +930,7 @@ structure Context :
       , tyvars = tyvars
       , hole_print_fn = f
       , settings = settings
+      , abstys = abstys
       }
 
     fun get_hole_print_fn ({hole_print_fn, ...} : SMLSyntax.context) = hole_print_fn
@@ -904,7 +956,7 @@ structure Context :
           if do_break then SOME x
           else NONE
 
-        fun new_vfn {matches, env, rec_env, break} f =
+        fun new_vfn {matches, env, rec_env, break, abstys} f =
           (case (break, do_break) of
             (ref (SOME _), true) =>
               user_err ("Breaking already broken function " ^ name)
@@ -915,6 +967,7 @@ structure Context :
                   , env = env
                   , rec_env = rec_env
                   , break = (res := SOME break; break := setting; break)
+                  , abstys = abstys
                   }
               |> f
           )
@@ -1010,6 +1063,33 @@ structure Context :
 
     fun synth_ty' ctx ty = synth_ty (fn _ => NONE) (fn _ => NONE) ctx ty
 
+    fun norm_tyval ctx tyval =
+      case tyval of
+        TVvar (_, r as ref NONE) => tyval
+          (* May loop forever if the tyval contains the same ref.
+           *)
+      | TVvar (_, r as ref (SOME (Ty tyval))) =>
+          norm_tyval ctx tyval
+      | TVvar (_, r as ref (SOME (Rows _))) => tyval
+      | TVapp (tyvals, tyid) =>
+          TVapp (List.map (norm_tyval ctx) tyvals, tyid)
+      | TVabs (tyvals, absid) =>
+          (* If we have some abstract tyvals that we're allowed to know about,
+           * then just evaluate them to what they should be.
+           *)
+          ( case AbsIdDict.find (#abstys (ctx : SMLSyntax.context)) absid of
+            NONE => TVabs (List.map (norm_tyval ctx) tyvals, absid)
+          | SOME (_, ty_fn) => ty_fn (List.map (norm_tyval ctx) tyvals)
+          )
+      | TVprod tyvals =>
+          TVprod (List.map (norm_tyval ctx) tyvals)
+      | TVrecord fields =>
+          TVrecord
+            (List.map (fn {lab, tyval} => {lab = lab, tyval = norm_tyval ctx tyval}) fields)
+      | TVarrow (t1, t2) =>
+          TVarrow (norm_tyval ctx t1, norm_tyval ctx t2)
+      | TVtyvar sym => TVtyvar sym
+
     fun mk_type_scheme datatype_fn tyvars ty ctx =
       let
         val arity = List.length tyvars
@@ -1079,8 +1159,8 @@ structure Context :
 
           val new_dtydict =
             TyIdDict.insert dtydict tyid { arity = arity
-                                        , cons = cons
-                                        }
+                                         , cons = cons
+                                         }
           val _ = #dtydict ctx := new_dtydict
 
           val new_tynamedict =

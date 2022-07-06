@@ -14,12 +14,15 @@ structure Value :
 
     val value_eq : value * value -> bool
 
+
+    (*
+    exception Mismatch of string
+
     val apply_fn :
            {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list * t * scope option
         -> value
         -> (SMLSyntax.symbol * value) list * t * SMLSyntax.exp
 
-    exception Mismatch of string
 
     val match_against :
          t
@@ -28,6 +31,7 @@ structure Value :
       -> (SMLSyntax.symbol * value) list * t * SMLSyntax.exp
 
     val match_pat : t -> SMLSyntax.pat -> value -> (SMLSyntax.symbol * value) list
+     *)
 
     val evaluate_signat : t -> SMLSyntax.signat -> sigval
 
@@ -111,7 +115,14 @@ structure Value :
            * was a bona fide literal lambda expression, ergo non-recursive.
            * So it should be OK to set rec_env and break to NONE.
            *)
-          SOME (Vfn {matches = matches, env = ctx, rec_env = NONE, break = ref NONE})
+          SOME (
+            Vfn { matches = matches
+                , env = ctx
+                , rec_env = NONE
+                , break = ref NONE
+                , abstys = AbsIdDict.empty
+                }
+          )
       | Erecord fields =>
           List.map
             (fn {lab, exp} =>
@@ -208,32 +219,36 @@ structure Value :
       | _ => false
 
 
+    (*
     exception Mismatch of string
 
-    fun match_pat ctx pat v =
-      case (pat, v) of
-        (Pnumber i1, Vnumber (Int i2)) =>
+    (* TODO: This only does values. Could it do types too, accounting for the
+     * type of the purported thing passed in?
+     * *)
+    fun match_pat ctx pat v tyval =
+      case (pat, v, norm_tyval tyval) of
+        (Pnumber i1, Vnumber (Int i2), _) =>
           if i1 = i2 then
-            []
+            (unify tyval Basis.int_ty; [])
           else
             raise Mismatch "num pats did not match"
-      | (Pword s, Vnumber (Word s')) =>
+      | (Pword s, Vnumber (Word s'), _) =>
           if Symbol.toValue s = s' then
-            []
+            (* TODO: words *) []
           else
             raise Mismatch "word pats did not match"
-      | (Pstring s, Vstring s') =>
+      | (Pstring s, Vstring s', _) =>
           if Symbol.eq (s, s') then
-            []
+            (unify tyval Basis.string_ty; [])
           else
             raise Mismatch "string pats did not match"
       | (Pchar c, Vchar c') =>
           if c = c' then
-            []
+            (unify tyval Basis.char_ty; [])
           else
             raise Mismatch "char pats did not match"
-      | (Pwild, _) => []
-      | (Pident {opp, id}, Vconstr {id = id', arg = NONE}) =>
+      | (Pwild, _, _) => []
+      | (Pident {opp, id}, Vconstr {id = id', arg = NONE}, _) =>
           if Context.is_con ctx id then
             if longid_eq (id, id') then
               []
@@ -241,7 +256,7 @@ structure Value :
               raise Mismatch "constructors did not match"
           else
             (case id of
-              [id] => [(id, v)]
+              [id] => [(id, v, tyval)]
             | _ => raise Mismatch "pattern matching against nonexistent constr"
             )
       | (Pident {opp, id}, _) =>
@@ -249,34 +264,67 @@ structure Value :
             raise Mismatch "cannot match nullary constructor"
           else
             (case id of
-              [id] => [(id, v)]
+              [id] => [(id, v, tyval)]
             | _ => raise Mismatch "pattern matching against nonexistent constr"
             )
-      | (Precord patrows, Vrecord fields) =>
-          List.foldl
-            (fn (patrow, acc) =>
-              case patrow of
-                PRellipsis => acc
-              | PRlab {lab, pat} =>
-                  (case
-                    List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields
+      | (Precord patrows, Vrecord fields, _) =>
+          let
+            fun unite fields tyfields =
+              List.foldl
+                (fn ({lab, value}, acc) =>
+                  case List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab))
+                    tyfields
                   of
-                    NONE => raise Mismatch "val did not match patrow"
-                  | SOME {lab, value} => match_pat ctx pat value @ acc
-                  )
-              | PRas {id, ty, aspat} =>
-                  (case aspat of
-                    NONE => (id, v) :: acc
-                  | SOME pat => (id, v) :: match_pat ctx pat v @ acc
-                  )
-            )
-            []
-            patrows
-      | (Pparens pat, v) => match_pat ctx pat v
-      | (Punit, Vunit) => []
+                    NONE => raise Fail "failed to find label in tyfield"
+                  | SOME {tyval, ...} =>
+                      { lab = lab, value = value, tyval = tyval }
+                )
+
+            val combined = unite fields (to_tyfields tyval)
+          in
+            List.foldl
+              (fn (patrow, acc) =>
+                case patrow of
+                  PRellipsis => acc
+                | PRlab {lab, pat} =>
+                    (case
+                      List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) combined
+                    of
+                      NONE => raise Mismatch "val did not match patrow"
+                    | SOME {lab, value, tyval} => match_pat ctx pat value tyval @ acc
+                    )
+                | PRas {id, ty, aspat} =>
+                    (case
+                      List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) combined
+                    of
+                      NONE => raise Mismatch "val did not match patrow"
+                    | SOME {lab, value, tyval} =>
+                        let
+                          val some_unify tyopt =
+                            case tyopt of
+                              NONE => tyval
+                            | SOME ty => unify tyval ty
+                        in
+                          case aspat of
+                            NONE => (id, value, some_unify ty) :: acc
+                          | SOME pat => (id, value, some_unify ty) :: match_pat
+                          ctx pat value (some_unify ty) @ acc
+                        end
+                    )
+              )
+              []
+              patrows
+          end
+      | (Pparens pat, v, _) => match_pat ctx pat v tyval
+      | (Punit, Vunit, _) =>
+          (unify tyval Basis.unit_ty, [])
       | (Ptuple pats, Vtuple vals) =>
-          ListPair.zipEq (pats, vals)
-          |> (List.concat o List.map (fn (x, y) => match_pat ctx x y))
+          let
+            val tuple_ty = to_tuple tyval
+          in
+            ListPair.zipEq (ListPair.zipEq (pats, vals), tuple_ty)
+            |> (List.concat o List.map (fn ((pat, value), tyval) => match_pat ctx pat value tyval))
+          end
       | (Plist pats, Vlist vals) =>
           ListPair.zipEq (pats, vals)
           |> (List.concat o List.map (fn (x, y) => match_pat ctx x y))
@@ -334,11 +382,14 @@ structure Value :
     val match_pat = fn ctx => fn pat => fn value =>
       match_pat ctx pat value
 
+    (* This function needs to be able to add ty bindings to the environment too.
+     *)
     fun apply_fn (matches, env, VE) value =
       match_against
         (Context.merge_scope env (Context.ctx_rec (Option.getOpt (VE, scope_empty))))
         matches
         value
+    *)
 
     fun merge_sigvals (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs})
                       (Sigval { valspecs = valspecs'
@@ -380,6 +431,10 @@ structure Value :
           | (_, SOME {arity, tyid, cons}) => SOME (TVapp (tyvals, tyid))
           | (NONE, NONE) => NONE
 
+        (* This function is supposed to allow us to get the type scheme which
+         * takes into account the abstract types and datatypes defined
+         * previously in the signature.
+         *)
         fun get_type_scheme tyvars ty =
           Context.mk_type_scheme
             spec_datatype_fn
@@ -495,13 +550,32 @@ structure Value :
               tycons
             |> #2
           end
+
+        (* These are all the known absids at this time.
+         * Thus, any function values bound at this stage of the signature know
+         * about these abstract types, and have license to manipulate them as
+         * such.
+         * At ascription time, these function values will be marked with this
+         * information.
+         *)
+        val absids =
+          SymDict.foldl
+            (fn (_, {equality, status}, acc) =>
+              case status of
+                Abstract (_, id) => id :: acc
+              | _ => acc
+            )
+            []
+            tyspecs
       in
         case spec of
           SPval valbinds =>
             { valspecs =
                 List.foldl
                   (fn ({id, ty}, valspecs) =>
-                    SymDict.insert valspecs id (get_type_scheme [] ty)
+                    (* TODO: this is broken for polymorphic types
+                     *)
+                    SymDict.insert valspecs id (get_type_scheme [] ty, absids)
                   )
                   valspecs
                   valbinds

@@ -198,12 +198,21 @@ structure Test :
 
             \val x = f 2                \
             \val y = g \"oh \"          "
-          , "val x = fn h => x h      \
-            \and rec y = fn x => y x  "
+          , "val x = fn h => x h        \
+            \and rec y = fn z => y z    "
           ]
 
         val _ =
           List.app (assert_evaluates test_name) static_tests
+
+        val illtyped_tests =
+          [ "val res = (fn x : int => x) \"hi\""
+          , "val res = (fn name as x : int => x) \"hi\""
+          , "val res = (fn x : 'a => x) 2"
+          ]
+
+        val _ =
+          List.app (assert_ill_typed test_name) illtyped_tests
 
       in
         ()
@@ -511,6 +520,58 @@ structure Test :
         ()
       end
 
+    fun test_abstract ctx =
+      let
+        val test_name = TestFramework.get_test_name ctx
+
+        val header =
+          "structure Foo :>                                \
+          \sig                                             \
+          \  type t                                        \
+          \  val to : int -> t                             \
+          \  val a : (t * t) -> t                          \
+          \  val app : t -> (t -> t) -> t                  \
+          \end =                                           \
+          \struct                                          \
+          \  type t = int                                  \
+          \  val to = fn x => x                              \
+          \  fun a (x, y) = let val res = x + y in res end \
+          \  fun app x f = f x                             \
+          \end                                             "
+
+        val illtyped_tests =
+            [ "val _ = Foo.to 2 + Foo.to 3"
+            , "val _ = Foo.app (Foo.to 2) (fn x => x + x)"
+            ]
+
+        val _ =
+          List.app
+            (fn test => assert_ill_typed test_name (header ^ test))
+            illtyped_tests
+
+        val header_is_tests =
+            [ ( "val res = Foo.a (Foo.to 2, Foo.to 3)"
+              , RES (Vnumber (Int 5))
+              )
+            , ( "val res = Foo.app (Foo.to 2) (fn x => Foo.a (x, x))"
+              , RES (Vnumber (Int 4))
+              )
+            , ( "val res = (fn x : Foo.t => x) (Foo.to 2)"
+              , RES (Vnumber (Int 2))
+              )
+            ]
+
+        val _ =
+          List.app
+            (fn (text, outcome) => assert_is test_name (header ^ text, outcome))
+            header_is_tests
+      in
+        ()
+      end
+
+
+
+
 
     fun run_tests () =
       TestFramework.run
@@ -524,6 +585,7 @@ structure Test :
             , "datatypes"  >:: test_datatypes
             , "poly"       >:: test_poly
             , "scoping"    >:: test_scoping
+            , "abstract"   >:: test_abstract
             ]
         )
   end
