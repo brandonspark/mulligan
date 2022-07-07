@@ -14,7 +14,10 @@ structure Context :
     type t = SMLSyntax.context
     type identdict = SMLSyntax.identdict
 
-    exception Raise of SMLSyntax.value
+    (* The longid is purely for the pretty printer. We have to have an idea of
+     * what to call the exception.
+     *)
+    exception Raise of SMLSyntax.longid * ExnId.t * SMLSyntax.value option
 
     val scope_empty : scope
     val merge_scope : t -> scope -> t
@@ -185,7 +188,7 @@ structure Context :
 
     (* CONTEXT STUFF *)
 
-    exception Raise of value
+    exception Raise of SMLSyntax.longid * ExnId.t * value option
 
     val scope_empty =
       Scope

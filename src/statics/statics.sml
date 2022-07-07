@@ -1512,25 +1512,26 @@ structure Statics :
             else
               raise Mismatch "char pats did not match"
         | (Pwild, _, _) => []
-        | (Pident {opp, id}, Vconstr {id = id', arg = NONE}, _) =>
-            if Context.is_con ctx id then
-              if longid_eq (id, id') then
-                []
-              else
-                raise Mismatch "constructors did not match"
-            else
-              (case id of
-                [id] => [(id, v, tyval)]
-              | _ => raise Mismatch "pattern matching against nonexistent constr"
-              )
         | (Pident {opp, id}, _, _) =>
-            if Context.is_con ctx id then
-              raise Mismatch "cannot match nullary constructor"
-            else
-              (case id of
-                [id] => [(id, v, tyval)]
-              | _ => raise Mismatch "pattern matching against nonexistent constr"
-              )
+            (case (Context.get_con_opt ctx id, v, Context.get_exn_opt ctx id) of
+              (SOME _, Vconstr { id = id', arg = NONE}, _) =>
+                if longid_eq (id, id') then
+                  []
+                else
+                  raise Mismatch "constructors did not match"
+            | (_, Vexn {name, exnid, arg = NONE}, SOME exnid') =>
+                if ExnId.eq (exnid, exnid') then
+                  []
+                else
+                  raise Mismatch "exceptions did not match"
+            | (SOME _, _, SOME _) => raise Fail "should not be possible"
+            | (NONE, _, NONE) =>
+                (case id of
+                  [id] => [(id, v, tyval)]
+                | _ => raise Mismatch "pattern matching against nonexistent constr"
+                )
+            | _ => prog_err "invalid case for pident in match_pat"
+            )
         | (Precord patrows, Vrecord fields, _) =>
             let
               fun to_tyfields tyval =
@@ -1633,12 +1634,18 @@ structure Statics :
               | SOME res => res
             )
         | ( Papp {opp, id, atpat}
-          , Vconstr {id = id', arg = SOME v}
-          , TVapp (tyvals, tyid)
+          , _
+          , _
           ) =>
-            if longid_eq (id, id') then
-              case Context.get_ident_ty_opt ctx id of
-                SOME (Csign, tyscheme) =>
+          ( case (Context.get_ident_ty_opt ctx id, v, tyval, Context.get_exn_opt ctx id) of
+              ( SOME (Csign, tyscheme)
+              , Vconstr {id = id', arg = SOME v}
+              , TVapp (tyvals, tyid)
+              , _
+              ) =>
+                (* If the constructors match, then... *)
+                if longid_eq (id, id') then
+                  (* Verify that their types match. *)
                   (case instantiate_tyscheme ctx tyscheme of
                     TVarrow (in_ty, TVapp (tyvals', tyid')) =>
                       if TyId.eq (tyid, tyid') then
@@ -1649,21 +1656,47 @@ structure Statics :
                         raise Fail "TODO"
                   | _ => raise Fail "TODO"
                   )
-              | _ => raise Fail "TODO"
-            else
-              raise Mismatch "failed to match constructors with args"
+                else
+                  raise Mismatch "constructors not same"
+            | ( SOME (Esign, tyscheme)
+              , Vexn {name, exnid, arg = SOME v}
+              , TVapp ([], tyid)
+              , SOME exnid'
+              ) =>
+                if TyId.eq (Basis.exn_tyid, tyid) then
+                  if ExnId.eq (exnid, exnid') then
+                    (case instantiate_tyscheme ctx tyscheme of
+                      TVarrow (in_ty, TVapp ([], tyid'')) =>
+                        if TyId.eq (Basis.exn_tyid, tyid'') then
+                          match_pat ctx atpat v in_ty
+                        else
+                          prog_err "Esign has tyscheme that doesn't result in exn"
+                    | _ =>
+                        prog_err "applied exn constructor of incorrect type"
+                    )
+                  else
+                    raise Mismatch "exns did not match"
+                else
+                  prog_err "matching non-exn tyval to exn pattern"
+            | _ => prog_err "non-csign or esign given to applied pattern"
+          )
+          (* TODO: This technically does not comply with the Definition.
+           * If you shadow cons, pattern matching against cons is no longer
+           * supposed to work.
+           *)
         | ( Pinfix {left, id, right}
           , Vlist values
           , TVapp ([tyval], tyid)
           ) =>
           if TyId.eq (tyid, Basis.list_tyid) andalso Symbol.eq (id, Symbol.fromValue "::") then
             case values of
-              [] => raise Context.Raise (Vconstr {id = [Symbol.fromValue "Match"], arg = NONE})
+              [] => raise Mismatch "failed to match cons pattern to empty list"
             | hd::tl =>
                   match_pat ctx left hd tyval
                 @ match_pat ctx right (Vlist tl) (TVapp ([tyval], tyid))
           else
             prog_err "TODO"
+        (* TODO: match non-infix exn against pinfix? *)
         | ( Pinfix {left, id, right}
           , Vinfix {left = left', id = id', right = right'}
           , TVapp (tyvals, tyid)

@@ -3,16 +3,18 @@ structure Debugger :
   sig
     val eval_program : SMLSyntax.ast -> Context.t -> Context.t
 
+    type susp_value = unit -> Context.value
+
     val eval :
          Location.location list
       -> SMLSyntax.exp
       -> Context.t
-      -> Context.value Cont.t
+      -> susp_value Cont.t
       -> 'a
 
     datatype focus =
-       VAL of SMLSyntax.exp * Context.value * Context.value Cont.t
-     | EXP of SMLSyntax.exp * Context.value Cont.t
+       VAL of SMLSyntax.exp * Context.value * susp_value Cont.t
+     | EXP of SMLSyntax.exp * susp_value Cont.t
      | PROG of SMLSyntax.ast
 
     datatype perform =
@@ -31,6 +33,8 @@ structure Debugger :
     open Context
     open Location
     open Error
+
+    fun suspend x = fn () => x
 
     val sym_true = Symbol.fromValue "true"
     val sym_false = Symbol.fromValue "false"
@@ -54,14 +58,16 @@ structure Debugger :
     infix |>
     fun x |> f = f x
 
+    type susp_value = unit -> Context.value
+
     (* A focus represents what the debugger is currently looking at.
      *
      * In the VAL and EXP cases, it also contains a first-class continuation to
      * be used to jump back into the evaluation of the program.
      *)
     datatype focus =
-       VAL of SMLSyntax.exp * Context.value * Context.value Cont.t
-     | EXP of SMLSyntax.exp * Context.value Cont.t
+       VAL of SMLSyntax.exp * Context.value * susp_value Cont.t
+     | EXP of SMLSyntax.exp * susp_value Cont.t
      | PROG of SMLSyntax.ast
 
     (* Using the idea of algebraic effects, the debugger performs certain
@@ -129,7 +135,7 @@ structure Debugger :
                          , stop = break
                          }
                   )
-            )
+            ) ()
       in
         new_value
       end
@@ -137,7 +143,7 @@ structure Debugger :
     fun match_handler exn =
       case exn of
         Statics.Mismatch _ =>
-          raise Context.Raise (Vconstr {id = [Symbol.fromValue "Match"], arg = NONE})
+          raise Context.Raise ([Symbol.fromValue "Match"], Basis.match_exnid, NONE)
       | _ => raise exn
 
     (* Does a left-to-right application of the function to each element.
@@ -145,14 +151,14 @@ structure Debugger :
      * This continuation will throw the currently evaluated expression, as a
      * value, to the continuation.
      *)
-    fun eval location exp ctx cont =
+    fun inner_eval location exp ctx cont =
       let
         fun eval' ehole exp ctx =
           Cont.callcc (fn cont =>
             ( eval (EHOLE ehole :: location) exp ctx cont
             ; raise Fail "can't get here"
             )
-          )
+          ) ()
 
         (* Needs to be given a function which can construct the desired current
          * exp from the left and right halves of the list.
@@ -182,7 +188,7 @@ structure Debugger :
           if Location.is_val_dec location then
             redex_value location value ctx cont
           else
-            Cont.throw cont value
+            Cont.throw cont (suspend value)
       in
         case exp of
           Enumber num => throw (Vnumber num)
@@ -461,25 +467,42 @@ structure Debugger :
                   PrettyPrintAst.print_value ctx right)
             end
         | Ehandle {exp = exp', matches} =>
-            ( throw
-                (eval' (Ehandle {exp = Ehole, matches = matches}) exp' ctx)
-              handle Context.Raise value =>
+            ( ( throw
+                  (eval' (Ehandle {exp = Ehole, matches = matches}) exp' ctx)
+              )
+              handle Context.Raise (name, exnid, valopt) =>
                 ( let
+                    val _ = print "handling raise\n"
                     val (bindings, new_ctx, exp) =
-                      Statics.match_against ctx matches value Basis.exn_ty
+                      Statics.match_against
+                        ctx
+                        matches
+                        (Vexn {name = name, exnid = exnid, arg = valopt})
+                        Basis.exn_ty
+
                     val _ =
                       break_check_ids ctx bindings
                   in
                     redex (CLOSURE ctx :: location) exp new_ctx cont
                   end
-                  handle Statics.Mismatch _ => raise Context.Raise value
+                  handle Statics.Mismatch _ => raise Context.Raise (name, exnid, valopt)
                 )
             )
         | Eraise exp =>
             (* TODO: check if exn *)
             (case eval' (Eraise Ehole) exp ctx of
-              (constr as Vconstr _) => (raise Context.Raise constr)
-            | (constr as Vinfix _) => raise Context.Raise constr
+              (constr as Vconstr {id, arg}) =>
+                (case Context.get_exn_opt ctx id of
+                  NONE =>
+                    eval_err "TODO"
+                | SOME exnid => raise Context.Raise (id, exnid, arg)
+                )
+            | (constr as Vinfix {left, id, right}) =>
+                (case Context.get_exn_opt ctx [id] of
+                  NONE =>
+                    eval_err "TODO"
+                | SOME exnid => raise Context.Raise ([id], exnid, SOME (Vtuple [left, right]))
+                )
             | value =>
                 eval_err
                   ("Raise given non-constructor " ^
@@ -569,12 +592,57 @@ structure Debugger :
         | Ehole => raise Fail "shouldn't happen, evaling Ehole"
       end
 
+    (* This is a wrapper around the normal evaluate.
+     *
+     * Here, we make the first-class continuation value, which will actually do
+     * the work of resetting the context.
+     *)
+    and eval location exp ctx cont =
+      (inner_eval location exp ctx cont)
+      handle Basis.Cont value =>
+        (case value of
+          Vfn {matches, env, rec_env, abstys, break} =>
+            let
+              val (bindings, new_ctx, new_exp) =
+                Statics.apply_fn (matches, env, rec_env)
+                  (Vbasis ({ function = fn value => (redex_value location value ctx cont; raise Fail "cannot reach")
+                           , name = Symbol.fromValue (ContId.show (ContId.new NONE))
+                           }
+                          )
+                  )
+                  (Basis.cont_ty (TVvar (Ref.new NONE)))
+                  abstys
+              (* Check if any of these bindings are under `break bind`
+               *)
+              val _ =
+                break_check_ids ctx bindings
+
+              (* Check if the function value being applied is currently
+               * broken.
+               *)
+              val _ =
+                if Option.isSome (!break) then
+                  Cont.callcc (fn cont =>
+                    raise Perform (Break (true, cont))
+                  )
+                else
+                  ()
+            in
+              if !(#step_app (Context.get_settings ctx)) then
+                redex (CLOSURE ctx :: location) new_exp new_ctx cont
+              else
+                eval (CLOSURE ctx :: location) new_exp new_ctx cont
+            end
+            (* TODO: handler? *)
+        | _ => raise Fail "impossible due to statics"
+        )
+
     (* This function is used on the expression resulting immediately from
      * evaluating a redex.
      * This will cause a checkpoint, which will trigger a pause.
      *)
     and redex location exp ctx cont =
-      Cont.throw cont (checkpoint location exp ctx false)
+      Cont.throw cont (suspend (checkpoint location exp ctx false))
 
     (* This function is used on the expression resulting from evaluating a redex
      * into a value.
@@ -585,6 +653,8 @@ structure Debugger :
       let
         val (exp, new_location) = plug_hole value location
       in
+        (* This is a unit cont, which is only used to come back here.
+         *)
         Cont.callcc
             (fn cont =>
               raise
@@ -597,7 +667,7 @@ structure Debugger :
                          }
                   )
             );
-        Cont.throw cont value
+        Cont.throw cont (suspend value)
       end
 
     (* After the statics are finished, we only have a couple things we need to

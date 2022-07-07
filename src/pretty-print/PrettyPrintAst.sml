@@ -878,6 +878,11 @@ struct
           group (
             show_value left $$ (show_id id +-+ show_value right)
           )
+      | Vexn {name, arg, ...} =>
+          (case arg of
+            NONE => show_constr name
+          | SOME value => show_constr name +-+ show_atvalue value
+          )
       | Vfn {matches, env, ...} =>
           let
             val inner = group (show_match env (SOME "fn") (List.nth (matches, 0)))
@@ -904,12 +909,14 @@ struct
         | Vrecord _
         | Vunit
         | Vconstr {arg = NONE, ...}
+        | Vexn {arg = NONE, ...}
         | Vselect _
         | Vtuple _
         | Vlist _
         | Vbasis _
         ) => show_value ctx value
       | ( Vconstr {arg = SOME _, ...}
+        | Vexn {arg = SOME _, ...}
         | Vinfix _
         | Vfn _
         ) => parensAround (show_value ctx value)

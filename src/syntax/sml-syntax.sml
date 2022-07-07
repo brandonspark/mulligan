@@ -321,6 +321,11 @@ structure PreSMLSyntax =
           , id : symbol
           , right : value
           }
+      | Vexn of
+          { name : longid
+          , exnid : ExnId.t
+          , arg : value option
+          }
       | Vfn of
           { matches : { pat : pat, exp : exp } list
           , env : context

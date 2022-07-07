@@ -10,8 +10,15 @@ structure Basis :
     val char_ty : SMLSyntax.tyval
     val unit_ty : SMLSyntax.tyval
     val exn_ty : SMLSyntax.tyval
+    val exn_tyid : TyId.t
     val list_tyid : TyId.t
     val option_tyid : TyId.t
+
+    val match_exnid : ExnId.t
+
+    val cont_ty : SMLSyntax.tyval -> SMLSyntax.tyval
+
+    exception Cont of SMLSyntax.value
   end =
   struct
     open SMLSyntax
@@ -226,6 +233,38 @@ structure Basis :
 
     val (initial_cons, initial_cons_tys) = ListPair.unzip initial_cons_pair
 
+    (* Exceptions *)
+
+    fun mk_exn name opt =
+      case opt of
+        NONE => (name, ExnId.new (SOME (Symbol.fromValue name)), exn_ty)
+      | SOME tyval => (name, ExnId.new (SOME (Symbol.fromValue name)), TVarrow (tyval, exn_ty))
+
+    val fail_info as (fail_name, fail_exnid, fail_ty) =
+      mk_exn "Fail" (SOME string_ty)
+    val bind_info as (bind_name, bind_exnid, bind_ty) =
+      mk_exn "Bind" NONE
+    val match_info as (match_name, match_exnid, match_ty) =
+      mk_exn "Match" NONE
+    val div_info as (div_name, div_exnid, div_ty) =
+      mk_exn "Div" NONE
+    val subscript_info as (subscript_name, subscript_exnid, subscript_ty) =
+      mk_exn "Subscript" NONE
+
+    val (initial_exns, initial_exns_tys) =
+      [ fail_info
+      , bind_info
+      , match_info
+      , div_info
+      , subscript_info
+      ]
+      |> List.map
+           (fn (name, value, tyval) =>
+             ( (sym name, E value)
+             , (sym name, (Esign, forall_none_tyval tyval))
+             )
+           )
+      |> ListPair.unzip
 
     (* Values *)
 
@@ -341,7 +380,7 @@ structure Basis :
         , (fn Vtuple [Vstring s, Vnumber (Int i1), Vnumber (Int i2)] =>
             ( Vstring
               (Symbol.fromValue (String.substring (Symbol.toValue s, i1, i2))) handle Subscript =>
-                raise Context.Raise (Vconstr {id = [Symbol.fromValue "Subscript"], arg = NONE})
+                raise Context.Raise ([Symbol.fromValue "Subscript"], subscript_exnid, NONE)
             )
           | _ => eval_err "invalid args to `substring`"
           )
@@ -381,29 +420,57 @@ structure Basis :
         )
       |> ListPair.unzip
 
-    (* Exceptions *)
+    (* Modules *)
 
-    fun mk_exn name opt =
-      case opt of
-        NONE => (name, ExnId.new (SOME (Symbol.fromValue name)), exn_ty)
-      | SOME tyval => (name, ExnId.new (SOME (Symbol.fromValue name)), TVarrow (tyval, exn_ty))
+    exception Cont of SMLSyntax.value
 
-    val (initial_exns, initial_exns_tys) =
-      [ mk_exn "Fail" (SOME string_ty)
-      , mk_exn "Bind" NONE
-      , mk_exn "Match" NONE
-      , mk_exn "Div" NONE
-      , mk_exn "Subscript" NONE
-      ]
-      |> List.map
-           (fn (name, value, tyval) =>
-             ( (sym name, E value)
-             , (sym name, (Esign, forall_none_tyval tyval))
+    val (cont_ty, cont_mod) =
+      let
+        val cont_absid = AbsId.new (some "cont")
+        val cont_ty = fn x => TVabs ([x], cont_absid)
+        val (identdict, valtydict) =
+          [ ( "callcc"
+            , (fn value => raise Cont value)
+            , forall_single (fn x => TVarrow (TVarrow (cont_ty x, x), x))
+            )
+          , ( "throw"
+            , (fn Vbasis {function, name} =>
+                Vbasis { function = fn x => function x
+                       , name = sym ("throw[" ^ Symbol.toValue name ^ "]")
+                       }
+              | _ => raise Fail "should not happen, error in throw"
+              )
+            , SMLSyntax.guard_tyscheme
+                ( 2
+                , fn [a, b] => TVarrow (cont_ty a, TVarrow (a, b))
+                 | _ => raise Fail "should not happen, arity mismatch in throw"
+                )
+            )
+          ]
+          |> List.map (fn (x, y, z) =>
+              ( (sym x, V (Vbasis {name = sym x, function = y}))
+              , (sym x, (Vsign, z))
+              )
              )
-           )
-      |> ListPair.unzip
+          |> ListPair.unzip
+      in
+        ( cont_ty
+        , Scope
+            { identdict = dict_from_list identdict
+            , valtydict = dict_from_list valtydict
+            , moddict = SymDict.empty
+            , infixdict = SymDict.empty
+            , tynamedict =
+                SymDict.singleton (sym "cont")
+                  (Scheme (forall_single cont_ty))
+            }
+        )
+      end
 
-    val initial_mods = []
+    val initial_mods =
+      [ ("Cont", cont_mod)
+      ]
+      |> List.map (fn (x, y) => (sym x, y))
 
     val initial_infix =
       [ ( "div", (LEFT, 7) )

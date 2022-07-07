@@ -84,6 +84,13 @@ structure Value :
                  , id = id
                  , right = value_to_exp right
                  }
+      | Vexn {name, exnid, arg} =>
+          (case arg of
+            NONE => Eident {opp = false, id = name}
+          | SOME arg => Eapp { left = Eident {opp = false, id = name}
+                             , right = value_to_exp arg
+                             }
+          )
       | Vfn {matches, env, rec_env, ...} => Efn (matches, SOME env)
       (* For basis values *)
       | Vbasis {name, function} => Eident {opp = false, id = [name]}

@@ -35,3 +35,4 @@ functor MkTemp (val prefix : string) :>
 structure TyId = MkTemp (val prefix = "ty")
 structure ExnId = MkTemp (val prefix = "exn")
 structure AbsId = MkTemp (val prefix = "abs")
+structure ContId = MkTemp (val prefix = "cont")

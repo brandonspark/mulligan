@@ -30,6 +30,8 @@ functor MkRun
     open Error
     open Common
 
+    fun suspend x = fn () => x
+
     val help_message =
     "usage: mulligan [ARGS] FILE ... FILE\n" ^
     "Command-line arguments:\n" ^
@@ -103,6 +105,8 @@ functor MkRun
 
         val breaks : SMLSyntax.symbol option ref list ref = ref []
 
+        val conts = ref ContIdDict.empty
+
         fun display (ctx, location, focus) =
           print ("==> \n"
             ^ print_focus ctx location focus NONE
@@ -116,12 +120,19 @@ functor MkRun
             val new_info =
               ( case focus of
                 Debugger.VAL (_, value, cont) =>
-                  Cont.throw cont value
+                  Cont.throw cont (suspend value)
               | Debugger.EXP (exp, cont) =>
                 ( case Value.exp_to_value ctx exp of
                     SOME value =>
-                      Cont.throw cont value
-                  | _ => Debugger.eval location exp ctx cont
+                      Cont.throw cont (suspend value)
+                  | _ =>
+                    (* If we are evaluating some expression, and it raises an
+                     * exception, we need to percolate that up to our caller.
+                     *)
+                    (Debugger.eval location exp ctx cont)
+                    handle
+                      Context.Raise exninfo =>
+                        Cont.throw cont (fn () => raise Context.Raise exninfo)
                 )
               | Debugger.PROG ast =>
                   Finished (Debugger.eval_program ast ctx)
