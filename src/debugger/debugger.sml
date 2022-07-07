@@ -33,6 +33,8 @@ structure Debugger :
     open Context
     open Location
     open Error
+    open PrettyPrintAst
+    open Printf
 
     fun suspend x = fn () => x
 
@@ -197,10 +199,25 @@ structure Debugger :
         | Eunit => throw Vunit
         | Eselect sym => throw (Vselect sym)
         | Eident {opp, id} => (* special stuff here *)
-            if Context.is_con ctx id then
-              throw (Vconstr {id = id, arg = NONE})
-            else
-              throw (Context.get_val ctx id)
+            let
+              fun handle_longid longid =
+                case Context.get_ident_opt ctx id of
+                  SOME (C _) =>
+                    throw (Vconstr {id = id, arg = NONE})
+                | SOME (E exnid) =>
+                    throw (Vexn {name = id, exnid = exnid, arg = NONE})
+                | SOME (V value) =>
+                    throw value
+                | NONE =>
+                    (Printf.printf (`"Cannot find binding to identifier "fli".") id)
+                    |> eval_err
+            in
+              if longid_eq (id, [Symbol.fromValue "::"]) then
+                throw Basis.cons
+              else
+                handle_longid id
+            end
+
         | Erecord fields =>
             let
               val labs = List.map #lab fields
@@ -272,6 +289,8 @@ structure Debugger :
               case (left, right) of
                 (constr as Vconstr {id, arg = NONE}, v) =>
                   throw (Vconstr { id = id, arg = SOME v})
+              | (Vexn {name, exnid, arg = NONE}, v) =>
+                  throw (Vexn {name = name, arg = SOME v, exnid = exnid})
               | (Vfn {matches, env, rec_env, break, abstys}, v) =>
                   ( let
                       val (bindings, new_ctx, new_exp) =
@@ -364,6 +383,13 @@ structure Debugger :
                   redex_value
                     location
                     (Vinfix {left = left, id = sym, right = right})
+                    ctx
+                    cont
+              (* TODO: maybe don't forcibly downgrade *)
+              | Vexn {exnid, name, arg = NONE} =>
+                  redex_value
+                    location
+                    (Vexn {exnid = exnid, name = name, arg = SOME (Vtuple [left, right])})
                     ctx
                     cont
               | Vbasis {function = f, name} =>
@@ -491,18 +517,8 @@ structure Debugger :
         | Eraise exp =>
             (* TODO: check if exn *)
             (case eval' (Eraise Ehole) exp ctx of
-              (constr as Vconstr {id, arg}) =>
-                (case Context.get_exn_opt ctx id of
-                  NONE =>
-                    eval_err "TODO"
-                | SOME exnid => raise Context.Raise (id, exnid, arg)
-                )
-            | (constr as Vinfix {left, id, right}) =>
-                (case Context.get_exn_opt ctx [id] of
-                  NONE =>
-                    eval_err "TODO"
-                | SOME exnid => raise Context.Raise ([id], exnid, SOME (Vtuple [left, right]))
-                )
+              Vexn {exnid, arg, name} =>
+                raise Context.Raise (name, exnid, arg)
             | value =>
                 eval_err
                   ("Raise given non-constructor " ^
@@ -885,7 +901,7 @@ structure Debugger :
         let
           fun apply_functor
             eval_module
-            (ctx as {functordict, ...} : t)
+            (ctx as {functordict, ...} : context)
             functor_id
             scope =
               let

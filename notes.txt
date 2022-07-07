@@ -65,7 +65,7 @@ KNOWN ISSUES:
 - No support for .mlb files
 - Substitution does not work properly for referring to bindings in a module that
   is currently being evaluated
-- abstract types
 - equality types
+- accept longids
 
 

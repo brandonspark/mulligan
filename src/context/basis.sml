@@ -18,6 +18,8 @@ structure Basis :
 
     val cont_ty : SMLSyntax.tyval -> SMLSyntax.tyval
 
+    val cons : SMLSyntax.value
+
     exception Cont of SMLSyntax.value
   end =
   struct
@@ -268,6 +270,14 @@ structure Basis :
 
     (* Values *)
 
+    val cons =
+      { function =
+        (fn Vtuple [x, Vlist xs] => Vlist (x::xs)
+        | _ => eval_err "invalid args to ::"
+        )
+      , name = sym "::"
+      } |> Vbasis
+
     (* TODO: word stuff *)
     val (initial_values, initial_values_tys) =
       [ ( "+"
@@ -401,22 +411,23 @@ structure Basis :
              )
            )
       |> (fn l =>
-          ( ( sym "="
-            , { function =
-                  (fn Vtuple [left, right] => poly_eq left right
-                  | _ => eval_err "invalid arg to `=`"
-                  )
-              , name = sym "="
-              } |> Vbasis |> V
-            )
-          , ( sym "="
-            , ( Vsign
-              , SMLSyntax.guard_tyscheme
+          ( [ ( "="
+              , (fn Vtuple [left, right] => poly_eq left right
+                | _ => eval_err "invalid arg to `=`"
+                )
+              , ( Vsign
+                , SMLSyntax.guard_tyscheme
                   (1, fn [tyval] => TVarrow (TVprod [tyval, tyval], bool_ty)
                      | _ => raise Fail "impossible")
+                )
               ) (* TODO: equality types *)
-            )
-          ) :: l
+            ] |> List.map
+                   (fn (name, value, tyinfo) =>
+                     ( (sym name, V (Vbasis {name = sym name, function = value}))
+                     , (sym name, tyinfo)
+                     )
+                   )
+          ) @ l
         )
       |> ListPair.unzip
 

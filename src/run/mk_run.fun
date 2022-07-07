@@ -105,8 +105,6 @@ functor MkRun
 
         val breaks : SMLSyntax.symbol option ref list ref = ref []
 
-        val conts = ref ContIdDict.empty
-
         fun display (ctx, location, focus) =
           print ("==> \n"
             ^ print_focus ctx location focus NONE
