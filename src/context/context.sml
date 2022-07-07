@@ -29,6 +29,7 @@ structure Context :
     val scope_set_identdict : scope -> identdict -> scope
     val scope_set_moddict : scope -> scope SymDict.dict -> scope
 
+    val get_ident_opt : t -> SMLSyntax.longid -> SMLSyntax.id_info option
     val get_val : t -> SMLSyntax.longid -> value
     val get_val_opt : t -> SMLSyntax.longid -> value option
     val get_con_opt : t -> SMLSyntax.longid -> TyId.t option
@@ -497,6 +498,23 @@ structure Context :
         NONE =>
           prog_err ("Nonexistent value binding to identifier " ^ lightblue (longid_to_str id))
       | SOME ans => ans
+
+    fun get_ident_opt ctx id =
+      SOME ( case id of
+          [x] =>
+            iter_scopes
+              (fn scope =>
+                case (SymDict.find (scope_identdict scope) x) of
+                  SOME ans => SOME ans
+                | _ => NONE)
+              (ctx_scopes ctx)
+        | _ =>
+            get_base (fn (id, scope) =>
+                       case SymDict.find (scope_identdict scope) id of
+                         SOME ans => ans
+                       | _ => raise CouldNotFind) ctx id
+      ) handle CouldNotFind => NONE
+
 
     fun get_ident_ty_opt ctx id =
       SOME ( case id of

@@ -1512,25 +1512,25 @@ structure Statics :
             else
               raise Mismatch "char pats did not match"
         | (Pwild, _, _) => []
+          (* TODO: check types *)
         | (Pident {opp, id}, _, _) =>
-            (case (Context.get_con_opt ctx id, v, Context.get_exn_opt ctx id) of
-              (SOME _, Vconstr { id = id', arg = NONE}, _) =>
+            (case (Context.get_ident_opt ctx id, v) of
+              (SOME (C _), Vconstr { id = id', arg = NONE}) =>
                 if longid_eq (id, id') then
                   []
                 else
                   raise Mismatch "constructors did not match"
-            | (_, Vexn {name, exnid, arg = NONE}, SOME exnid') =>
+            | (SOME (E exnid'), Vexn {name, exnid, arg = NONE}) =>
                 if ExnId.eq (exnid, exnid') then
                   []
                 else
                   raise Mismatch "exceptions did not match"
-            | (SOME _, _, SOME _) => raise Fail "should not be possible"
-            | (NONE, _, NONE) =>
+            | (SOME (V _) | NONE, _) =>
                 (case id of
                   [id] => [(id, v, tyval)]
                 | _ => raise Mismatch "pattern matching against nonexistent constr"
                 )
-            | _ => prog_err "invalid case for pident in match_pat"
+            | _ => raise Mismatch "invalid match"
             )
         | (Precord patrows, Vrecord fields, _) =>
             let

@@ -48,7 +48,7 @@ structure Test :
     fun run_handler test_name exn =
       case exn of
         Signal (SigError error) => ERR error
-      | Context.Raise value => RAISE value
+      | Context.Raise (name, exnid, arg) => RAISE (Vexn {name = name, exnid = exnid, arg = arg})
       | ParseSMLError.Error e =>
           ( print ("Parse error during test " ^ lightblue test_name ^ "\n")
           ; TCS.print
@@ -294,6 +294,26 @@ structure Test :
             )
           , ( "val res = fact (SOME 150)"
             , RES (Vnumber (Int 300))
+            )
+          , ( "fun len l =               \
+              \  case l of               \
+              \    [] => 0               \
+              \  | x::xs => 1 + len xs   \
+
+              \val res = len [1,2,3,4,5] "
+            , RES (Vnumber (Int 5))
+            )
+          , ( "fun stagedExp k =                  \
+              \  if k = 0 then fn n => 1          \
+              \  else                             \
+              \    let                            \
+              \      val prev = stagedExp (k - 1) \
+              \    in                             \
+              \      fn n => n * prev n           \
+              \    end                            \
+              \val f = stagedExp 3                \
+              \val res = f 2                      "
+            , RES (Vnumber (Int 8))
             )
           ]
         val _ = assert_is_rolling test_name dynamic_tests
@@ -569,9 +589,54 @@ structure Test :
         ()
       end
 
+    fun test_cont ctx =
+      let
+        val test_name = TestFramework.get_test_name ctx
 
+        val is_tests =
+          [ ( "val res = Cont.callcc (fn cont => Cont.throw cont 5)"
+            , RES (Vnumber (Int 5))
+            )
+          , ( "val res = Cont.callcc (fn _ => 5)"
+            , RES (Vnumber (Int 5))
+            )
+          , ( "exception Raise of int Cont.cont               \
 
+              \fun f () =                                     \
+              \  Cont.callcc (fn x =>                         \
+              \    raise Raise x                              \
+              \  )                                            \
 
+              \val x =                                        \
+              \  f () handle Raise cont => Cont.throw cont 40 \
+
+              \val res = x + x                                "
+            , RES (Vnumber (Int 80))
+            )
+          , ( "datatype ('a, 'b) either = INL of 'a | INR of 'b \
+              \type 'a lem = ('a, 'a Cont.cont) either          \
+
+              \val lem_proof : unit -> 'a lem =                 \
+              \  fn () =>                                       \
+              \    Cont.callcc                                  \
+              \      (fn ret =>                                 \
+              \        INL (Cont.callcc (fn na =>               \
+              \          Cont.throw ret (INR na)                \
+              \        ))                                       \
+              \      )                                          \
+
+              \val res =                                        \
+              \  case lem_proof () of                           \
+              \    INL n => n * n                               \
+              \  | INR nn => Cont.throw nn 2                    "
+            , RES (Vnumber (Int 4))
+            )
+          ]
+
+        val _ = List.app (assert_is test_name) is_tests
+      in
+        ()
+      end
 
     fun run_tests () =
       TestFramework.run
@@ -586,6 +651,7 @@ structure Test :
             , "poly"       >:: test_poly
             , "scoping"    >:: test_scoping
             , "abstract"   >:: test_abstract
+            , "cont"       >:: test_cont
             ]
         )
   end
