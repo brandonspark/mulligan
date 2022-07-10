@@ -25,6 +25,8 @@ structure DirectiveParser :> PARSER =
     fun sing x = [x]
     fun pair (x, y) = [x, y]
 
+    exception ParseFail of string
+
     structure Arg =
       struct
         open Directive
@@ -33,6 +35,7 @@ structure DirectiveParser :> PARSER =
 
         type int = int
         type symbol = symbol
+        type longid = symbol list
         type directive = Directive.t
 
         val main = identity
@@ -44,14 +47,27 @@ structure DirectiveParser :> PARSER =
         val step = null Step
         val run = null Run
         val prev = null (Prev NONE)
-        fun break_fn s = Break s
+        fun break_fn s = BreakFn s
         fun bare_clear () = Clear NONE
         fun sym_clear s = Clear (SOME s)
         fun sym_print s = Print s
-        fun break_bind s = BreakBind s
-        fun change_setting (s1, s2) = Set (s1, Directive.VALUE s2)
-        fun change_setting_num (s1, i) = Set (s1, Directive.NUM i)
-        fun report s = Report s
+        fun break_bind s =
+          case s of
+            [s] => BreakBind s
+          | _ => raise ParseFail "Cannot break bind on longid."
+        fun value_ident longid =
+          case longid of
+            [s] => Directive.VALUE s
+          | _ => raise ParseFail "Value cannot be empty or long identifier."
+        fun value_num num = Directive.NUM num
+        fun change_setting (s, v) =
+          case s of
+            [s] => Set (s, v)
+          | _ => raise ParseFail "Setting cannot be empty or long identifier."
+        fun report s =
+          case s of
+            [s] => Report s
+          | _ => raise ParseFail "Cannot report on longid."
         fun bare_last () = Last NONE
         fun num_last i = Last (SOME i)
         val do_help = null Help
@@ -61,7 +77,6 @@ structure DirectiveParser :> PARSER =
         fun error x = Error x
       end
 
-    (* Sidestepping the NJ extension so it can parse itself. *)
     structure Input =
       struct
         structure Streamable = StreamStreamable
@@ -91,10 +106,14 @@ structure DirectiveParser :> PARSER =
       end
 
     fun parse_opt cs =
-      case parse (Stream.fromList (String.explode cs)) of
+      ( case parse (Stream.fromList (String.explode cs)) of
         INL _ => NONE
       | INR (elems, []) => SOME elems
       | INR _ => NONE
+      ) handle ParseFail s =>
+        ( print ("Parse failure: " ^ s ^ "\n")
+        ; NONE
+        )
 
     fun parse_exn cs =
       case parse_opt cs of

@@ -29,6 +29,8 @@ functor MkRun
   struct
     open Error
     open Common
+    open PrettyPrintAst
+    open Printf
 
     fun suspend x = fn () => x
 
@@ -45,9 +47,9 @@ functor MkRun
     \  stop               exits program\n\
     \  reveal             reveals evaluation context by <print_depth> layers\n\
     \  reveal <i>         reveals evaluation context by <i> layers\n\
-    \  break <id>         sets a breakpoint for when the function value bound to <id>\
+    \  breakfn <id>       sets a breakpoint for when the function value bound to <id>\
                          \is invoked\n\
-    \  break bind <id>    sets a breakpoint when the identifier <id> is bound to\n\
+    \  breakbind <id>     sets a breakpoint when the identifier <id> is bound to\n\
     \  clear              clears all breakpoints\n\
     \  clear <id>         clears breakpoint on function value bound to <id>\n\
     \  run                runs program until breakpoint or end of evaluation\n\
@@ -104,6 +106,8 @@ functor MkRun
           ref (if running then Running else Stepping)
 
         val breaks : SMLSyntax.symbol option ref list ref = ref []
+
+        val last_command : Directive.t option ref = ref NONE
 
         fun display (ctx, location, focus) =
           print ("==> \n"
@@ -182,10 +186,26 @@ functor MkRun
         and main_loop (info as (ctx, location, focus)) =
           let
             fun recur x = start_loop info
+
+            fun parse_command input =
+              case input of
+                (* An empty input repeats the previous command.
+                 *)
+                "\n" => !last_command
+              | _ =>
+                let
+                  val new_command = DirectiveParser.parse_opt input
+                in
+                  (* Save this as the last command only if it properly parsed.
+                   *)
+                  ( Option.map (fn new => last_command := SOME new) new_command
+                  ; new_command
+                  )
+                end
           in
           ( TextIO.output (TextIO.stdOut, "- ")
           ; TextIO.flushOut TextIO.stdOut
-          ; case DirectiveParser.parse_opt (TextIO.input TextIO.stdIn) of
+          ; case parse_command (TextIO.input TextIO.stdIn) of
               SOME Directive.Step => step info
             | SOME Directive.Stop =>
                 ( print (lightblue "Bye bye!\n")
@@ -222,25 +242,21 @@ functor MkRun
                   )
                   |> recur
                 end
-            | SOME (Directive.Break s) =>
-                ( print ( "Breakpoint set on function value bound to "
-                        ^ orange (Symbol.toValue s)
-                        ^ "\n"
-                        )
+            | SOME (Directive.BreakFn longid) =>
+                ( printf (`"Breakpoint set on function value bound to "fl"\n") longid |> print
                 ; let
-                    val (ctx, broken) = Context.break_fn ctx [s] true
+                    val (ctx, broken) = Context.break_fn ctx longid true
                     val _ = breaks := broken :: !breaks
                   in
                     start_loop info
                   end
                 )
-            | SOME (Directive.BreakBind s) =>
+            | SOME (Directive.BreakBind id) =>
                 let
                   val break_assigns = Context.get_break_assigns ctx
                 in
-                  ( print ("Breakpoint set on bindings to identifier "
-                          ^ orange (Symbol.toValue s) ^ "\n")
-                  ; break_assigns := SymSet.insert (!break_assigns) s
+                  ( printf (`"Breakpoint set on bindings to identifier "fi"\n") id |> print
+                  ; break_assigns := SymSet.insert (!break_assigns) id
                   )
                   |> recur
                 end
@@ -253,14 +269,14 @@ functor MkRun
                 ; print "All breakpoints cleared.\n"
                 )
                 |> recur
-            | SOME (Directive.Clear (SOME sym)) =>
-                ( print ("Breaking function " ^ orange (Symbol.toValue sym) ^ "\n")
-                ; Context.break_fn ctx [sym] false
+            | SOME (Directive.Clear (SOME longid)) =>
+                ( printf (`"Breaking function "fl"\n") longid |> print
+                ; Context.break_fn ctx longid false
                 )
                 |> recur
-            | SOME (Directive.Print sym) =>
-                ( print ("Printing value of identifier " ^ orange (Symbol.toValue sym) ^ "\n")
-                ; Context.get_val ctx [sym]
+            | SOME (Directive.Print longid) =>
+                ( printf (`"Printing value of identifier "fl"\n") longid |> print
+                ; Context.get_val ctx longid
                   |> PrettyPrintAst.print_value ctx
                   |> println
                 )
@@ -298,9 +314,8 @@ functor MkRun
                   )
             | SOME Directive.Help =>
                 recur (print help_message)
-            | SOME (Directive.TypeOf sym) =>
-                (* TODO: support longids *)
-                (case Context.get_ident_ty_opt ctx [sym] of
+            | SOME (Directive.TypeOf longid) =>
+                (case Context.get_ident_ty_opt ctx longid of
                   NONE => recur (print "Cannot find type of unbound identifier.\n")
                 | SOME (_, tyscheme) => recur (println (PrettyPrintAst.print_tyscheme tyscheme))
                 )

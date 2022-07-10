@@ -20,6 +20,7 @@ sig
   val print_exp : Context.t -> SMLSyntax.exp -> string
   val print_tyval : SMLSyntax.tyval -> string
   val print_tyscheme : SMLSyntax.type_scheme -> string
+  val print_longid : SMLSyntax.longid -> string
 
   (* Some format flags for Printf.
    *)
@@ -27,6 +28,7 @@ sig
   val fp : (SMLSyntax.pat -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
   val fe : (SMLSyntax.exp -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
   val fv : (SMLSyntax.value -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
+  val fl : (SMLSyntax.longid -> 'a, 'b, 'state) Printf.t * string -> ('a, 'b, 'state) Printf.t
 end =
 
 struct
@@ -1948,6 +1950,14 @@ struct
       |> Context.norm_tyval Basis.initial
       |> print_tyval
 
+  fun print_longid' longid =
+    case longid of
+      [] => raise Fail "empty longid"
+    | [sing] => text white (Symbol.toValue sing)
+    | hd::tl =>
+        text orange (Symbol.toValue hd) ++ text_syntax "." ++ print_longid' tl
+  fun print_longid longid = PrettySimpleDoc.toString true (print_longid' longid)
+
   fun promote' f =
     fn ctx => fn x => f ctx x
 
@@ -1955,5 +1965,6 @@ struct
   val op fe = fn acc => newFormat (promote' print_exp) acc
   val op fv = fn acc => newFormat (promote' print_value) acc
   val op fp = fn acc => newFormat (promote' print_pat) acc
+  val op fl = fn acc => newFormat (fn _ => fn x => print_longid x) acc
 
 end

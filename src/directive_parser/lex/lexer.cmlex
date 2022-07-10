@@ -16,16 +16,26 @@ set hexadecimal = (range '0 '9 'A 'F 'a 'f)
 set alphanumeric = (or letter digit '_ '')
 
 regexp ident = (seq letter (* alphanumeric))
+regexp bindable = (or ident (+ symbol))
+regexp longident = (seq (+ (seq ident '.)) bindable)
 
+function primary : t =
+  (+ whitespace) => skip
+
+  ident => enter_main
+
+  eos => eof
+  epsilon => error
 
 function main : t =
   (+ whitespace) => skip
 
   (+ digit) => lex_number
 
-  ident => lex_keyword
-
   '= => equal
+
+  longident => lex_longident
+  bindable => lex_bindable
 
   eos => eof
   epsilon => error

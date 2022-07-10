@@ -1,5 +1,5 @@
 
-infix fs fi fli ftv fe fv fp
+infix fs fi fli ftv fe fv fp fl
 
 signature PRINTF =
    sig

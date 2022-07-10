@@ -93,6 +93,10 @@ structure Statics :
         l
       |> (fn l => List.rev (#2 l))
 
+    (* Unification of types requires checking that unification variables do not
+     * occur in the type to be unified with (circularity). This function
+     * facilitates that.
+     *)
     fun occurs_check r tyval =
       case tyval of
         TVtyvar _ => false
@@ -131,6 +135,13 @@ structure Statics :
       | TVarrow (t1, t2) =>
           occurs_check r t1 orelse occurs_check r t2
 
+
+    (* Non-expansive expressions refer to those expressions which are syntactic
+     * values, i.e. do not evaluate significantly when being bound to an
+     * identifier. Only non-expansive expressions may have their types
+     * generalized at a binding site (due to unsafety with polymorphic references,
+     * exceptions, and continuations), so this function just checks for that.
+     *)
     fun nexpansive_left_app ctx exp =
       case exp of
         ( Eparens exp
@@ -204,6 +215,8 @@ structure Statics :
         * (Location.location list -> SMLSyntax.dec -> Context.t -> Context.t)
         -> Context.t
 
+    (* Need to replace tyvars with their substituted counterparts.
+     *)
     fun quantify_tyval tyvar_fn ctx ty =
       let
         val quantify_tyval = fn ctx => fn ty => quantify_tyval tyvar_fn ctx ty
@@ -640,40 +653,6 @@ structure Statics :
         let
           val tyval = Context.norm_tyval ctx tyval
 
-          fun tyvars_remove l tyvar =
-            List.foldr
-              (fn (tyvar', acc) =>
-                if tyvar_eq (tyvar, tyvar') then
-                  acc
-                else
-                  tyvar' :: acc
-              )
-              []
-              l
-
-          fun tyvars_difference l1 l2 =
-            List.foldr
-              (fn (tyvar, acc) =>
-                tyvars_remove acc tyvar
-              )
-              l1
-              l2
-
-          (* This is big quadratic complexity, but we're not using sets because
-           * we want the tyvars to be numbered in a "sensible" ordering. This
-           * means that we want the order.
-           *
-           * There shouldn't be that many tyvars anyways. So it should be fine.
-           *)
-          fun tyvars_dedup l =
-            case l of
-              [] => []
-            | x::xs => x :: tyvars_dedup (tyvars_remove xs x)
-
-          val tyvars = CollectTyvars.collect_tyvars_tyval tyval
-
-          val current_tyvars = Context.get_current_tyvars CollectTyvars.collect_tyvars_tyval ctx
-
           (* We want to talk about all the unification vars that have been introduced in
            * this type, that have no relation to any unification vars that have
            * been seen before.
@@ -684,7 +663,45 @@ structure Statics :
            * So we'll do the search.
            *)
           val quantified_tyvars =
-            tyvars_dedup (tyvars_difference tyvars current_tyvars)
+            let
+              fun tyvars_remove l tyvar =
+                List.foldr
+                  (fn (tyvar', acc) =>
+                    if tyvar_eq (tyvar, tyvar') then
+                      acc
+                    else
+                      tyvar' :: acc
+                  )
+                  []
+                  l
+
+              fun tyvars_difference l1 l2 =
+                List.foldr
+                  (fn (tyvar, acc) =>
+                    tyvars_remove acc tyvar
+                  )
+                  l1
+                  l2
+
+              (* This is big quadratic complexity, but we're not using sets because
+               * we want the tyvars to be numbered in a "sensible" ordering. This
+               * means that we want the order.
+               *
+               * There shouldn't be that many tyvars anyways. So it should be fine.
+               *)
+              fun tyvars_dedup l =
+                case l of
+                  [] => []
+                | x::xs => x :: tyvars_dedup (tyvars_remove xs x)
+
+              (* These are all of the tyvars that are within our current binding
+               * tyval.
+               *)
+              val tyvars = CollectTyvars.collect_tyvars_tyval tyval
+              val current_tyvars = Context.get_current_tyvars CollectTyvars.collect_tyvars_tyval ctx
+            in
+              tyvars_dedup (tyvars_difference tyvars current_tyvars)
+            end
 
           (* This leaves behind any implicit tyvars within the current
            * binding that have nothing to do with the outer context, as
@@ -711,11 +728,7 @@ structure Statics :
               quantify_tyval search_fn ctx tyval
             end
         in
-          ( id
-          , ( num_quantifiers
-            , type_scheme
-            )
-          )
+          (id, (num_quantifiers, type_scheme))
         end
 
     and set_up_valbinds orig_ctx {tyvars, valbinds} =
@@ -839,33 +852,47 @@ structure Statics :
          * We need the function name, pat bindings, and types of the patterns.
          *)
         fun get_fname_args_info fname_args ctx =
-          case fname_args of
-            Fprefix {id, args, ...} =>
-              get_pat_list_ty_bindings ctx args
-              |> (fn (bindings, ty) => (id, bindings, ty))
-          | Finfix {left, id, right} =>
-              let
-                val (left_bindings, left_pat_ty) =
-                  synth_pat ctx left
-                val (right_bindings, right_pat_ty) =
-                  synth_pat ctx right
-              in
-                (id, left_bindings @ right_bindings, [TVprod [left_pat_ty, right_pat_ty]])
-              end
-          | Fcurried_infix {left, right, args, id} =>
-              let
-                val (left_bindings, left_pat_ty) =
-                  synth_pat ctx left
-                val (right_bindings, right_pat_ty) =
-                  synth_pat ctx right
-                val (rest_bindings, rest_pat_tys) =
-                  get_pat_list_ty_bindings ctx args
-              in
-                ( id
-                , left_bindings @ right_bindings @ rest_bindings
-                , TVprod [left_pat_ty, right_pat_ty] :: rest_pat_tys
+          let
+            fun get_pat_list_ty_bindings ctx pats =
+              List.foldr
+                (fn (pat, (bindings, pat_tys)) =>
+                  let
+                    val (bindings', pat_ty) = synth_pat ctx pat
+                  in
+                    (bindings @ bindings', pat_ty :: pat_tys)
+                  end
                 )
-              end
+                ([], [])
+                pats
+          in
+            case fname_args of
+              Fprefix {id, args, ...} =>
+                get_pat_list_ty_bindings ctx args
+                |> (fn (bindings, ty) => (id, bindings, ty))
+            | Finfix {left, id, right} =>
+                let
+                  val (left_bindings, left_pat_ty) =
+                    synth_pat ctx left
+                  val (right_bindings, right_pat_ty) =
+                    synth_pat ctx right
+                in
+                  (id, left_bindings @ right_bindings, [TVprod [left_pat_ty, right_pat_ty]])
+                end
+            | Fcurried_infix {left, right, args, id} =>
+                let
+                  val (left_bindings, left_pat_ty) =
+                    synth_pat ctx left
+                  val (right_bindings, right_pat_ty) =
+                    synth_pat ctx right
+                  val (rest_bindings, rest_pat_tys) =
+                    get_pat_list_ty_bindings ctx args
+                in
+                  ( id
+                  , left_bindings @ right_bindings @ rest_bindings
+                  , TVprod [left_pat_ty, right_pat_ty] :: rest_pat_tys
+                  )
+                end
+          end
 
 
         (* This context has all of the mutually recursive function names
@@ -1007,18 +1034,6 @@ structure Statics :
       in
         Context.add_val_ty_bindings orig_ctx quantified_bindings
       end
-
-    and get_pat_list_ty_bindings ctx pats =
-      List.foldr
-        (fn (pat, (bindings, pat_tys)) =>
-          let
-            val (bindings', pat_ty) = synth_pat ctx pat
-          in
-            (bindings @ bindings', pat_ty :: pat_tys)
-          end
-        )
-        ([], [])
-        pats
 
     and instantiate_tyscheme ctx (arity, ty_fn) =
       Context.norm_tyval ctx (ty_fn (List.tabulate (arity, fn _ => new ())))
@@ -1241,17 +1256,6 @@ structure Statics :
           in
             (bindings, tyval)
           end
-
-    (* When we have an expression and a pattern, we want to be able to know what
-     * new bindings (and of what type) are produced in the new context.
-     *)
-    and synth_match ctx {pat, exp} =
-      let
-        val (bindings, pat_ty) = synth_pat ctx pat
-        val exp_ty = synth ctx exp
-      in
-        (bindings, unify ctx exp_ty pat_ty)
-      end
 
     (* When only checking the statics, there isn't much left to do after calling
      * `synth_dec`.
@@ -1486,9 +1490,6 @@ structure Statics :
 
     exception Mismatch of string
 
-    (* TODO: This only does values. Could it do types too, accounting for the
-     * type of the purported thing passed in?
-     * *)
     fun match_pat ctx pat v tyval =
       ( case (pat, v, Context.norm_tyval ctx tyval) of
           (Pnumber i1, Vnumber (Int i2), _) =>
@@ -1774,8 +1775,6 @@ structure Statics :
     val match_pat = fn ctx => fn pat => fn value => fn tyval =>
       match_pat ctx pat value tyval
 
-    (* This function needs to be able to add ty bindings to the environment too.
-     *)
     fun apply_fn (matches, env, VE) value tyval abstys =
       let
         val (bindings, ctx, exp) =

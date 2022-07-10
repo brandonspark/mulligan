@@ -3,16 +3,16 @@ structure Token =
   struct
     datatype t =
         NUM of int
-      | SYMBOL of Symbol.symbol
+      | IDENT of Symbol.symbol list
       | STEP
       | REVEAL
       | STOP
       | PREV
-      | BREAK
+      | BREAKBIND
+      | BREAKFN
       | RUN
       | CLEAR
       | PRINT
-      | BIND
       | REPORT
       | LAST
       | HELP
@@ -26,18 +26,19 @@ structure Token =
     fun to_string t =
       case t of
         NUM i => "NUM " ^ Int.toString i
-      | SYMBOL sym => Symbol.toValue sym
+      | IDENT syms =>
+          String.concatWith "." (List.map Symbol.toValue syms)
       | STEP => "STEP"
       | REVEAL => "REVEAL"
       | STOP => "STOP"
       | EQUAL => "EQUAL"
       | SET => "SET"
       | PREV => "PREV"
-      | BREAK => "BREAK"
+      | BREAKFN => "BREAKFN"
+      | BREAKBIND => "BREAKBIND"
       | RUN => "RUN"
       | CLEAR => "CLEAR"
       | PRINT => "PRINT"
-      | BIND => "BIND"
       | REPORT => "REPORT"
       | LAST => "LAST"
       | HELP => "HELP"

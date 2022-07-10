@@ -66,6 +66,4 @@ KNOWN ISSUES:
 - Substitution does not work properly for referring to bindings in a module that
   is currently being evaluated
 - equality types
-- accept longids
-
-
+- update prettysimpledoc

@@ -31,7 +31,9 @@ structure Lexer :> LEXER =
         datatype tlex = LEX of char stream -> t
         withtype t = tlex -> int -> DToken.t front
 
-        type self = { main : symbol Streamable.t -> t }
+        type self = { main : symbol Streamable.t -> t
+                    , primary : symbol Streamable.t -> t
+                    }
         type info = { match : symbol list,
                       len : int,
                       start : symbol Streamable.t,
@@ -40,15 +42,17 @@ structure Lexer :> LEXER =
 
         val keywords_list =
           [ ("step", STEP)
+          , ("s", STEP)
           , ("reveal", REVEAL)
           , ("stop", STOP)
           , ("set", SET)
           , ("prev", PREV)
-          , ("break", BREAK)
+          , ("breakbind", BREAKBIND)
+          , ("breakfn", BREAKFN)
           , ("run", RUN)
+          , ("r", RUN)
           , ("clear", CLEAR)
           , ("print", PRINT)
-          , ("bind", BIND)
           , ("report", REPORT)
           , ("last", LAST)
           , ("help", HELP)
@@ -62,12 +66,12 @@ structure Lexer :> LEXER =
           (fn (str, token) => Table.insert keywords (Symbol.fromValue str) token)
           keywords_list
 
-        fun identify table str follow =
+        fun identify table str =
           let
             val sym = Symbol.fromValue str
           in
             (case Table.find table sym of
-              NONE => SYMBOL sym
+              NONE => IDENT [sym]
             | SOME tok => tok
             )
           end
@@ -79,9 +83,33 @@ structure Lexer :> LEXER =
           pos =
           Cons (tok, lazy (fn () => cont follow k (pos + len)))
 
-        val lex_keyword =
+        fun enter_main ({ match, len, follow, self, ...}: info) (k as LEX cont) pos =
+          Cons (identify keywords (implode match), lazy (fn () => #main self follow k (pos + len)))
+
+        val lex_bindable =
           action
-            (fn (match, len, follow, _) => identify keywords (implode match) follow)
+            (fn (match, len, follow, _) => IDENT [Symbol.fromValue (implode match)])
+
+        fun longidentify curr store match =
+          let
+            fun process chars =
+              Symbol.fromValue (String.implode (List.rev chars))
+          in
+            case match of
+              [] =>
+                (case curr of
+                  [] => IDENT (List.rev store)
+                | _ => IDENT (List.rev (process curr :: store))
+                )
+            | #"." :: rest =>
+                longidentify [] (process curr :: store) rest
+            | ch :: rest =>
+                longidentify (ch :: curr) store rest
+          end
+
+        val lex_longident =
+          action
+            (fn (match, len, follow, _) => longidentify [] [] match)
 
         val lex_number =
           action
@@ -129,7 +157,7 @@ structure Lexer :> LEXER =
 
     fun doLex f s = lazy (fn () => f s (Arg.LEX f) 0)
 
-    fun lex s = doLex LexMain.main s
+    fun lex s = doLex LexMain.primary s
 
     fun lex_string s = Stream.toList (lex (Stream.fromList (String.explode s)))
 

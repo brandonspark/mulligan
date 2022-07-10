@@ -2,23 +2,27 @@ sml
 name ParserFun
 
 terminal NUM of int
-terminal SYMBOL of symbol
+terminal IDENT of longid
 terminal STEP
 terminal REVEAL
 terminal STOP
 terminal EQUAL
 terminal SET
 terminal PREV
-terminal BREAK
+terminal BREAKBIND
+terminal BREAKFN
 terminal RUN
 terminal CLEAR
 terminal PRINT
-terminal BIND
 terminal REPORT
 terminal LAST
 terminal HELP
 terminal TYPEOF
 terminal EOF
+
+nonterminal Value : value =
+  1:IDENT => value_ident
+  1:NUM => value_num
 
 nonterminal Directive : directive =
   STEP => step
@@ -27,18 +31,17 @@ nonterminal Directive : directive =
   PREV 1:NUM => num_prev
   REVEAL => bare_reveal
   REVEAL 1:NUM => num_reveal
-  BREAK 1:SYMBOL => break_fn
   CLEAR => bare_clear
-  CLEAR 1:SYMBOL => sym_clear
-  PRINT 1:SYMBOL => sym_print
-  BREAK BIND 1:SYMBOL => break_bind
-  SET 1:SYMBOL EQUAL 2:SYMBOL => change_setting
-  SET 1:SYMBOL EQUAL 2:NUM => change_setting_num
-  REPORT 1:SYMBOL => report
+  CLEAR 1:IDENT => sym_clear
+  PRINT 1:IDENT => sym_print
+  BREAKBIND 1:IDENT => break_bind
+  BREAKFN 1:IDENT => break_fn
+  SET 1:IDENT EQUAL 2:Value => change_setting
+  REPORT 1:IDENT => report
   LAST => bare_last
   LAST 1:NUM => num_last
   HELP => do_help
-  TYPEOF 1:SYMBOL => typeof_id
+  TYPEOF 1:IDENT => typeof_id
   RUN => run
 
 nonterminal Main : directive =

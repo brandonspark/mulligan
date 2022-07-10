@@ -1,6 +1,8 @@
 
 structure Directive =
   struct
+    type longid = Symbol.symbol list
+
     datatype value =
         NUM of int
       | VALUE of Symbol.symbol
@@ -10,16 +12,16 @@ structure Directive =
       | Reveal of int option
       | Stop
       | Prev of int option
-      | Break of Symbol.symbol
+      | BreakFn of longid
       | BreakBind of Symbol.symbol
       | Run
-      | Clear of Symbol.symbol option
-      | Print of Symbol.symbol
+      | Clear of longid option
+      | Print of longid
       | Set of Symbol.symbol * value
       | Report of Symbol.symbol
       | Last of int option
       | Help
-      | TypeOf of Symbol.symbol
+      | TypeOf of longid
 
     datatype ('a, 'b) either = INL of 'a | INR of 'b
   end
