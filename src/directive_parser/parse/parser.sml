@@ -45,6 +45,7 @@ structure DirectiveParser :> PARSER =
         val bare_reveal = null (Reveal NONE)
         val stop = null Stop
         val step = null Step
+        val evaluate = null Evaluate
         val run = null Run
         val prev = null (Prev NONE)
         fun break_fn s = BreakFn s

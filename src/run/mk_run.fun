@@ -110,34 +110,69 @@ functor MkRun
         val last_command : Directive.t option ref = ref NONE
 
         fun display (ctx, location, focus) =
-          print ("==> \n"
-            ^ print_focus ctx location focus NONE
-            ^ "\n"
-            )
+          case !run of
+            Running => ()
+          | Stepping =>
+            print ("==> \n"
+              ^ print_focus ctx location focus NONE
+              ^ "\n"
+              )
 
-        fun step (ctx, location, focus) =
+        fun step (ctx, location, focus) evaluate =
           let
             val _ = store := Frame (ctx, location, focus) :: !store
 
+            fun set () =
+              if evaluate then run := Running else ()
+            fun unset () =
+              if evaluate then run := Stepping else ()
+
             val new_info =
               ( case focus of
-                Debugger.VAL (_, value, cont) =>
-                  Cont.throw cont (suspend value)
+                Debugger.VAL (_, cont) =>
+                  Cont.throw cont ()
               | Debugger.EXP (exp, cont) =>
                 ( case Value.exp_to_value ctx exp of
                     SOME value =>
                       Cont.throw cont (suspend value)
                   | _ =>
-                    (* If we are evaluating some expression, and it raises an
-                     * exception, we need to percolate that up to our caller.
-                     *)
-                    (Debugger.eval location exp ctx cont)
-                    handle
-                      Context.Raise exninfo =>
-                        Cont.throw cont (fn () => raise Context.Raise exninfo)
+                     let
+                       val _ = set ()
+
+                       (* This ensures that once we throw back to this
+                        * continuation, we unset.
+                        *)
+                       val new_cont =
+                         Cont.do_after cont
+                           (fn x =>
+                             ( unset ()
+                             ; if evaluate then
+                                 Cont.callcc (fn cont =>
+                                   raise Debugger.Perform (Debugger.Step
+                                     { context = ctx
+                                     , location = location
+                                     , focus = Debugger.VAL (Value.value_to_exp (x ()), cont)
+                                     , stop = false
+                                     }
+                                 ))
+                               else ()
+                             ; x
+                             )
+                           )
+                     in
+                       Debugger.eval location exp ctx new_cont
+                       (* If we are evaluating some expression, and it raises an
+                        * exception, we need to percolate that up to our caller.
+                        *)
+                       handle
+                         Context.Raise exninfo =>
+                           Cont.throw new_cont (fn () => raise Context.Raise exninfo)
+                     end
                 )
               | Debugger.PROG ast =>
-                  Finished (Debugger.eval_program ast ctx)
+                  ( set ()
+                  ; Finished (Debugger.eval_program ast ctx)
+                  )
               )
               handle exn => step_handler (ctx, location, focus, run, store) exn
 
@@ -176,7 +211,7 @@ functor MkRun
 
         and start_loop info =
           (case !run of
-            Running => step info
+            Running => step info false
           | Stepping => main_loop info
           )
 
@@ -206,7 +241,8 @@ functor MkRun
           ( TextIO.output (TextIO.stdOut, "- ")
           ; TextIO.flushOut TextIO.stdOut
           ; case parse_command (TextIO.input TextIO.stdIn) of
-              SOME Directive.Step => step info
+              SOME Directive.Step => step info false
+            | SOME Directive.Evaluate => step info true
             | SOME Directive.Stop =>
                 ( print (lightblue "Bye bye!\n")
                 ; OS.Process.exit OS.Process.success

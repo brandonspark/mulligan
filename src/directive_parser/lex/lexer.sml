@@ -43,6 +43,8 @@ structure Lexer :> LEXER =
         val keywords_list =
           [ ("step", STEP)
           , ("s", STEP)
+          , ("eval", EVALUATE)
+          , ("evaluate", EVALUATE)
           , ("reveal", REVEAL)
           , ("stop", STOP)
           , ("set", SET)

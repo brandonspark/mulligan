@@ -4,6 +4,7 @@ name ParserFun
 terminal NUM of int
 terminal IDENT of longid
 terminal STEP
+terminal EVALUATE
 terminal REVEAL
 terminal STOP
 terminal EQUAL
@@ -26,6 +27,7 @@ nonterminal Value : value =
 
 nonterminal Directive : directive =
   STEP => step
+  EVALUATE => evaluate
   STOP => stop
   PREV => prev
   PREV 1:NUM => num_prev

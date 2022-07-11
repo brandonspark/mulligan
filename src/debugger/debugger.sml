@@ -12,8 +12,15 @@ structure Debugger :
       -> susp_value Cont.t
       -> 'a
 
+    val redex_value :
+         Location.location list
+      -> SMLSyntax.value
+      -> Context.t
+      -> susp_value Cont.t
+      -> 'a
+
     datatype focus =
-       VAL of SMLSyntax.exp * Context.value * susp_value Cont.t
+       VAL of SMLSyntax.exp * unit Cont.t
      | EXP of SMLSyntax.exp * susp_value Cont.t
      | PROG of SMLSyntax.ast
 
@@ -43,7 +50,7 @@ structure Debugger :
 
     fun is_true exp =
       case exp of
-        Vconstr{id = [x], arg = NONE} => Symbol.eq (x, sym_true)
+        Vconstr {id = [x], arg = NONE} => Symbol.eq (x, sym_true)
       | _ => false
 
     fun is_false exp =
@@ -55,11 +62,6 @@ structure Debugger :
       Symbol.eq (sym, sym_false) orelse
       Symbol.eq (sym, sym_true)
 
-    fun lightblue s = TerminalColors.text TerminalColors.lightblue s
-
-    infix |>
-    fun x |> f = f x
-
     type susp_value = unit -> Context.value
 
     (* A focus represents what the debugger is currently looking at.
@@ -68,7 +70,7 @@ structure Debugger :
      * be used to jump back into the evaluation of the program.
      *)
     datatype focus =
-       VAL of SMLSyntax.exp * Context.value * susp_value Cont.t
+       VAL of SMLSyntax.exp * unit Cont.t
      | EXP of SMLSyntax.exp * susp_value Cont.t
      | PROG of SMLSyntax.ast
 
@@ -100,21 +102,20 @@ structure Debugger :
       let
         val break_assigns = !(Context.get_break_assigns ctx)
       in
-        List.foldl
-          (fn ((id, value, _), acc) =>
-            if SymSet.member break_assigns id then
-              true
-            else
-              acc
-          )
-          false
-          bindings
-        |> (fn b =>
-            if b then
-              Cont.callcc (fn cont => raise Perform (Break (false, cont)))
-            else
-              ()
-           )
+        if
+          List.foldl
+            (fn ((id, value, _), acc) =>
+              if SymSet.member break_assigns id then
+                true
+              else
+                acc
+            )
+            false
+            bindings
+        then
+          Cont.callcc (fn cont => raise Perform (Break (false, cont)))
+        else
+          ()
       end
 
     (* checkpoint will signal to the handler that we have focused on the
@@ -326,20 +327,18 @@ structure Debugger :
                      (fn {lab, ...} => Symbol.eq (lab, sym))
                      fields
                    |> (fn NONE =>
-                        eval_err ( "Selecting nonexistent field "
-                                 ^ lightblue (Symbol.toValue sym)
-                                 ^ " from record "
-                                 ^ PrettyPrintAst.print_value ctx right)
+                        cprintf ctx (`"Selecting nonexistent field "fi" from record "fv"")
+                          sym right
+                        |> eval_err
                       | SOME ans => ans
                       )
                    |> #value
                    |> (fn value => redex_value location value ctx cont)
               | (Vbasis {function = f, ...}, v) => redex_value location (f v) ctx cont
               | _ =>
-                  eval_err
-                    ("Impossible app redex for " ^ PrettyPrintAst.print_value
-                    ctx left ^ " and " ^ PrettyPrintAst.print_value ctx right
-                    )
+                  cprintf ctx (`"Impossible app redex for "fv" and "fv"")
+                    left right
+                  |> eval_err
             end
         | Einfix {left = left_exp, id, right = right_exp} =>
             let
@@ -409,9 +408,9 @@ structure Debugger :
                       )
                   end
               | _ =>
-                  eval_err
-                    ( "Infix identifier bound to invalid value "
-                    ^ PrettyPrintAst.print_value ctx value)
+                  cprintf ctx (`"Infix identifier bound to invalid value "fv"")
+                    value
+                  |> eval_err
             end
         | Etyped {exp, ...} => eval location exp ctx cont
         | Eandalso {left, right} =>
@@ -443,15 +442,13 @@ structure Debugger :
                         ctx
                         cont
                   else
-                    eval_err
-                      ("Andalso given invalid inputs of " ^
-                      PrettyPrintAst.print_value ctx left ^ " and " ^
-                      PrettyPrintAst.print_value ctx right)
+                    Printf.cprintf ctx (`"Andalso given invalid inputs of "fv" and "fv"")
+                      left right
+                    |> eval_err
               | _ =>
-                eval_err
-                  ("Andalso given invalid inputs of " ^
-                  PrettyPrintAst.print_value ctx left ^ " and " ^
-                  PrettyPrintAst.print_value ctx right)
+                Printf.cprintf ctx (`"Andalso given invalid inputs of "fv" and "fv"")
+                  left right
+                |> eval_err
             end
         | Eorelse {left, right} =>
             let
@@ -482,15 +479,13 @@ structure Debugger :
                         ctx
                         cont
                   else
-                    eval_err
-                      ("Orelse given invalid inputs of " ^
-                      PrettyPrintAst.print_value ctx left ^ " and " ^
-                      PrettyPrintAst.print_value ctx right)
+                    Printf.cprintf ctx (`"Orelse given invalid inputs of "fv" and "fv"")
+                      left right
+                    |> eval_err
               | _ =>
-                eval_err
-                  ("Orelse given invalid inputs of " ^
-                  PrettyPrintAst.print_value ctx left ^ " and " ^
-                  PrettyPrintAst.print_value ctx right)
+                Printf.cprintf ctx (`"Orelse given invalid inputs of "fv" and "fv"")
+                  left right
+                |> eval_err
             end
         | Ehandle {exp = exp', matches} =>
             ( ( throw
@@ -515,14 +510,12 @@ structure Debugger :
                 )
             )
         | Eraise exp =>
-            (* TODO: check if exn *)
             (case eval' (Eraise Ehole) exp ctx of
               Vexn {exnid, arg, name} =>
                 raise Context.Raise (name, exnid, arg)
             | value =>
-                eval_err
-                  ("Raise given non-constructor " ^
-                  PrettyPrintAst.print_value ctx value)
+                Printf.cprintf ctx (`"Raise given non-exn "fv"") value
+                |> eval_err
             )
         | Eif {exp1, exp2, exp3} =>
             (case
@@ -537,13 +530,11 @@ structure Debugger :
                 else if Symbol.eq (x, sym_false) then
                   redex location exp3 ctx cont
                 else
-                  eval_err
-                    ("If condition given non-boolean value " ^
-                    PrettyPrintAst.print_value ctx value)
+                  Printf.cprintf ctx (`"If condition given non-bool value "fv"") value
+                  |> eval_err
             | value =>
-              eval_err
-                ("If condition given non-boolean value " ^
-                PrettyPrintAst.print_value ctx value)
+                Printf.cprintf ctx (`"If condition given non-bool value "fv"") value
+                |> eval_err
             )
         | Ewhile {exp1, exp2} =>
             let
@@ -560,13 +551,11 @@ structure Debugger :
                       else if Symbol.eq (x, sym_false) then
                         false
                       else
-                        eval_err
-                          ("While condition given non-boolean value " ^
-                          PrettyPrintAst.print_value ctx value)
+                        Printf.cprintf ctx (`"While condition given non-bool value "fv"") value
+                        |> eval_err
                   | _ =>
-                    eval_err
-                      ("While condition given non-boolean value " ^
-                      PrettyPrintAst.print_value ctx value)
+                    Printf.cprintf ctx (`"While condition given non-bool value "fv"") value
+                    |> eval_err
                   )
                 do
                   redex location exp2 ctx cont
@@ -677,7 +666,7 @@ structure Debugger :
                 Perform
                   ( Step { context = ctx (* Our context is the outer context *)
                          , location = new_location
-                         , focus = VAL (exp, value, cont)
+                         , focus = VAL (exp, cont)
                           (* Use the exp with a hole  to compute the new total expression *)
                          , stop = false
                          }

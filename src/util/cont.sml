@@ -7,10 +7,12 @@ structure Cont :>
 
     val throw : 'a t -> 'a -> 'b
 
+    val do_after : 'a t -> ('a -> 'a) -> 'a t
+
     val get_id : 'a t -> int
   end =
   struct
-    type 'a t = int * 'a MLton.Cont.t
+    type 'a t = int * ('a -> 'a) * 'a MLton.Cont.t
 
     val counter = ref 0
     fun new () =
@@ -23,12 +25,14 @@ structure Cont :>
         val num = new ()
       in
         MLton.Cont.callcc (fn cont =>
-          f (num, cont)
+          f (num, fn x => x, cont)
         )
       end
 
-    fun throw (i, cont) v =
-      MLton.Cont.throw (cont, v)
+    fun do_after (i, _, cont) f = (i, f, cont)
 
-    fun get_id (i, _) = i
+    fun throw (i, f, cont) v =
+      MLton.Cont.throw (cont, f v)
+
+    fun get_id (i, _, _) = i
   end

@@ -5,6 +5,7 @@ structure Token =
         NUM of int
       | IDENT of Symbol.symbol list
       | STEP
+      | EVALUATE
       | REVEAL
       | STOP
       | PREV
@@ -29,6 +30,7 @@ structure Token =
       | IDENT syms =>
           String.concatWith "." (List.map Symbol.toValue syms)
       | STEP => "STEP"
+      | EVALUATE => "EVALUATE"
       | REVEAL => "REVEAL"
       | STOP => "STOP"
       | EQUAL => "EQUAL"

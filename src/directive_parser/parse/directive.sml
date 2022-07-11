@@ -9,6 +9,7 @@ structure Directive =
 
     datatype t =
         Step
+      | Evaluate
       | Reveal of int option
       | Stop
       | Prev of int option

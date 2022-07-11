@@ -22,7 +22,7 @@ structure Common =
 
     fun print_focus ctx location focus numopt =
       case focus of
-        (Debugger.VAL (exp, _, _) | Debugger.EXP (exp, _)) =>
+        (Debugger.VAL (exp, _) | Debugger.EXP (exp, _)) =>
           PrettyPrintAst.report
             ctx
             exp
