@@ -42,6 +42,7 @@ functor MkRun
     "Debugger commands:\n" ^
     "  step               steps evaluation forward by one\n\
     \  step <i>           steps evaluation forward by <i>\n\
+    \  evaluate           evaluates the currently focused subexpression to a value\n\
     \  prev               steps evaluation backward by one\n\
     \  prev <i>           steps evaluation backward by <i>\n\
     \  stop               exits program\n\

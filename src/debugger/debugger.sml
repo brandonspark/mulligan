@@ -493,7 +493,6 @@ structure Debugger :
               )
               handle Context.Raise (name, exnid, valopt) =>
                 ( let
-                    val _ = print "handling raise\n"
                     val (bindings, new_ctx, exp) =
                       Statics.match_against
                         ctx
