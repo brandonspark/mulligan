@@ -6,6 +6,10 @@ the semantics of SML at a fine granularity for inspection purposes.
 Has rudimentary support for SML/NJ CM files, allowing analysis of entire SML/NJ
 projects.
 
+<p align="center">
+<img src="https://user-images.githubusercontent.com/49291449/214633031-1f33f23d-af7f-4116-ba9d-fb8cb8f2a9e4.svg" width="700">
+</p>
+
 ## Usage
 
 To use `mulligan`, you must first build it by running `make`. Then, you can pass
