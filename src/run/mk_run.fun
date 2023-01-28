@@ -189,7 +189,7 @@ functor MkRun
                 )
           end
 
-        and execute_prev (info as (ctx, location, focus)) num_opt =
+        and execute_prev info num_opt =
           let
             fun print_report (info as (ctx, location, focus)) =
               ( display (ctx, location, focus)
@@ -221,7 +221,7 @@ functor MkRun
          *)
         and main_loop (info as (ctx, location, focus)) =
           let
-            fun recur x = start_loop info
+            fun recur _ = start_loop info
 
             fun parse_command input =
               case input of
@@ -269,8 +269,8 @@ functor MkRun
                       ([], _) => (info, [])
                     | ([(Frame x | Starred x)], _) => (x, [])
                     | (Starred x :: rest, 1) => (x, rest)
-                    | (Frame x :: rest, _) => last rest i
-                    | (Starred x :: rest, _) => last rest (i - 1)
+                    | (Frame _ :: rest, _) => last rest i
+                    | (Starred _ :: rest, _) => last rest (i - 1)
 
                   val (info, rest) = last (!store) (Option.getOpt (num_opt, 1))
                 in
@@ -282,7 +282,7 @@ functor MkRun
             | SOME (Directive.BreakFn longid) =>
                 ( printf (`"Breakpoint set on function value bound to "fl"\n") longid |> print
                 ; let
-                    val (ctx, broken) = Context.break_fn ctx longid true
+                    val (_, broken) = Context.break_fn ctx longid true
                     val _ = breaks := broken :: !breaks
                   in
                     start_loop info

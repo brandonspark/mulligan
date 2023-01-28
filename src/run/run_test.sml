@@ -7,10 +7,11 @@ local
    *
    * I never knew my real handler.
    *)
-  fun step_handler (ctx, location, focus, run, store) exn =
+   (* TODO: make step env a record? *)
+  fun step_handler (ctx, _, _, _, store) exn =
     case exn of
       Debugger.Perform
-        ( Debugger.Step { context = ctx, location, focus, stop } ) =>
+        ( Debugger.Step { context = ctx, location, focus, stop = _} ) =>
           Step (ctx, location, focus)
     | Debugger.Perform (Debugger.Break (_, cont)) =>
         ( case !store of
