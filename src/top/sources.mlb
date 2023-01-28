@@ -10,18 +10,4 @@ $(SML_LIB)/basis/basis.mlb
 ../cm_parser/sources.mlb
 ../run/sources.mlb
 
-local
-  ../../parse-sml/src/base/sources.mlb
-  ../../parse-sml/src/parse/sources.mlb
-  ../../parse-sml/src/syntax-highlighting/sources.mlb
-in
-  structure ParseSMLError = Error
-  structure Parser
-  structure FilePath
-  structure Source
-  structure TCS = TerminalColorString
-  structure SyntaxHighlighter
-  structure CommandLineArgs
-end
-
 top.sml

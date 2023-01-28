@@ -5,7 +5,6 @@ local
   ../../parse-sml/src/parse/sources.mlb
 in
   structure Ast
-  structure ParseSMLError = Error
   structure Seq
   structure Token
   structure MaybeLongToken
