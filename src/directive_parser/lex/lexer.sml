@@ -78,19 +78,19 @@ structure Lexer :> LEXER =
             )
           end
 
-        fun action f ({ match, len, follow, self, ...}: info) (k as LEX cont) pos =
+        fun action f ({ match, len, follow, ...}: info) (k as LEX cont) pos =
           Cons (f (match, len, follow, pos), lazy (fn () => cont follow k (pos + len)))
 
-        fun simple tok ({ match, len, follow, self, ...}: info) (k as LEX cont)
+        fun simple tok ({ follow, len, ...}: info) (k as LEX cont)
           pos =
           Cons (tok, lazy (fn () => cont follow k (pos + len)))
 
-        fun enter_main ({ match, len, follow, self, ...}: info) (k as LEX cont) pos =
+        fun enter_main ({ match, len, follow, self, ...}: info) (k as LEX _) pos =
           Cons (identify keywords (implode match), lazy (fn () => #main self follow k (pos + len)))
 
         val lex_bindable =
           action
-            (fn (match, len, follow, _) => IDENT [Symbol.fromValue (implode match)])
+            (fn (match, _, _, _) => IDENT [Symbol.fromValue (implode match)])
 
         fun longidentify curr store match =
           let
@@ -111,11 +111,11 @@ structure Lexer :> LEXER =
 
         val lex_longident =
           action
-            (fn (match, len, follow, _) => longidentify [] [] match)
+            (fn (match, _, _, _) => longidentify [] [] match)
 
         val lex_number =
           action
-            (fn (match, len, follow, pos) =>
+            (fn (match, _, follow, pos) =>
               (case Int.fromString (implode match) of
                 SOME n => NUM n
               | NONE =>
@@ -131,7 +131,7 @@ structure Lexer :> LEXER =
 
         val equal = simple EQUAL
 
-        fun skip ({ len, follow, self, ...} : info) (k as LEX cont) pos =
+        fun skip ({ len, follow, self, ...} : info) (k as LEX _) pos =
           #main self follow k (pos + len)
 
         fun eof _ _ _ =
