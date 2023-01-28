@@ -70,6 +70,7 @@ structure Top =
                   "Parse failure\n"
                   ^ lightblue filename ^ ": Cannot parse evaluated file\n"
                   ^ "Remaining tokens: " ^ lightblue (String.concatWith " " (List.take (rest, 20))) ^ "\n"
+              (* TODO: why do I not use the reason here? *)
               | LexError {reason, pos, rest} =>
                   "Lex failure\n"
                   ^ lightblue path ^ ": Cannot lex evaluated file\n"

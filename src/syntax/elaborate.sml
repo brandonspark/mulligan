@@ -125,15 +125,13 @@ structure Elaborate :
           | Token.LongIdentifier
           ) => raise Fail "not a constant"
 
-    fun elab_ast (ast, ctx) =
-      case ast of
-        Ast decs =>
-          elab_seq_ctx
-            (fn ({topdec, ...}, ctx) =>
-              elab_topdec (topdec, ctx)
-            )
-            decs
-            ctx
+    fun elab_ast (Ast decs, ctx) =
+      elab_seq_ctx
+        (fn ({topdec, ...}, ctx) =>
+          elab_topdec (topdec, ctx)
+        )
+        decs
+        ctx
 
     and elab_topdec (topdec, ctx) =
       case topdec of
@@ -141,17 +139,15 @@ structure Elaborate :
       | StrDec strdec => elab_strdec (strdec, ctx) <<| Strdec
       | FunDec fundec => (elab_fundec (fundec, ctx) |> Fundec, ctx)
 
-    and elab_sigdec (sigdec, ctx) =
-      case sigdec of
-        Sig.Signature {elems, ...} =>
-          elab_seq_ctx
-            (fn ({ident, sigexp, ...}, ctx) =>
-              elab_sigexp (sigexp, ctx)
-              <<| (fn signat => {id=tok_to_sym ident, signat=signat})
-            )
-            elems
-            ctx
-          |> (fn (sigbinds, ctx) => (sigbinds, ctx))
+    and elab_sigdec (Sig.Signature {elems, ...}, ctx) =
+      elab_seq_ctx
+        (fn ({ident, sigexp, ...}, ctx) =>
+          elab_sigexp (sigexp, ctx)
+          <<| (fn signat => {id=tok_to_sym ident, signat=signat})
+        )
+        elems
+        ctx
+      |> (fn (sigbinds, ctx) => (sigbinds, ctx))
 
     and elab_sigexp (sigexp, ctx) =
       case sigexp of
@@ -225,7 +221,7 @@ structure Elaborate :
                       { id = tok_to_sym vid, ty =
                         case arg of
                           NONE => NONE
-                        | SOME {ty, off} => SOME (elab_ty ty)
+                        | SOME {off = _, ty} => SOME (elab_ty ty)
                       }
                     )
                     elems
@@ -243,7 +239,7 @@ structure Elaborate :
           elab_seq
             (fn {vid, arg} =>
               { id = tok_to_sym vid
-              , ty = Option.map (fn {off, ty} => elab_ty ty) arg
+              , ty = Option.map (fn {off = _, ty} => elab_ty ty) arg
               }
             )
             elems
@@ -388,29 +384,27 @@ structure Elaborate :
           elab_spec (spec, ctx)
           <<| Sugar
 
-    and elab_fundec (fundec, ctx) =
-      case fundec of
-        Fun.DecFunctor {elems, ...} =>
-          elab_seq
-            (fn {funid, funarg, constraint, strexp, ...} =>
-              let
-                val (funarg, ctx) = elab_funarg (funarg, ctx)
-                val (constraint, ctx) =
-                  case constraint of
-                    NONE => (NONE, ctx)
-                  | SOME {colon, sigexp} =>
-                      elab_sigexp (sigexp, ctx)
-                      <<| (fn signat => SOME { signat = signat, opacity = elab_colon colon})
-                val (strexp, ctx) = elab_strexp (strexp, ctx)
-              in
-                { id = tok_to_sym funid
-                , funarg = funarg
-                , seal = constraint
-                , body = strexp
-                }
-              end
-            )
-            elems
+    and elab_fundec (Fun.DecFunctor {elems, ...}, ctx) =
+      elab_seq
+        (fn {funid, funarg, constraint, strexp, ...} =>
+          let
+            val (funarg, ctx) = elab_funarg (funarg, ctx)
+            val (constraint, ctx) =
+              case constraint of
+                NONE => (NONE, ctx)
+              | SOME {colon, sigexp} =>
+                  elab_sigexp (sigexp, ctx)
+                  <<| (fn signat => SOME { signat = signat, opacity = elab_colon colon})
+            val (strexp, _) = elab_strexp (strexp, ctx)
+          in
+            { id = tok_to_sym funid
+            , funarg = funarg
+            , seal = constraint
+            , body = strexp
+            }
+          end
+        )
+        elems
 
     and elab_datbind {elems, ...} =
       elab_seq
@@ -685,7 +679,7 @@ structure Elaborate :
                            }
       end
 
-    and elab_fvalbind ({elems, delims}, ctx) =
+    and elab_fvalbind ({elems, ...}, ctx) =
       elab_seq
         (fn {elems, ...} =>
           elab_seq
@@ -699,7 +693,7 @@ structure Elaborate :
         )
         elems
 
-    and elab_typbind {elems, delims} =
+    and elab_typbind {elems, ...} =
       elab_seq
         (fn {tyvars, tycon, ty, ...} =>
           { tyvars = elab_tyvars tyvars

@@ -21,13 +21,13 @@ local
         )
     | Signal (SigError err) =>
         ( case err of
-          EvalError reason =>
+          EvalError _ =>
             raise exn
-        | UserError reason =>
+        | UserError _ =>
             raise Fail "probably should not happen"
-        | InvalidProgramError reason =>
+        | InvalidProgramError _ =>
             raise exn
-        | TypeError {reason} =>
+        | TypeError _ =>
             raise exn
         | LexError _ =>
             raise exn
