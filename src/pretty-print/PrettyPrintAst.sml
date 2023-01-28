@@ -196,12 +196,11 @@ struct
    * (spaced) string, and then all after are prepended with a different string.
    * That's what this does. *)
   fun show_list_prepend color smush first after f delim l =
-    combine_list true smush (
+    combine_list true smush
       (ListUtils.map_cons
         (curry (op +-+) (text color first))
         (curry (op +-+) (text color after))
         (apply_list_base f delim false l))
-    )
 
   fun show_symbol color = text color o Symbol.toValue
   fun show_symbol_node color = text color o Symbol.toValue
@@ -584,7 +583,6 @@ struct
     fun show_exp ctx exp = show_exp_ ctx exp
     and show_exp_ ctx exp_ =
       let
-        val show_exp' = show_exp_
         val show_exp = show_exp_ ctx
         val show_atexp = show_atexp ctx
         val color = white
@@ -722,7 +720,7 @@ struct
       | Ecase {exp, matches} =>
           (case matches of
             [] => raise Fail "empty matches in Ecase"
-          | hd::tl =>
+          | _ =>
               group (
                   group(
                     text_syntax "case"
@@ -763,10 +761,10 @@ struct
       | Efn (matches, ctx_opt) =>
           let
             val ctx = Option.getOpt (ctx_opt, ctx)
-            val {pat, exp} = List.nth (matches, 0)
+            val first_match = List.nth (matches, 0)
 
             val inner =
-              show_match ctx (SOME "fn") (List.nth (matches, 0))
+              show_match ctx (SOME "fn") first_match
           in
             group (
               List.foldl
@@ -784,13 +782,9 @@ struct
     and show_atexp ctx exp =
       let
         val show_exp = show_exp_ ctx
-        val show_atexp = show_atexp ctx
         val color = white
-        val show_id = show_id color
         val show_constr = show_longid heavyblue
         val show_longid = show_longid color
-        val gold = text yellow
-        val text = text color
       in
       case exp of
         ( Enumber _
@@ -847,7 +841,6 @@ struct
         val color = white
         val show_id = show_id color
         val show_constr = show_longid heavyblue
-        val show_longid = show_longid color
         val text = text color
         val show_atvalue = show_atvalue ctx
       in
@@ -891,7 +884,7 @@ struct
           in
             case matches of
               [] => raise Fail "empty matches in fn"
-            | hd::tl =>
+            | _::tl =>
                 group (
                   if List.length matches = 1 then
                     inner
@@ -968,9 +961,6 @@ struct
     and show_dec ctx dec = #1 (show_dec' ctx dec)
     and show_dec' ctx dec_ =
       let
-        val rec_color = yellow
-        val text_rec = text rec_color
-
         val color = purple
         val show_exn = show_id pink
         val show_long_exn = show_longid pink
@@ -1024,6 +1014,7 @@ struct
               )
       in
       case dec_ of
+        (* TODO: we should probably still have the `rec` around here... *)
         Dval {tyvars, valbinds} =>
           (case valbinds of
             [] => raise Fail "empty valbinds"
@@ -1061,6 +1052,7 @@ struct
               end
           )
       | Dfun {tyvars, fvalbinds} =>
+          (* TODO: pretty print tyvars *)
           let
             fun get_fname_args_id fname_args =
               case fname_args of
@@ -1111,7 +1103,7 @@ struct
               show_list_mk mk_fun fvalbinds
 
           in
-            (group (fun_docs), func_names)
+            (group fun_docs, func_names)
           end
       | Dtype typbinds =>
           show_list_prepend color false "type" "and" show_typbind "" typbinds
@@ -1252,7 +1244,6 @@ struct
       let
         val color = orange
         val show_id = show_id color
-        val show_longid = show_longid color
       in
       case strdec_ of
         DMdec dec =>
@@ -1410,10 +1401,6 @@ struct
         val text = text color
         val show_id = show_id white
         val show_longid = show_longid white
-        fun show_condesc {id, ty} =
-          separateWithSpaces
-            [ SOME (show_id id)
-            , Option.map (fn ty => text_syntax "of" +-+ show_ty ty) ty ]
         fun show_typdesc {tyvars, tycon, ty} =
           separateWithSpaces
             [ show_tyvars_option tyvars
@@ -1432,7 +1419,7 @@ struct
                   , SOME (show_id tycon)
                   , SOME (text_syntax "=") ]
                 $$
-                (spaces 2 ++ (show_conbind (hd)))
+                (spaces 2 ++ (show_conbind hd))
                 $$
                 show_list_prepend color false "|" "|" show_conbind "" tl
               )
@@ -1478,33 +1465,20 @@ struct
             show_list_mk mk_typdesc typdescs
           end
       | SPdatdec datdescs =>
-          let
-            fun mk {tyvars, tycon, condescs} =
-              group (
-                separateWithSpaces
-                  [ SOME (text "datatype")
-                  , show_tyvars_option tyvars
-                  , SOME (show_id tycon)
-                  , SOME (text_syntax "=") ]
-                $$
-                show_list show_condesc "| " condescs
-              )
-          in
-            (* Conbinds look like condescs, but with an extra "opp".
-             * Elaborate the condescs to degenerate conbinds to make things
-             * easier.
-             *)
-            show_list_mk (show_datbind "datatype")
-              (List.map
-                (fn {tyvars, tycon, condescs} =>
-                  { tyvars = tyvars
-                  , tycon = tycon
-                  , conbinds =
-                      List.map (fn {id, ty} => {opp=false, id=id, ty=ty}) condescs
-                  }
-                ) datdescs
-              )
-          end
+        (* Conbinds look like condescs, but with an extra "opp".
+          * Elaborate the condescs to degenerate conbinds to make things
+          * easier.
+          *)
+        show_list_mk (show_datbind "datatype")
+          (List.map
+            (fn {tyvars, tycon, condescs} =>
+              { tyvars = tyvars
+              , tycon = tycon
+              , conbinds =
+                  List.map (fn {id, ty} => {opp=false, id=id, ty=ty}) condescs
+              }
+            ) datdescs
+          )
       | SPdatrepl {left_tycon, right_tycon} =>
           separateWithSpaces
             [ SOME (text "datatype")
@@ -1555,7 +1529,6 @@ struct
         val color = orange
         val text = text color
         val show_id = show_id color
-        val show_longid = show_longid color
         fun mk mark {id, signat} =
           group (
             separateWithSpaces
@@ -1576,7 +1549,6 @@ struct
     let
       val color = orange
       val show_id = show_id color
-      val show_longid = show_longid color
       val text = text white
 
       fun mk mark {id, funarg, seal, body} =
@@ -1724,7 +1696,7 @@ struct
                   rest
             end
          | (0, _) => doc
-         | (n, []) => doc
+         | (_, []) => doc
          | (n, ELET exps :: rest) =>
             let
               val exp = Elet {dec = Dhole, exps = exps}
@@ -1854,7 +1826,7 @@ struct
               (n - 1)
               []
           end
-        | (n, PROG topdecs :: _) => raise Fail "PROG not outermost"
+        | (_, PROG _ :: _) => raise Fail "PROG not outermost"
       end
 
     val report = fn ctx => fn exp => fn n => fn location =>
