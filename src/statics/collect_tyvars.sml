@@ -27,12 +27,12 @@ structure CollectTyvars =
       | TVarrow (tyval1, tyval2) =>
           collect_tyvars_tyval tyval1 @ collect_tyvars_tyval tyval2
       | TVrecord fields =>
-          (List.concat o List.map (fn {lab, tyval} => collect_tyvars_tyval tyval)) fields
+          (List.concat o List.map (fn {lab = _, tyval} => collect_tyvars_tyval tyval)) fields
       | TVvar (i, r as ref NONE) => [Unconstrained (i, r)]
-      | TVvar (_, r as ref (SOME (Ty tyval))) =>
+      | TVvar (_, ref (SOME (Ty tyval))) =>
           collect_tyvars_tyval tyval
-      | TVvar (_, r as ref (SOME (Rows fields))) =>
-          (List.concat o List.map (fn {lab, tyval} => collect_tyvars_tyval tyval)) fields
+      | TVvar (_, ref (SOME (Rows fields))) =>
+          (List.concat o List.map (fn {lab = _, tyval} => collect_tyvars_tyval tyval)) fields
 
     fun collect_tyvars_patrow patrow =
       case patrow of
@@ -88,7 +88,7 @@ structure CollectTyvars =
         | Eselect _ ) => SymSet.empty
       | Erecord fields =>
           List.map
-            (fn {lab, exp} => collect_tyvars exp)
+            (fn {lab = _, exp} => collect_tyvars exp)
             fields
           |> union_sets
       | Etuple exps =>
@@ -173,7 +173,7 @@ structure CollectTyvars =
 
     and collect_tyvars_fname_args fname_args =
       case fname_args of
-        Fprefix {id, args, ...} =>
+        Fprefix {args, ...} =>
           union_sets (List.map collect_tyvars_pat args)
       | Finfix {left, right, ...} =>
           SymSet.union
