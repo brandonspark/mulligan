@@ -13,7 +13,6 @@ end
 $(SML_LIB)/basis/basis.mlb
 
 ../util/sources.mlb
-../../cmlib/cmlib.mlb
 
 sml-syntax.sml
 elaborate.sml

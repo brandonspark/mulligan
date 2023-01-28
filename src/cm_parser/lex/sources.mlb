@@ -1,5 +1,4 @@
 local
-  ../../../cmlib/cmlib.mlb
   ../../util/sources.mlb
 
   ../syntax/sources.mlb

@@ -1,7 +1,6 @@
 $(SML_LIB)/basis/basis.mlb
 
 ../util/sources.mlb
-../../cmlib/cmlib.mlb
 ../directive_parser/sources.mlb
 ../syntax/sources.mlb
 ../context/sources.mlb
