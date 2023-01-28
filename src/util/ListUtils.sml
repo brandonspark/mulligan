@@ -19,7 +19,7 @@ structure ListUtils : LISTUTILS =
 
     fun map_last f l = f (last l)
 
-    fun map_cons f g [] = []
+    fun map_cons _ _ [] = []
       | map_cons f g (x::xs) = f x :: List.map g xs
 
     fun cons_rev L x = x::L

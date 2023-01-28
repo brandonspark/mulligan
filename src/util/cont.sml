@@ -29,10 +29,10 @@ structure Cont :>
         )
       end
 
-    fun do_after (i, _, cont) f = (i, f, cont)
+    fun do_after ((i, _, cont) : 'a t) f = (i, f, cont)
 
-    fun throw (i, f, cont) v =
+    fun throw ((_, f, cont) : 'a t) v =
       MLton.Cont.throw (cont, f v)
 
-    fun get_id (i, _, _) = i
+    fun get_id ((i, _, _) : 'a t) = i
   end

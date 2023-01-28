@@ -36,7 +36,8 @@ structure Printf: PRINTF =
          )
 
      fun promote f =
-       fn ctx => fn x => f x
+       (* unused context parameter *)
+       fn _ => fn x => f x
 
      structure TC = TerminalColors
 

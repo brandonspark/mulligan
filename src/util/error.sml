@@ -168,7 +168,7 @@ structure Error :> ERROR =
 
     fun show_error error =
       case error of
-        ParseError (s, strs) => s
+        ParseError (s, _) => s
       | LexError {reason, pos, ...} => lightblue (Int.toString pos) ^ ": " ^ reason
       | TypeError {reason, ...} => reason
       | EvalError s => s
