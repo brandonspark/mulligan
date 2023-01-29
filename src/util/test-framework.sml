@@ -67,7 +67,7 @@ structure TestFramework :
       else
         raise TestFail s
 
-    fun set_test_name ctx new =
+    fun set_test_name (ctx : context) new =
       { path = #path ctx
       , test_name = new
       }
@@ -78,7 +78,6 @@ structure TestFramework :
       let
         fun handle_test ctx (test_name, test_fn) =
           let
-            val name = lightblue (#path ctx ^ test_name)
             val ctx = set_test_name ctx test_name
           in
             ( test_fn ctx
@@ -101,7 +100,7 @@ structure TestFramework :
                     (fn (test, (acc, num)) =>
                       let
                         val ctx =
-                            { path = #path ctx ^ Int.toString num ^ ":"
+                            { path = #path ctx ^ Int.toString num ^ ":" ^ name ^ "/"
                             , test_name = "ERR"
                             }
                       in
