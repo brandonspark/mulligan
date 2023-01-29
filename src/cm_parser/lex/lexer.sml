@@ -59,7 +59,7 @@ structure CM_Lexer :> LEXER =
             (fn (str, token) => Table.insert keywords (Symbol.fromValue str) token)
             keywords_list
 
-        fun identify table str span follow =
+        fun identify table str =
           let
             val sym = Symbol.fromValue str
           in
@@ -71,28 +71,24 @@ structure CM_Lexer :> LEXER =
             )
           end
 
-        fun action f ({ match, len, follow, self, ...}: info) (k as LEX cont) pos =
+        fun action f ({ match, len, follow, ...}: info) (k as LEX cont) pos =
           Cons (f (match, len, pos, follow), lazy (fn () => cont follow k (pos + len)))
 
-        fun simple tokfn ({ match, len, follow, self, ...}: info) (k as LEX cont) pos =
-          Cons (tokfn (pos, pos + len), lazy (fn () => cont follow k (pos + len)))
-
-        fun skip_main ({ len, follow, self, ...} : info) (k as LEX cont) pos =
+        fun skip_main ({ len, follow, self, ...} : info) (k as LEX _) pos =
           #main self follow k (pos + len)
 
-        fun analyze_gl ({ match, len, follow, self, ... } : info) (k as LEX cont) pos =
+        fun analyze_gl ({ match, len, follow, self, ... } : info) (_ : tlex) pos =
           case String.implode match of
             "is" => (#is self follow (LEX (#is self)) (pos + len)(*; raise Fail (String.implode
             (Stream.toList follow))*))
           | _ => #group_or_library self follow (LEX (#group_or_library self)) (pos + len)
 
-        fun skip_gl ({ len, follow, self, ...} : info) (k as LEX cont) pos =
+        fun skip_gl ({ len, follow, self, ...} : info) (_ : tlex) pos =
           #group_or_library self follow (LEX (#group_or_library self)) (pos + len)
 
         val ident =
           action
-            (fn (match, len, pos, follow) => identify keywords (implode match)
-            (pos, pos + len) follow)
+            (fn (match, _, _, _) => identify keywords (implode match))
 
         fun enter_if ({ len, follow, self, ...} : info) (k as LEX cont) pos =
           let
@@ -106,36 +102,36 @@ structure CM_Lexer :> LEXER =
         fun skip_if ({ len, follow, self, ...} : info) pos =
           #ifmode self follow (pos + len)
 
-        fun exit_if ({ len, follow, self, ...} : info) pos =
+        fun exit_if ({ follow, ...} : info) pos =
           (follow, pos)
 
-        fun skip_is ({ len, follow, self, ...} : info) (k as LEX cont) pos =
+        fun skip_is ({ len, follow, self, ...} : info) (_ : tlex) pos =
           #is self follow (LEX (#is self)) (pos + len)
 
-        fun enter_group ({ len, follow, self, ...} : info) (k as LEX cont) pos =
+        fun enter_group ({ len, follow, self, ...} : info) (_ : tlex) pos =
           Cons ( GROUP
                , lazy (fn () => #group_or_library self follow (LEX
                (#group_or_library self)) (pos + len))
                )
 
-        fun enter_library ({ len, follow, self, ...} : info) (k as LEX cont) pos =
+        fun enter_library ({ len, follow, self, ...} : info) (_ : tlex) pos =
           Cons ( LIBRARY
                , lazy (fn () => #group_or_library self follow (LEX
                (#group_or_library self)) (pos + len))
                )
 
-        fun enter_is ({ len, follow, self, ...} : info) (k as LEX cont) pos =
+        fun enter_is ({ len, follow, self, ...} : info) (_ : tlex) pos =
           Cons ( IS
                , lazy (fn () => #is self follow (LEX (#is self)) (pos + len))
                )
 
-        fun action_is f ({ match, len, follow, self, ...}: info) (k as LEX cont) pos =
+        fun action_is f ({ match, len, follow, self, ...}: info) (_ : tlex) pos =
           Cons (f (match, len, pos), lazy (fn () => #is self follow (LEX (#is
           self)) (pos + len)))
 
         val is_stdpn =
           action_is
-            (fn (match, len, pos) =>
+            (fn (match, _, _) =>
               ELEM ( PATH ( Symbol.fromValue (String.implode match)
                           )
                    )
@@ -183,10 +179,10 @@ structure CM_Lexer :> LEXER =
             Cons (ELEM (STRING correct), lazy (fn () => cont follow' k pos'))
           end
 
-        fun eof _ _ pos =
+        fun eof (_ : info) (_ : tlex) (_ : pos) =
           Cons (EOF, eager Nil)
 
-        fun error ({follow, ...}: info) _ pos =
+        fun error ({follow, ...}: info) (_ : tlex) (pos : pos) =
           err
             ( LexError
                 { reason = "illegal lexeme"
