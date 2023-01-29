@@ -104,11 +104,8 @@ structure Debugger :
       in
         if
           List.foldl
-            (fn ((id, value, _), acc) =>
-              if SymSet.member break_assigns id then
-                true
-              else
-                acc
+            (fn ((id, _, _), acc) =>
+              SymSet.member break_assigns id orelse acc
             )
             false
             bindings
@@ -199,26 +196,21 @@ structure Debugger :
         | Echar c => throw (Vchar c)
         | Eunit => throw Vunit
         | Eselect sym => throw (Vselect sym)
-        | Eident {opp, id} => (* special stuff here *)
-            let
-              fun handle_longid longid =
-                case Context.get_ident_opt ctx id of
-                  SOME (C _) =>
-                    throw (Vconstr {id = id, arg = NONE})
-                | SOME (E exnid) =>
-                    throw (Vexn {name = id, exnid = exnid, arg = NONE})
-                | SOME (V value) =>
-                    throw value
-                | NONE =>
-                    (Printf.printf (`"Cannot find binding to identifier "fli".") id)
-                    |> eval_err
-            in
-              if longid_eq (id, [Symbol.fromValue "::"]) then
-                throw Basis.cons
-              else
-                handle_longid id
-            end
-
+        | Eident {opp = _, id} => (* special stuff here *)
+            if longid_eq (id, [Symbol.fromValue "::"]) then
+              throw Basis.cons
+            else
+              (case Context.get_ident_opt ctx id of
+                SOME (C _) =>
+                  throw (Vconstr {id = id, arg = NONE})
+              | SOME (E exnid) =>
+                  throw (Vexn {name = id, exnid = exnid, arg = NONE})
+              | SOME (V value) =>
+                  throw value
+              | NONE =>
+                  (Printf.printf (`"Cannot find binding to identifier "fli".") id)
+                  |> eval_err
+              )
         | Erecord fields =>
             let
               val labs = List.map #lab fields
@@ -226,15 +218,11 @@ structure Debugger :
             in
               exps
               |> eval_list (fn (left, right) =>
-                   let
-                     val len = List.length left
-                   in
-                     ( labs
-                     , left @ [Ehole] @ right
-                     )
-                     |> ListPair.mapEq (fn (lab, exp) => {lab = lab, exp = exp})
-                     |> Erecord
-                   end
+                  ( labs
+                  , left @ [Ehole] @ right
+                  )
+                  |> ListPair.mapEq (fn (lab, exp) => {lab = lab, exp = exp})
+                  |> Erecord
                 )
               |> (fn values =>
                    ListPair.mapEq
@@ -264,7 +252,7 @@ structure Debugger :
             )
         | Elet {dec, exps} =>
             let
-              val new_ctx = eval_dec (ELET (exps) :: location) dec ctx
+              val new_ctx = eval_dec (ELET exps :: location) dec ctx
             in
               (* For the pretty printer's benefit, we have to be able to
                * remember that when printing out the context surrounding the
@@ -288,7 +276,7 @@ structure Debugger :
                 eval' (Eapp {left = Value.value_to_exp left, right = Ehole}) right_exp ctx
             in
               case (left, right) of
-                (constr as Vconstr {id, arg = NONE}, v) =>
+                (Vconstr {id, arg = NONE}, v) =>
                   throw (Vconstr { id = id, arg = SOME v})
               | (Vexn {name, exnid, arg = NONE}, v) =>
                   throw (Vexn {name = name, arg = SOME v, exnid = exnid})
@@ -396,15 +384,15 @@ structure Debugger :
                     val result = f (Vtuple [left, right])
                   in
                     if !(#step_arithmetic (Context.get_settings ctx)) then
-                      redex_value location (f (Vtuple [left, right])) ctx cont
+                      redex_value location result ctx cont
                     else
                       (case Symbol.toValue name of
                         ( "+"
                         | "-"
                         | "*"
-                        | "div" ) => throw (f (Vtuple [left, right]))
+                        | "div" ) => throw result
                       | _ =>
-                        redex_value location (f (Vtuple [left, right])) ctx cont
+                        redex_value location result ctx cont
                       )
                   end
               | _ =>
@@ -591,7 +579,7 @@ structure Debugger :
                   , abstys = AbsIdDict.empty
                   }
             )
-        | Efn (matches, SOME _) =>
+        | Efn (_, SOME _) =>
             raise Fail "shouldn't eval an Efn with a closure"
         | Ehole => raise Fail "shouldn't happen, evaling Ehole"
       end
@@ -609,10 +597,9 @@ structure Debugger :
             let
               val (bindings, new_ctx, new_exp) =
                 Statics.apply_fn (matches, env, rec_env)
-                  (Vbasis ({ function = fn value => (redex_value location value ctx cont; raise Fail "cannot reach")
-                           , name = Symbol.fromValue (ContId.show (ContId.new NONE))
-                           }
-                          )
+                  (Vbasis { function = fn value => (redex_value location value ctx cont; raise Fail "cannot reach")
+                          , name = Symbol.fromValue (ContId.show (ContId.new NONE))
+                          }
                   )
                   (Basis.cont_ty (TVvar (Ref.new NONE)))
                   abstys
@@ -695,6 +682,7 @@ structure Debugger :
             val ctx = orig_ctx
           in
             iter_list
+              (* THINK: should i use `recc`? *)
               (fn ({recc, pat, exp}, rest, pairs) =>
                 let
                   val break_assigns = !(Context.get_break_assigns ctx)
@@ -739,18 +727,19 @@ structure Debugger :
                   Context.add_bindings new_ctx bindings
                )
           end
-      | Statics.DEC_FUN (ctx, {tyvars, fvalbinds}) =>
+      | Statics.DEC_FUN (ctx, {tyvars = _, fvalbinds}) =>
+        (* THINK: should I do something with these tyvars? *)
         let
           fun get_id_pats fname_args =
             case fname_args of
-              Fprefix {opp, id, args} => (id, args)
+              Fprefix {opp = _, id, args} => (id, args)
             | Finfix {left, id, right} => (id, [Ptuple [left, right]])
             | Fcurried_infix {left, id, right, args} =>
                 (id, Ptuple [left, right] :: args)
 
           fun process_fvalbind fvalbind =
             List.foldr
-              (fn ({fname_args, ty, exp}, acc) =>
+              (fn ({fname_args, ty = _, exp}, acc) =>
                 let
                   val (id, pats) = get_id_pats fname_args
                   val num_args = List.length pats
@@ -889,7 +878,7 @@ structure Debugger :
         let
           fun apply_functor
             eval_module
-            (ctx as {functordict, ...} : context)
+            ctx 
             functor_id
             scope =
               let
@@ -914,7 +903,7 @@ structure Debugger :
                      *)
                     NONE =>
                       eval_module
-                        (FBODY (functor_id) :: location)
+                        (FBODY functor_id :: location)
                         body
                         (open_scope ctx ascribed_arg)
                   | SOME id =>
