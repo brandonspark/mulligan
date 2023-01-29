@@ -4,7 +4,18 @@
   * See the file LICENSE for details.
   *)
 
-structure Ref :
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* A wrapper around the `ref` type, with some additional helpful helper
+ * functions.
+ *)
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
+signature REF =
   sig
     type 'a t
 
@@ -15,8 +26,14 @@ structure Ref :
     val compare : 'a t * 'a t -> order
     val eq : 'a t * 'a t -> bool
 
-    val print : 'a t -> string
-  end =
+    val show : 'a t -> string
+  end
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
+structure Ref : REF =
   struct
     type 'a t = int * 'a ref
 
@@ -34,5 +51,5 @@ structure Ref :
         EQUAL => true
       | _ => false
 
-    fun print (i, _) = "t" ^ Int.toString i
+    fun show (i, _) = "t" ^ Int.toString i
   end

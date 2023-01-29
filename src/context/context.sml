@@ -779,7 +779,7 @@ structure Context :
             (fn s =>
               (s, get_module ctx' [s])
               handle CouldNotFind =>
-                Printf.printf
+                spf
                   (`"Failed to find module "fs" to export in "fs"")
                   (orange (Symbol.toValue s))
                   (lightblue path)
@@ -792,7 +792,7 @@ structure Context :
             (fn s =>
               case get_sigval_opt ctx' s of
                 NONE =>
-                  Printf.printf
+                  spf
                     (`"Failed to find signature "fs" to export in "fs"")
                     (orange (Symbol.toValue s))
                     (lightblue path)
@@ -806,7 +806,7 @@ structure Context :
             (fn s =>
               case get_functorval_opt ctx' s of
                 NONE =>
-                  Printf.printf
+                  spf
                     (`"Failed to find functor "fs" to export in "fs"")
                     (orange (Symbol.toValue s))
                     (lightblue path)

@@ -285,7 +285,7 @@ functor MkRun
                   |> recur
                 end
             | SOME (Directive.BreakFn longid) =>
-                ( printf (`"Breakpoint set on function value bound to "fl"\n") longid |> print
+                ( spf (`"Breakpoint set on function value bound to "fl"\n") longid |> print
                 ; let
                     val (_, broken) = Context.break_fn ctx longid true
                     val _ = breaks := broken :: !breaks
@@ -297,7 +297,7 @@ functor MkRun
                 let
                   val break_assigns = Context.get_break_assigns ctx
                 in
-                  ( printf (`"Breakpoint set on bindings to identifier "fi"\n") id |> print
+                  ( spf (`"Breakpoint set on bindings to identifier "fi"\n") id |> print
                   ; break_assigns := SymSet.insert (!break_assigns) id
                   )
                   |> recur
@@ -312,12 +312,12 @@ functor MkRun
                 )
                 |> recur
             | SOME (Directive.Clear (SOME longid)) =>
-                ( printf (`"Breaking function "fl"\n") longid |> print
+                ( spf (`"Breaking function "fl"\n") longid |> print
                 ; Context.break_fn ctx longid false
                 )
                 |> recur
             | SOME (Directive.Print longid) =>
-                ( printf (`"Printing value of identifier "fl"\n") longid |> print
+                ( spf (`"Printing value of identifier "fl"\n") longid |> print
                 ; Context.get_val ctx longid
                   |> PrettyPrintAst.print_value ctx
                   |> println

@@ -4,8 +4,19 @@
   * See the file LICENSE for details.
   *)
 
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* Just a library for an either type.
+ *)
+
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
+
 structure Either =
   struct
-    datatype ('a, 'b) either = INL of 'a | INR of 'b
-    datatype t = datatype either
+    datatype ('a, 'b) t = INL of 'a | INR of 'b
   end
+
+datatype either = datatype Either.t

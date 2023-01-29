@@ -264,7 +264,7 @@ structure Statics :
                 List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields2
               of
                 NONE =>
-                  Printf.printf
+                  spf
                     (`"Failed to unify record types, found unshared label "fi".")
                     lab
                   |> type_err
@@ -284,7 +284,7 @@ structure Statics :
         else (r := SOME (Ty t2); t2)
       | (TVvar (_, r as ref NONE), t2) =>
           (if occurs_check r t2 then
-             Printf.printf
+             spf
                (`"Failed to unify, circularity in type "ftv"")
                t2
              |> type_err
@@ -293,7 +293,7 @@ structure Statics :
           ; r := SOME (Ty t2); t2)
       | (t1, TVvar (_, r as ref NONE)) =>
           (if occurs_check r t1 then
-             Printf.printf
+             spf
                (`"Failed to unify, circularity in type "ftv"")
                t1
              |> type_err
@@ -342,7 +342,7 @@ structure Statics :
       | (TVtyvar sym1, TVtyvar sym2) =>
           if Symbol.eq (sym1, sym2) then t2
           else
-            Printf.printf
+            spf
               (`"Failed to unify different tyvars "fi" and "fi"")
               sym1
               sym2
@@ -350,7 +350,7 @@ structure Statics :
       | (TVapp (tys1, id1), TVapp (tys2, id2)) =>
           ( List.map (fn (t1, t2) => unify ctx t1 t2) (ListPair.zipEq (tys1, tys2))
           ; if TyId.eq (id1, id2) then () else
-              Printf.printf
+              spf
                 (`"Type mismatch between types "ftv" and "ftv"")
                 t1 t2
               |> type_err
@@ -373,13 +373,13 @@ structure Statics :
               raise Fail "TODO"
           )
       | _ =>
-          Printf.printf
+          spf
             (`"Failed to unify types "ftv" and "ftv"")
             t1
             t2
           |> type_err
       ) handle ListPair.UnequalLengths =>
-          Printf.printf
+          spf
             (`"Failed to unify types "ftv" and "ftv"")
             t1
             t2
@@ -401,7 +401,7 @@ structure Statics :
         | (SOME (Ty (TVrecord fields))) =>
             (case List.find (fn {lab, ...} => Symbol.eq (lab, sym)) fields of
               NONE =>
-                Printf.printf
+                spf
                   (`"Accessing nonexistent field "fi" in record type "ftv"")
                   sym
                   (TVrecord fields)
@@ -419,7 +419,7 @@ structure Statics :
         | (SOME (Ty (TVprod tys))) =>
             (case Int.fromString (Symbol.toValue sym) of
               NONE =>
-                Printf.printf
+                spf
                   (`"Accessing non-numeral field "fi" in product type "ftv"")
                   sym
                   (TVprod tys)
@@ -430,7 +430,7 @@ structure Statics :
                   ; (List.nth (tys, i - 1))
                   )
                 else
-                  Printf.printf
+                  spf
                     (`"Accessing out-of-bounds numeral field "fi" in product type "ftv"")
                     sym
                     (TVprod tys)
@@ -439,7 +439,7 @@ structure Statics :
         | (SOME (Ty (TVvar r'))) =>
             unify_row ctx r' (sym, tyopt)
         | _ =>
-            Printf.printf
+            spf
               (`"Accessing field "fi" of non-record, non-product type")
               sym
             |> type_err
@@ -944,7 +944,7 @@ structure Statics :
                           if Symbol.eq (id, id') then id
                           else
                             (* TODO: extract *)
-                            Printf.printf
+                            spf
                               (`"Function clauses have different names "fi" and "fi"")
                               id
                               id'
@@ -1818,14 +1818,14 @@ structure Statics :
                   | Abstract (n, absid) =>
                       case SymDict.find tynamedict tyname of
                         NONE =>
-                          Printf.printf
+                          spf
                             (`"Failed to find type definition for abstract type "fi"\
                               \ during signature matching.")
                             tyname
                           |> prog_err
                       | SOME (Scheme (n', ty_fn)) =>
                           if n <> n' then
-                            Printf.printf
+                            spf
                               (`"Arity mismatch in type definition for abstract type "fi"\
                                 \ during signature matching.")
                               tyname
@@ -1834,7 +1834,7 @@ structure Statics :
                             AbsIdDict.insert abstydict absid (n', ty_fn)
                       | SOME (Datatype tyid) =>
                           if n <> #arity (TyIdDict.lookup dtydict tyid) then
-                            Printf.printf
+                            spf
                               (`"Arity mismatch in type definition for abstract type "fi"\
                                 \ during signature matching.")
                               tyname
@@ -1853,13 +1853,13 @@ structure Statics :
                 (fn (dtyname, {tyid, ...}, tyiddict) =>
                   case SymDict.find tynamedict dtyname of
                     NONE =>
-                      Printf.printf (`"Failed to find datatype definition for "fi" during signature matching.")
+                      spf (`"Failed to find datatype definition for "fi" during signature matching.")
                                                                              dtyname
                       |> prog_err
                   | SOME (Datatype tyid') =>
                       TyIdDict.insert tyiddict tyid tyid'
                   | SOME (Scheme _) =>
-                      Printf.printf
+                      spf
                         (`"Found type definition instead of datatype for "fi"\
                           \ during signature matching.")
                         dtyname
@@ -1904,7 +1904,7 @@ structure Statics :
 
             fun eq_tyschemes (n, ty_fn) (n', ty_fn') =
               if n <> n' then
-                Printf.printf
+                spf
                   (`"Arity mismatch when comparing type schemes during signature matching.")
                 |> type_err
               else
@@ -1945,7 +1945,7 @@ structure Statics :
                       end
                   | (Concrete (n, ty_fn), SOME (old as Scheme (n', ty_fn'))) =>
                       if n <> n' then
-                        Printf.printf
+                        spf
                           (`"Arity mismatch when comparing type schemes \
                             \ during signature matching.")
                         |> type_err
@@ -1961,7 +1961,7 @@ structure Statics :
                       SymDict.insert new_tynamedict tyname
                         (Scheme (guard_tyscheme (n, fn tyvals => TVabs (tyvals, absid))))
                   | (_, NONE) =>
-                        Printf.printf
+                        spf
                           (`"Failed to find type definition for "fi"\
                             \ during signature matching.")
                           tyname
@@ -1995,7 +1995,7 @@ structure Statics :
                         (fn ({id, tyscheme}, ()) =>
                           case List.find (fn {id = id', ...} => Symbol.eq (id, id')) cons2 of
                             NONE =>
-                              Printf.printf
+                              spf
                                 (`"Found unshared constructor "fi" when comparing\
                                   \ type schemes for equality in signature matching.")
                                 id
@@ -2012,7 +2012,7 @@ structure Statics :
                       List.map (fn {id, tyscheme} => (id, tyscheme, mod_tyid)) mod_cons
                   in
                     if mod_arity <> sig_arity then
-                      Printf.printf
+                      spf
                         (`"Arity mismatch between datatypes during signature matching.")
                       |> type_err
                     else
@@ -2077,7 +2077,7 @@ structure Statics :
                               id
                               (V (Vconstr {id = [id], arg = NONE}))
                         | _ =>
-                            Printf.printf
+                            spf
                               (`"Failed to find value identifier "fi"\
                                 \ during signature ascription")
                               id
@@ -2103,7 +2103,7 @@ structure Statics :
                           , SymDict.insert acc_identdict id ans
                           )
                       | _ =>
-                        Printf.printf
+                        spf
                           (`"Failed to find exception "fi"\
                             \ during signature ascription")
                           id
@@ -2140,7 +2140,7 @@ structure Statics :
                         )
                     )
                   handle SymDict.Absent =>
-                  Printf.printf
+                  spf
                     (`"Failed to find module "fi" during signature ascription")
                     id
                   |> prog_err

@@ -382,7 +382,7 @@ struct
           )
         end
       | TVvar (r as (_, ref NONE)) =>
-          text color (Ref.print r)
+          text color (Ref.show r)
       | TVvar (_, ref (SOME (Ty tyval))) =>
           show_tyval tyval
       | TVvar (_, ref (SOME (Rows fields))) =>

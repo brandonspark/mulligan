@@ -2,18 +2,50 @@
 $(SML_LIB)/basis/basis.mlb
 $(SML_LIB)/basis/mlton.mlb
 
-ListUtils.sml
-TerminalColors.sml
-PrettySimpleDoc.sml
-temp_id.sml
-cont.sml
-either.sml
-mk_temp.fun
-id-dict.sml
-ref.sml
-test-framework.sml
-printf.sml
-error.sml
+(* This has to be up here first cause `printf` needs it. 
+ *)
+local 
+  TerminalColors.sml
+in
+  structure TerminalColors
+end
 
-infix.sml
+(* Here are any files which have contents that we would like
+ * to open to the top-level scope.
+ *)
+either.sml
+printf.sml
 pervasive.sml
+
+local 
+  ListUtils.sml
+  TerminalColors.sml
+  PrettySimpleDoc.sml
+  fresh_sym.sml
+  cont.sml
+  ids.sml
+  ref.sml
+  test_framework.sml
+  error.sml
+in
+  structure ListUtils
+  structure PrettySimpleDoc
+  structure FreshSym 
+  structure Cont
+  structure Either
+
+  functor MkTemp
+  structure TyId
+  structure ExnId
+  structure AbsId
+  structure ContId
+
+  structure TyIdDict
+  structure AbsIdDict
+  structure ContIdDict
+
+  structure Ref
+  structure TestFramework
+  structure Error
+end
+

@@ -8,11 +8,11 @@ type symbol = Symbol.symbol
 type result = ((symbol list * symbol list * symbol list) * CM_Token.elem list) * CM_Token.token list
 signature PARSER =
   sig
-    val parse : char StreamStreamable.t -> (string list, result) Either.either
+    val parse : char StreamStreamable.t -> (string list, result) Either.t
 
-    val parse_string : string -> (string list, result) Either.either
+    val parse_string : string -> (string list, result) Either.t
 
-    val parse_file : string -> (string list, result) Either.either
+    val parse_file : string -> (string list, result) Either.t
 
     val parse_file_to_string : string -> string
   end

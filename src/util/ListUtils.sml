@@ -4,6 +4,16 @@
   * See the file LICENSE for details.
   *)
 
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* Utility functions on lists. 
+ *)
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
 signature LISTUTILS =
   sig
     val last : 'a list -> 'a
@@ -15,10 +25,15 @@ signature LISTUTILS =
     val flatten : 'a list list -> 'a list
   end
 
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
+
 structure ListUtils : LISTUTILS =
   struct
     fun last [] = raise Fail "finding last of empty list"
       | last l = List.nth (l, List.length l - 1)
+
     fun up_to_last l =
       List.take (l, List.length l - 1)
 

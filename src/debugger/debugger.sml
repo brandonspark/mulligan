@@ -213,8 +213,7 @@ structure Debugger :
               | SOME (V value) =>
                   throw value
               | NONE =>
-                  (Printf.printf (`"Cannot find binding to identifier "fli".") id)
-                  |> eval_err
+                  eval_err (spf (`"Cannot find binding to identifier "fli".") id)
               )
         | Erecord fields =>
             let
@@ -783,7 +782,7 @@ structure Debugger :
                    )
                | _ =>
                  let
-                   val new_vars = List.tabulate (num_args, fn _ => TempId.new ())
+                   val new_vars = List.tabulate (num_args, fn _ => FreshSym.new ())
 
                  in
                    ( id
