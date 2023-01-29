@@ -300,8 +300,8 @@ structure Context :
     (* For looking backwards through all contexts, stopping on the first scope
      * that returns SOME.
      *)
-    fun map_scope_id f ({scope, outer_scopes, dtydict, sigdict, functordict,
-    tyvars, hole_print_fn, settings, abstys}) id =
+    fun map_scope_find f {scope, outer_scopes, dtydict, sigdict, functordict,
+    tyvars, hole_print_fn, settings, abstys} =
       let
         fun map_thing' scopes =
           case scopes of
@@ -332,7 +332,7 @@ structure Context :
      * first instance found.
      *)
     fun map_module f (ctx as {dtydict, sigdict, functordict, tyvars, hole_print_fn,
-    settings, abstys, ...} : SMLSyntax.context) id =
+    settings, abstys, ...} : t) id =
       case id of
         [] => raise Fail "map module on an empty path is a bad idea, because it can pick up extra scopes"
       | _ =>
@@ -362,7 +362,7 @@ structure Context :
             | (SOME mapped_scope, _) => (mapped_scope, ctx)
             | (NONE, scope::rest) =>
                 let
-                  val { scope = inner_scope, outer_scopes = rest, ...} =
+                  val { scope = inner_scope, outer_scopes = rest, ...} : SMLSyntax.context =
                     map_module f
                       { scope = scope
                       , outer_scopes = rest
@@ -380,7 +380,7 @@ structure Context :
           end
         ) ctx
 
-    fun get_module (ctx as {scope, ...} : SMLSyntax.context) id =
+    fun get_module (ctx : SMLSyntax.context) id =
       case id of
         [] => raise Fail "getting the empty path is a bad idea"
       | _ =>
@@ -588,7 +588,7 @@ structure Context :
 
     fun get_dtydict (ctx : SMLSyntax.context) = ! (#dtydict ctx)
 
-    fun get_datatype ctx tyid =
+    fun get_datatype (ctx : SMLSyntax.context) tyid =
       TyIdDict.lookup (! (#dtydict ctx)) tyid
       handle TyIdDict.Absent => prog_err "could not find datatype with tyid"
 
@@ -727,9 +727,8 @@ structure Context :
       , abstys = abstys
       }
 
-  fun add_abstys (ctx as {scope, outer_scopes, dtydict, sigdict, functordict, tyvars
-    , hole_print_fn, settings, abstys})
-                    new =
+  fun add_abstys {scope, outer_scopes, dtydict, sigdict, functordict, tyvars
+    , hole_print_fn, settings, abstys = _} new =
       { scope = scope
       , outer_scopes = outer_scopes
       , dtydict = dtydict
@@ -864,7 +863,7 @@ structure Context :
       lift (fn (scope, rest) =>
         case rest of
           [] => raise Fail "pop penultimate on single context"
-        | scope'::rest =>
+        | _::rest =>
             (scope, rest)
       ) ctx
 
@@ -942,7 +941,7 @@ structure Context :
 
     fun add_hole_print_fn
         {scope, outer_scopes, dtydict, sigdict, functordict, tyvars,
-         hole_print_fn, settings, abstys} f =
+         hole_print_fn = _, settings, abstys} f =
       { scope = scope
       , outer_scopes = outer_scopes
       , dtydict = dtydict
@@ -968,7 +967,7 @@ structure Context :
     fun get_print_depth ({settings = {print_depth, ...}, ...} :
       SMLSyntax.context) = !print_depth
 
-    fun break_fn ctx id do_break =
+    fun break_fn ctx (id : longid) do_break =
       let
         val name = lightblue (longid_to_str id)
         val res = ref NONE
@@ -995,7 +994,7 @@ structure Context :
       in
         ( case id of
           [x] =>
-            ( map_scope_id (fn scope =>
+            ( map_scope_find (fn scope =>
                 case SymDict.find (scope_identdict scope) x of
                   NONE => NONE
                 | SOME (V (Vfn info)) =>
@@ -1006,7 +1005,7 @@ structure Context :
                     )
                 | _ =>
                     user_err ("Breaking/clearing non-function identifier " ^ name)
-              ) ctx x
+              ) ctx
               handle CouldNotFind =>
                 user_err ("Trying to break/clear nonexistent function " ^ name)
             )
@@ -1086,12 +1085,12 @@ structure Context :
 
     fun norm_tyval ctx tyval =
       case tyval of
-        TVvar (_, r as ref NONE) => tyval
+        TVvar (_, ref NONE) => tyval
           (* May loop forever if the tyval contains the same ref.
            *)
-      | TVvar (_, r as ref (SOME (Ty tyval))) =>
+      | TVvar (_, ref (SOME (Ty tyval))) =>
           norm_tyval ctx tyval
-      | TVvar (_, r as ref (SOME (Rows _))) => tyval
+      | TVvar (_, ref (SOME (Rows _))) => tyval
       | TVapp (tyvals, tyid) =>
           TVapp (List.map (norm_tyval ctx) tyvals, tyid)
       | TVabs (tyvals, absid) =>
@@ -1126,7 +1125,7 @@ structure Context :
                    *)
                 case List.find (fn (tyvar, _) => Symbol.eq (sym, tyvar)) paired of
                   NONE => NONE
-                | SOME (_, ty) => SOME (ty)
+                | SOME (_, ty) => SOME ty
 
             val default_datatype_fn =
               fn (sym, tyvals) =>
@@ -1135,7 +1134,7 @@ structure Context :
                 | _ =>
                   case get_type_synonym_opt ctx [sym] of
                     SOME (Datatype tyid) => SOME (TVapp (tyvals, tyid))
-                  | SOME (Scheme (n, f)) =>
+                  | SOME (Scheme (_, f)) =>
                       SOME (f tyvals)
                   | NONE => NONE
           in
@@ -1147,7 +1146,7 @@ structure Context :
         )
       end
 
-    fun add_datbind datatype_fn ctx (tyid, {tyvars, tycon, conbinds}) =
+    fun add_datbind datatype_fn (ctx : SMLSyntax.context) (tyid, {tyvars, tycon, conbinds}) =
       lift (fn (scope, rest) =>
         let
           val dtydict = ! (#dtydict ctx)
@@ -1158,7 +1157,7 @@ structure Context :
           val arity = List.length tyvars
           val cons =
             List.map
-              (fn {id, ty, opp} =>
+              (fn {id, ty, opp = _} =>
                 { id = id
                 , tyscheme =
                   case ty of
@@ -1219,8 +1218,8 @@ structure Context :
      * if a datatype goes out of scope but is copied, we want to still be able
      * to refer to its tydict entry
      *)
-    fun replicate_datatype orig_ctx (left_id, right_id) =
-      lift (fn ctx as (scope, rest) =>
+    fun replicate_datatype (orig_ctx : t) (left_id, right_id) =
+      lift (fn (scope, rest) =>
         let
           val tynamedict = scope_tynamedict scope
           val identdict = scope_identdict scope
@@ -1229,7 +1228,7 @@ structure Context :
           case get_type_synonym orig_ctx right_id of
             Datatype tyid =>
               let
-                val {arity, cons} = get_datatype orig_ctx tyid
+                val {arity = _, cons} = get_datatype orig_ctx tyid
                 val (new_identdict, new_valtydict) =
                   List.foldl
                     (fn ({id, tyscheme}, (new_identdict, new_valtydict)) =>
@@ -1268,11 +1267,11 @@ structure Context :
        * those which have been deliberately added to the tyvarseqs (explicit).
        *)
       fun get_current_tyvars collect_tyvars_tyval
-            ({scope, outer_scopes, tyvars = cur_tyvars, ...} : SMLSyntax.context) =
+            ({scope, outer_scopes, tyvars = cur_tyvars, ...} : t) =
         List.foldl
           (fn (scope, tyvars) =>
             SymDict.foldl
-              (fn (_, (sign, (arity, ty_fn)), tyvars) =>
+              (fn (_, (_, (arity, ty_fn)), tyvars) =>
                 collect_tyvars_tyval (ty_fn (List.tabulate (arity, fn _ => TVprod []))) @ tyvars
               )
               tyvars
