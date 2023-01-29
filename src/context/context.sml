@@ -67,6 +67,10 @@ structure Context :
     val add_abstys : t -> SMLSyntax.type_scheme AbsIdDict.dict -> t
     val add_scoped_tyvars : t -> SymSet.set -> t
 
+    (* cm_export path init_ctx after_ctx exports =>* restricted_ctx 
+     * where `restricted_ctx` is the result of adding just the
+     * described `exports` from `after_ctx` to `init_ctx`.
+     *)
     val cm_export :
       string -> t -> t ->
                 { structs : SMLSyntax.symbol list
