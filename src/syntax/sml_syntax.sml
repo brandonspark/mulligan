@@ -27,14 +27,28 @@ structure SymDict = RedBlackDict(structure Key = SymbolOrdered)
 structure SymSet = SymbolRedBlackSet
 
 (*****************************************************************************)
-(* Implementation *)
+(* Types *)
 (*****************************************************************************)
 
+type settings =
+  { break_assigns : SymSet.set ref
+  , substitute : bool ref
+  , step_app : bool ref
+  , step_arithmetic : bool ref
+  , print_dec : bool ref
+  , print_depth : int ref
+  }
+
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
 
 structure SMLSyntax =
   struct
     type symbol = Symbol.symbol
     type longid = symbol list
+
+    type settings = settings
 
     type 'a dict = 'a SymDict.dict
 
@@ -50,6 +64,10 @@ structure SMLSyntax =
       | Tarrow of ty * ty
       | Trecord of {lab: symbol, ty: ty} list
       | Tparens of ty
+
+    (****************************)
+    (*        TYPE VALUES       *)
+    (****************************)
 
     datatype tyval =
         TVtyvar of symbol
@@ -179,15 +197,6 @@ structure SMLSyntax =
                    }
     type dtydict = dtyinfo TyIdDict.dict
 
-    type settings =
-      { break_assigns : SymSet.set ref
-      , substitute : bool ref
-      , step_app : bool ref
-      , step_arithmetic : bool ref
-      , print_dec : bool ref
-      , print_depth : int ref
-      }
-
     datatype exp =
         Enumber of number (* int, real, hex, ... *)
       | Estring of symbol
@@ -309,94 +318,6 @@ structure SMLSyntax =
       | Dnonfix of symbol list
       | Dhole
 
-
-    (****************************)
-    (*          VALUES          *)
-    (****************************)
-
-
-    and value =
-        Vnumber of number
-      | Vstring of symbol
-      | Vchar of char
-      | Vrecord of
-          { lab : symbol
-          , value : value
-          } list
-      | Vunit
-      | Vconstr of
-          { id : longid
-          , arg : value option
-          }
-      | Vselect of symbol
-      | Vtuple of value list
-      | Vlist of value list
-      | Vinfix of
-          { left : value
-          , id : symbol
-          , right : value
-          }
-      | Vexn of
-          { name : longid
-          , exnid : ExnId.t
-          , arg : value option
-          }
-      | Vfn of
-          { matches : { pat : pat, exp : exp } list
-          , env : context
-          , abstys : type_scheme AbsIdDict.dict
-          , rec_env : scope option
-          , break : symbol option ref
-          }
-      | Vbasis of { name : symbol, function : value -> value }
-
-    and typspec_status =
-        Abstract of int * AbsId.t
-      | Concrete of type_scheme
-
-    and sigval =
-      Sigval of
-        { valspecs : (type_scheme * AbsId.t list) dict
-        , tyspecs : { equality : bool, status : typspec_status } dict
-        , dtyspecs : { arity : int
-                     , tyid : TyId.t
-                     , cons : { id : symbol, tyscheme : type_scheme } list
-                     } dict
-        (* TODO: type stuff , tyspecs : ty option dict *)
-        , exnspecs : type_scheme dict
-        , modspecs : sigval dict
-        }
-
-
-    and functorval =
-      Functorval of
-        { arg_seal : { id : symbol option, sigval : sigval }
-        , seal : { opacity : opacity, sigval : sigval } option
-        , body : module
-        }
-
-    and id_info =
-        V of value
-      | C of TyId.t
-      | E of ExnId.t
-
-    and sign =
-        Vsign
-      | Csign
-      | Esign
-
-    and scope =
-      Scope of
-          (* TODO: combine these three *)
-        { identdict : identdict (* identifiers -> values *)
-        , valtydict : valtydict (* val identifiers -> types *)
-        , moddict : moddict (* maps to module scopes *)
-        , infixdict : infixdict (* all currently infixed operators *)
-        , tynamedict : tynamedict
-        }
-
-    and infixity = LEFT | RIGHT
-
     (****************************)
     (*         MODULES          *)
     (****************************)
@@ -450,12 +371,19 @@ structure SMLSyntax =
           id : symbol,
           ty : ty
         } list
-      | SPtype of typdesc list
+      | SPtype of 
+          { tyvars : symbol list,
+            tycon : symbol,
+            ty : ty option
+          } list
       | SPeqtype of { tyvars : symbol list, tycon : symbol } list
       | SPdatdec of {
           tyvars : symbol list,
           tycon : symbol,
-          condescs : condesc list
+          condescs : 
+            { id : symbol,
+              ty : ty option
+            } list
         } list
       | SPdatrepl of {
           left_tycon : symbol,
@@ -493,34 +421,104 @@ structure SMLSyntax =
         Normal_app of module
       | Sugar_app of strdec
 
-    withtype condesc = {
-        id : symbol,
-        ty : ty option
-      }
+    (****************************)
+    (*          VALUES          *)
+    (****************************)
 
-    and identdict = id_info dict
+    and value =
+        Vnumber of number
+      | Vstring of symbol
+      | Vchar of char
+      | Vrecord of
+          { lab : symbol
+          , value : value
+          } list
+      | Vunit
+      | Vconstr of
+          { id : longid
+          , arg : value option
+          }
+      | Vselect of symbol
+      | Vtuple of value list
+      | Vlist of value list
+      | Vinfix of
+          { left : value
+          , id : symbol
+          , right : value
+          }
+      | Vexn of
+          { name : longid
+          , exnid : ExnId.t
+          , arg : value option
+          }
+      | Vfn of
+          { matches : { pat : pat, exp : exp } list
+          , env : context
+          , abstys : type_scheme AbsIdDict.dict
+          , rec_env : scope option
+          , break : symbol option ref
+          }
+      | Vbasis of { name : symbol, function : value -> value }
+
+    and typspec_status =
+        Abstract of int * AbsId.t
+      | Concrete of type_scheme
+
+    and sigval =
+      Sigval of
+        { valspecs : (type_scheme * AbsId.t list) dict
+        , tyspecs : { equality : bool, status : typspec_status } dict
+        , dtyspecs : { arity : int
+                     , tyid : TyId.t
+                     , cons : { id : symbol, tyscheme : type_scheme } list
+                     } dict
+        (* TODO: type stuff , tyspecs : ty option dict *)
+        , exnspecs : type_scheme dict
+        , modspecs : sigval dict
+        }
+
+    and functorval =
+      Functorval of
+        { arg_seal : { id : symbol option, sigval : sigval }
+        , seal : { opacity : opacity, sigval : sigval } option
+        , body : module
+        }
+
+    (****************************)
+    (*          SCOPE          *)
+    (****************************)
+
+    and id_info =
+        V of value
+      | C of TyId.t
+      | E of ExnId.t
+
+    and sign =
+        Vsign
+      | Csign
+      | Esign
+
+    and scope =
+      Scope of
+          (* TODO: combine these three *)
+        { identdict : identdict (* identifiers -> values *)
+        , valtydict : valtydict (* val identifiers -> types *)
+        , moddict : moddict (* maps to module scopes *)
+        , infixdict : infixdict (* all currently infixed operators *)
+        , tynamedict : tynamedict
+        }
+
+    and infixity = LEFT | RIGHT
+
+    withtype identdict = id_info dict
     and infixdict = (infixity * int) dict
     and valtydict = (sign * type_scheme) dict
     and moddict = scope dict
     and tynamedict = synonym dict
 
-    and typdesc = {
-        tyvars : symbol list,
-        tycon : symbol,
-        ty : ty option
-      }
-
-    and context =
-      { scope : scope
-      , outer_scopes : scope list
-      , dtydict : dtydict ref
-      , sigdict : sigval dict
-      , functordict : functorval dict
-      , tyvars : SymSet.set
-      , hole_print_fn : unit -> PrettySimpleDoc.t
-      , settings : settings
-      , abstys : type_scheme AbsIdDict.dict
-      }
+    (****************************)
+    (*       EXPOSED TYPES      *)
+    (****************************)
 
     and fvalbinds =
       { fname_args : fname_args
@@ -534,8 +532,21 @@ structure SMLSyntax =
       , exp : exp
       } list
 
-    type sigbinds = {id : symbol, signat : signat} list
-    type sigdec = sigbinds
+    (****************************)
+    (*     CONTEXT AND SCOPE    *)
+    (****************************)
+
+    and context =
+      { scope : scope
+      , outer_scopes : scope list
+      , dtydict : dtydict ref
+      , sigdict : sigval dict
+      , functordict : functorval dict
+      , tyvars : SymSet.set
+      , hole_print_fn : unit -> PrettySimpleDoc.t
+      , settings : settings
+      , abstys : type_scheme AbsIdDict.dict
+      }
 
     (****************************)
     (*        FUNCTORS          *)
@@ -555,7 +566,7 @@ structure SMLSyntax =
 
     datatype topdec =
         Strdec of strdec
-      | Sigdec of sigdec
+      | Sigdec of {id : symbol, signat : signat} list
       | Fundec of fundec
       | Thole
 
