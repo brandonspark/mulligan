@@ -4,14 +4,30 @@
   * See the file LICENSE for details.
   *)
 
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
 (* The point of this is to elaborate the austere AST to the simpler AST.
- *
- * All type information is not important. Assume a type-checking AST.
+ * 
+ * We don't need all the syntactic information from the austere AST, we just 
+ * need a subset of it. So we roll our own AST and elaborate to it during a
+ * secondary parsing step.
  *)
-structure Elaborate :
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
+signature ELABORATE =
   sig
     val elab_ast : Ast.ast * 'a -> SMLSyntax.ast * 'a
-  end =
+  end
+
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
+
+structure Elaborate : ELABORATE =
   struct
     open Ast
     open SMLSyntax

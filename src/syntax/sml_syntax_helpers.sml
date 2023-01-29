@@ -1,5 +1,20 @@
+(** Brandon Wu 
+  *
+  * Copyright (c) 2022-2023
+  * See the file LICENSE for details.
+  *)
 
 open SMLSyntax
+
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* Helpers to go along with the types from `SMLSyntax` 
+ *)
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
 
 signature SMLSYNTAXHELPERS =
   sig
@@ -11,6 +26,10 @@ signature SMLSYNTAXHELPERS =
     val concrete_tyscheme : tyval -> type_scheme
     val number_eq : number * number -> bool
   end
+
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
 
 structure SMLSyntaxHelpers =
   struct

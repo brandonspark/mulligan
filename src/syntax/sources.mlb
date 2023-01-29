@@ -14,6 +14,15 @@ $(SML_LIB)/basis/basis.mlb
 
 ../util/sources.mlb
 
-sml_syntax.sml
-sml_syntax_helpers.sml
-elaborate.sml
+local 
+  sml_syntax.sml
+  sml_syntax_helpers.sml
+  elaborate.sml
+in
+  structure SymDict
+  structure SymSet
+
+  structure SMLSyntax
+  structure SMLSyntaxHelpers
+  structure Elaborate
+end
