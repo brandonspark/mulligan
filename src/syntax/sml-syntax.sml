@@ -557,6 +557,7 @@ signature SMLSYNTAX =
     val longid_to_str : longid -> string
     val tyvar_eq : PreSMLSyntax.tyvar * PreSMLSyntax.tyvar -> bool
     val guard_tyscheme : PreSMLSyntax.type_scheme -> PreSMLSyntax.type_scheme
+    val concrete_tyscheme : PreSMLSyntax.tyval -> PreSMLSyntax.type_scheme
     val number_eq : PreSMLSyntax.number * PreSMLSyntax.number -> bool
 
     (* TYPES *)
@@ -663,6 +664,8 @@ structure SMLSyntax : SMLSYNTAX =
           else
             ty_fn tyvals
       )
+    fun concrete_tyscheme tyval =
+      guard_tyscheme (0, fn _ => tyval)
 
     local
       open PreSMLSyntax
