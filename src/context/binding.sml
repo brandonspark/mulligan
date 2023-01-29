@@ -4,6 +4,8 @@
   * See the file LICENSE for details.
   *)
 
+structure SH = SMLSyntaxHelpers
+
 structure Binding :
   sig
     type t = SMLSyntax.context
@@ -73,7 +75,7 @@ structure Binding :
             (case id of
               [id] => MarkerSet.singleton (VAL id)
             | _ => eval_err ("Cannot find constructor " ^ TerminalColors.text
-            TerminalColors.lightblue (longid_to_str id))
+            TerminalColors.lightblue (SH.longid_to_str id))
             )
       | Precord patrows => List.map (get_patrow_bindings ctx) patrows |> union_sets
       | Pparens pat => get_pat_bindings ctx pat
@@ -91,7 +93,7 @@ structure Binding :
                   (get_pat_bindings ctx atpat)
             | _ =>
               eval_err ("Cannot find constructor " ^ TerminalColors.text
-              TerminalColors.lightblue (longid_to_str id))
+              TerminalColors.lightblue (SH.longid_to_str id))
             )
       | Pinfix {left, id, right} =>
           if is_con ctx [id] then

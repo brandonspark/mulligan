@@ -14,5 +14,6 @@ $(SML_LIB)/basis/basis.mlb
 
 ../util/sources.mlb
 
-sml-syntax.sml
+sml_syntax.sml
+sml_syntax_helpers.sml
 elaborate.sml

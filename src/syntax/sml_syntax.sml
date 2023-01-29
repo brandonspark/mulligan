@@ -4,6 +4,17 @@
   * See the file LICENSE for details.
   *)
 
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* The representation for SML syntax, along with some other types which 
+ * must be manipulated over the debugger's runtime.
+ *)
+
+(*****************************************************************************)
+(* Helper structures *)
+(*****************************************************************************)
+
 structure SymbolOrdered =
   struct
     type t = Symbol.symbol
@@ -15,7 +26,12 @@ structure SymDict = RedBlackDict(structure Key = SymbolOrdered)
 
 structure SymSet = SymbolRedBlackSet
 
-structure PreSMLSyntax =
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
+
+
+structure SMLSyntax =
   struct
     type symbol = Symbol.symbol
     type longid = symbol list
@@ -62,12 +78,6 @@ structure PreSMLSyntax =
     datatype tyvar =
         Proper of symbol
       | Unconstrained of restrict option Ref.t
-
-    fun tyvar_eq (t1, t2) =
-      case (t1, t2) of
-        (Proper s1, Proper s2) => Symbol.eq (s1, s2)
-      | (Unconstrained r1, Unconstrained r2) => r1 = r2
-      | _ => false
 
     (****************************)
     (*        PATTERNS          *)
@@ -550,364 +560,4 @@ structure PreSMLSyntax =
       | Thole
 
     type ast = topdec list
-  end
-
-signature SMLSYNTAX =
-  sig
-    type symbol = PreSMLSyntax.symbol
-    type longid = PreSMLSyntax.symbol list
-
-    val map_sym : symbol -> (string -> string) -> symbol
-    val longid_eq : longid * longid -> bool
-    val longid_to_str : longid -> string
-    val tyvar_eq : PreSMLSyntax.tyvar * PreSMLSyntax.tyvar -> bool
-    val guard_tyscheme : PreSMLSyntax.type_scheme -> PreSMLSyntax.type_scheme
-    val concrete_tyscheme : PreSMLSyntax.tyval -> PreSMLSyntax.type_scheme
-    val number_eq : PreSMLSyntax.number * PreSMLSyntax.number -> bool
-
-    (* TYPES *)
-
-    datatype ty = datatype PreSMLSyntax.ty
-    datatype tyval = datatype PreSMLSyntax.tyval
-    datatype restrict = datatype PreSMLSyntax.restrict
-    datatype tyvar = datatype PreSMLSyntax.tyvar
-    type type_scheme = PreSMLSyntax.type_scheme
-    datatype synonym = datatype PreSMLSyntax.synonym
-
-    (* PATS *)
-
-    datatype patrow = datatype PreSMLSyntax.patrow
-    datatype pat = datatype PreSMLSyntax.pat
-
-    (* EXPS *)
-
-    datatype exbind = datatype PreSMLSyntax.exbind
-    datatype number = datatype PreSMLSyntax.number
-
-    type conbind = PreSMLSyntax.conbind
-    type typbind = PreSMLSyntax.typbind
-    type datbind = PreSMLSyntax.datbind
-
-    datatype dec = datatype PreSMLSyntax.dec
-    datatype exp = datatype PreSMLSyntax.exp
-    datatype fname_args = datatype PreSMLSyntax.fname_args
-
-    type fvalbinds = PreSMLSyntax.fvalbinds
-    type valbinds = PreSMLSyntax.valbinds
-
-    datatype value = datatype PreSMLSyntax.value
-    datatype typspec_status = datatype PreSMLSyntax.typspec_status
-    datatype sigval = datatype PreSMLSyntax.sigval
-    datatype functorval = datatype PreSMLSyntax.functorval
-
-    datatype scope = datatype PreSMLSyntax.scope
-    datatype id_info = datatype PreSMLSyntax.id_info
-    datatype sign = datatype PreSMLSyntax.sign
-
-    datatype infixity = datatype PreSMLSyntax.infixity
-
-    type identdict = PreSMLSyntax.identdict
-    type valtydict = PreSMLSyntax.valtydict
-    type infixdict = PreSMLSyntax.infixdict
-    type dtydict = PreSMLSyntax.dtydict
-    type moddict = PreSMLSyntax.moddict
-    type tynamedict = PreSMLSyntax.tynamedict
-
-    type dtyinfo = PreSMLSyntax.dtyinfo
-    type settings = PreSMLSyntax.settings
-
-    type context = PreSMLSyntax.context
-
-    (* MODULES *)
-
-    type condesc = PreSMLSyntax.condesc
-    type typdesc = PreSMLSyntax.typdesc
-
-    datatype opacity = datatype PreSMLSyntax.opacity
-    datatype funarg_app = datatype PreSMLSyntax.funarg_app
-
-    datatype module = datatype PreSMLSyntax.module
-    datatype strdec = datatype PreSMLSyntax.strdec
-    datatype signat = datatype PreSMLSyntax.signat
-    datatype spec = datatype PreSMLSyntax.spec
-
-    type sigbinds = PreSMLSyntax.sigbinds
-    type sigdec = PreSMLSyntax.sigdec
-
-    (* FUNCTORS *)
-
-    datatype funarg = datatype PreSMLSyntax.funarg
-
-    type funbind = PreSMLSyntax.funbind
-    type fundec = PreSMLSyntax.fundec
-
-    (* TOPDECS *)
-
-    datatype topdec = datatype PreSMLSyntax.topdec
-
-    type ast = PreSMLSyntax.ast
-  end
-
-structure SMLSyntax : SMLSYNTAX =
-  struct
-    type symbol = PreSMLSyntax.symbol
-    type longid = PreSMLSyntax.symbol list
-
-    fun map_sym sym f =
-      Symbol.fromValue (f (Symbol.toValue sym))
-    fun longid_eq (l1, l2) =
-      ListPair.allEq Symbol.eq (l1, l2)
-    fun longid_to_str longid =
-      String.concatWith "." (List.map Symbol.toValue longid)
-
-    val tyvar_eq = PreSMLSyntax.tyvar_eq
-    fun guard_tyscheme (n, ty_fn) =
-      ( n
-      , fn tyvals =>
-          if List.length tyvals <> n then
-            raise Fail "Instantiated type scheme with incorrect number of tyargs"
-          else
-            ty_fn tyvals
-      )
-    fun concrete_tyscheme tyval =
-      guard_tyscheme (0, fn _ => tyval)
-
-    local
-      open PreSMLSyntax
-    in
-      fun number_eq (n1, n2) =
-        case (n1, n2) of
-          (Int i1, Int i2) => i1 = i2
-        | (Real _, Real _) => raise Fail "comparing reals for equality"
-        | (Word w1, Word w2) => w1 = w2
-        | _ => false
-    end
-
-    (*
-    fun make_maps f_exp f_dec =
-      let
-        fun map_exp exp =
-          ( case exp of
-              ( Enumber _
-              | Estring _
-              | Echar _
-              | Eunit
-              | Eselect _
-              | Eident _
-              | Ehole
-              ) => exp
-            | Erecord fields =>
-                List.map
-                  (fn {lab, exp} => {lab = lab, map_exp exp})
-                  fields
-                |> Erecord
-            | Etuple exps =>
-                List.map map_exp exps
-                |> Etuple
-            | Elist exps =>
-                List.map map_exp exps
-                |> Elist
-            | Eseq exps =>
-                List.map map_exp exps
-                |> Elist
-            | Elet {dec, exps} =>
-                { dec = map_dec dec
-                , exps = List.map map_exp exps
-                }
-                |> Elet
-            | Eparens exp =>
-                Eparens (map_exp exp)
-            | Eapp {left, right} =>
-                Eapp {left = map_exp left, right = map_exp right}
-            | Einfix {left, id, right} =>
-                Einfix { left = map_exp left, id = id, right = map_exp right }
-            | Etyped {exp, ty} =>
-                Etyped {exp = map_exp exp, ty = map_ty ty}
-            | Eandalso {left, right} =
-                Eandalso {left = map_exp left, right = map_exp right}
-            | Eorelse {left, right} =
-                Eorelse {left = map_exp left, right = map_exp right}
-            | Ehandle {exp, matches} =>
-                Ehandle {exp = map_exp exp, matches = map_matches matches}
-            | Eraise exp =>
-                Eraise (map_exp exp)
-            | Eif {exp1, exp2, exp3} =>
-                Eif { exp1 = map_exp exp1
-                    , exp2 = map_exp exp2
-                    , exp3 = map_exp exp3
-                    }
-            | Ewhile {exp1, exp2} =>
-                Ewhile { exp1 = map_exp exp1
-                       , exp2 = map_exp exp2
-                       }
-            | Ecase {exp, matches} =>
-                Ecase {exp = map_exp exp, matches = map_matches matches}
-            | Efn (matches, ctxopt) =>
-                Efn (map_matches matches, ctxopt)
-          ) |> f_exp
-
-        and map_dec f_exp dec =
-          ( case dec of
-              Dval {tyvars, valbinds} =>
-                Dval { tyvars = tyvars
-                     , valbinds =
-                         List.map
-                           (fn {recc, pat, exp} =>
-                             { recc = recc
-                             , pat = map_pat pat
-                             , exp = map_exp exp
-                             }
-                           )
-                           valbinds
-                    }
-            | Dfun {tyvars, fvalbinds} =>
-                Dfun { tyvars = tyvars
-                     , fvalbinds =
-                         List.map
-                           (List.map
-                             (fn {fname_args, ty, exp} =>
-                               { fname_args = map_fname_args fname_args
-                               , ty = Option.map map_ty ty
-                               }
-                             )
-                           )
-                           fvalbinds
-                     }
-            | Dtype typbinds =>
-                Dtype (
-                  List.map
-                    (fn {tyvars, tycon, ty} => {tyvars = tyvars, tycon = tycon, ty = map_ty ty})
-                    typbinds
-                )
-            | Ddatdec {datbinds, withtypee} =>
-                Ddatdec
-                  { datbinds = List.map map_datbind datbinds
-                  , withtypee = Option.map (List.map map_typbind) withtypee
-                  }
-            | Dabstype {datbinds, withtypee, withh} =>
-                Dabstype
-                  { datbinds = List.map map_datbind datbinds
-                  , withtypee = Option.map (List.map map_typbind) withtypee
-                  , withh = map_dec withh
-                  }
-            | Dexception exbinds =>
-                Dexception
-                  (List.map
-                    (fn Xnew {opp, id, ty} =>
-                        Xnew {opp = opp, id = id, ty = Option.map map_ty ty}
-                    | other as Xrepl _ => other
-                    )
-                    exbinds
-                  )
-            | Dlocal {left_dec, right_dec} =>
-                Dlocal { left_dec = map_dec left_dec, right_dec = map_dec }
-            | Dseq decs =>
-                Dseq (List.map map_dec decs)
-            | ( Dopen _
-              | Ddatrepl _
-              | Dinfix
-              | Dinfixr
-              | Dnonfix
-              | Dhole _ ) => dec
-          ) |> f_dec
-
-        and map_ty ty =
-          case ty of
-            ( Tident _
-            | Ttyvar _
-            ) => ty
-          | Tapp (tys, longid) => Tapp (List.map map_ty tys, longid)
-          | Tprod tys => Tprod (List.map map_ty tys)
-          | Tarrow (ty1, ty2) => Tarrow (map_ty ty1, map_ty ty2)
-          | Trecord fields =>
-
-      in
-
-      end
-     *)
-
-
-
-
-
-    (* TYPES *)
-
-    datatype ty = datatype PreSMLSyntax.ty
-    datatype tyval = datatype PreSMLSyntax.tyval
-    datatype restrict = datatype PreSMLSyntax.restrict
-    datatype tyvar = datatype PreSMLSyntax.tyvar
-    type type_scheme = PreSMLSyntax.type_scheme
-    datatype synonym = datatype PreSMLSyntax.synonym
-
-    (* PATS *)
-
-    datatype patrow = datatype PreSMLSyntax.patrow
-    datatype pat = datatype PreSMLSyntax.pat
-
-    (* EXPS *)
-
-    datatype exbind = datatype PreSMLSyntax.exbind
-    datatype number = datatype PreSMLSyntax.number
-
-    type conbind = PreSMLSyntax.conbind
-    type typbind = PreSMLSyntax.typbind
-    type datbind = PreSMLSyntax.datbind
-
-    datatype dec = datatype PreSMLSyntax.dec
-    datatype exp = datatype PreSMLSyntax.exp
-    datatype fname_args = datatype PreSMLSyntax.fname_args
-
-    type fvalbinds = PreSMLSyntax.fvalbinds
-    type valbinds = PreSMLSyntax.valbinds
-
-    datatype value = datatype PreSMLSyntax.value
-    datatype typspec_status = datatype PreSMLSyntax.typspec_status
-    datatype sigval = datatype PreSMLSyntax.sigval
-    datatype functorval = datatype PreSMLSyntax.functorval
-
-    datatype scope = datatype PreSMLSyntax.scope
-    datatype id_info = datatype PreSMLSyntax.id_info
-    datatype sign = datatype PreSMLSyntax.sign
-
-    datatype infixity = datatype PreSMLSyntax.infixity
-
-    type identdict = PreSMLSyntax.identdict
-    type valtydict = PreSMLSyntax.valtydict
-    type infixdict = PreSMLSyntax.infixdict
-    type dtydict = PreSMLSyntax.dtydict
-    type moddict = PreSMLSyntax.moddict
-    type tynamedict = PreSMLSyntax.tynamedict
-
-    type dtyinfo = PreSMLSyntax.dtyinfo
-    type settings = PreSMLSyntax.settings
-
-    type context = PreSMLSyntax.context
-
-    (* MODULES *)
-
-    type condesc = PreSMLSyntax.condesc
-    type typdesc = PreSMLSyntax.typdesc
-
-    datatype opacity = datatype PreSMLSyntax.opacity
-    datatype funarg_app = datatype PreSMLSyntax.funarg_app
-
-    datatype module = datatype PreSMLSyntax.module
-    datatype strdec = datatype PreSMLSyntax.strdec
-    datatype signat = datatype PreSMLSyntax.signat
-    datatype spec = datatype PreSMLSyntax.spec
-
-    type sigbinds = PreSMLSyntax.sigbinds
-    type sigdec = PreSMLSyntax.sigdec
-
-    (* FUNCTORS *)
-
-    datatype funarg = datatype PreSMLSyntax.funarg
-
-    type funbind = PreSMLSyntax.funbind
-    type fundec = PreSMLSyntax.fundec
-
-    (* TOPDECS *)
-    datatype topdec = datatype PreSMLSyntax.topdec
-
-    type ast = PreSMLSyntax.ast
   end

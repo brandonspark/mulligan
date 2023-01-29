@@ -193,7 +193,7 @@ structure Value :
 
     fun value_eq values =
       case values of
-        (Vnumber num, Vnumber num') => number_eq (num, num')
+        (Vnumber num, Vnumber num') => SH.number_eq (num, num')
       | (Vstring s, Vstring s') => Symbol.eq (s, s')
       | (Vchar c, Vchar c') => c = c'
       | (Vrecord fields, Vrecord fields') =>
@@ -214,9 +214,9 @@ structure Value :
           end
       | (Vunit, Vunit) => true
       | (Vconstr {id, arg = NONE}, Vconstr {id = id', arg = NONE}) =>
-          longid_eq (id, id')
+          SH.longid_eq (id, id')
       | (Vconstr {id, arg = SOME value}, Vconstr {id = id', arg = SOME value'}) =>
-          longid_eq (id, id') andalso value_eq (value, value')
+          SH.longid_eq (id, id') andalso value_eq (value, value')
       | (Vselect sym, Vselect sym') => Symbol.eq (sym, sym')
       | (Vtuple values, Vtuple values') =>
           ListPair.allEq value_eq (values, values')

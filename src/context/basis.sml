@@ -4,6 +4,8 @@
   * See the file LICENSE for details.
   *)
 
+structure SH = SMLSyntaxHelpers
+
 structure Basis :
   sig
     val initial : SMLSyntax.context
@@ -112,7 +114,7 @@ structure Basis :
           end
       | (Vunit, Vunit) => true
       | (Vconstr {id, arg}, Vconstr {id = id', arg = arg'}) =>
-          longid_eq (id, id') andalso
+          SH.longid_eq (id, id') andalso
           (case (arg, arg') of
             (NONE, NONE) => true
           | (SOME v, SOME v') => poly_eq v v'
@@ -421,7 +423,7 @@ structure Basis :
                 | _ => eval_err "invalid arg to `=`"
                 )
               , ( Vsign
-                , SMLSyntax.guard_tyscheme
+                , SH.guard_tyscheme
                   (1, fn [tyval] => TVarrow (TVprod [tyval, tyval], bool_ty)
                      | _ => raise Fail "impossible")
                 )
@@ -456,7 +458,7 @@ structure Basis :
                        }
               | _ => raise Fail "should not happen, error in throw"
               )
-            , SMLSyntax.guard_tyscheme
+            , SH.guard_tyscheme
                 ( 2
                 , fn [a, b] => TVarrow (cont_ty a, TVarrow (a, b))
                  | _ => raise Fail "should not happen, arity mismatch in throw"

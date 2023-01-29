@@ -75,7 +75,7 @@ structure Elaborate :
             |> Int.fromString
             |> Option.valOf
             |> Int
-            |> PreSMLSyntax.Enumber
+            |> SMLSyntax.Enumber
         | Token.WordConstant =>
             Enumber (Word (Token.toString tok))
         | Token.RealConstant =>

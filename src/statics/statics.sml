@@ -4,6 +4,8 @@
   * See the file LICENSE for details.
   *)
 
+structure SH = SMLSyntaxHelpers
+
 structure Statics :
   sig
     val set_up_valbinds :
@@ -651,7 +653,7 @@ structure Statics :
        *)
       if not is_nexpansive then
         ( id
-        , guard_tyscheme
+        , SH.guard_tyscheme
             (0, fn _ => Context.norm_tyval ctx tyval)
         )
       else
@@ -672,7 +674,7 @@ structure Statics :
               fun tyvars_remove l tyvar =
                 List.foldr
                   (fn (tyvar', acc) =>
-                    if tyvar_eq (tyvar, tyvar') then
+                    if SH.tyvar_eq (tyvar, tyvar') then
                       acc
                     else
                       tyvar' :: acc
@@ -725,7 +727,7 @@ structure Statics :
               val search_fn =
                 fn tyvar =>
                   case
-                    List.find (fn (tyvar', _) => tyvar_eq (tyvar, tyvar')) paired_tys
+                    List.find (fn (tyvar', _) => SH.tyvar_eq (tyvar, tyvar')) paired_tys
                   of
                     NONE => NONE
                   | SOME (_, ty) => SOME ty
@@ -1393,9 +1395,9 @@ structure Statics :
                     ( id
                     , case ty of
                         NONE =>
-                          concrete_tyscheme Basis.exn_ty 
+                          SH.concrete_tyscheme Basis.exn_ty 
                       | SOME ty =>
-                          concrete_tyscheme (TVarrow (Context.synth_ty' ctx ty, Basis.exn_ty))
+                          SH.concrete_tyscheme (TVarrow (Context.synth_ty' ctx ty, Basis.exn_ty))
                     )
               | Xrepl {left_id, right_id, ...} =>
                   ( case Context.get_exn_opt ctx right_id of
@@ -1522,7 +1524,7 @@ structure Statics :
         | (Pident {opp = _, id}, _, _) =>
             (case (Context.get_ident_opt ctx id, v) of
               (SOME (C _), Vconstr { id = id', arg = NONE}) =>
-                if longid_eq (id, id') then
+                if SH.longid_eq (id, id') then
                   []
                 else
                   raise Mismatch "constructors did not match"
@@ -1650,7 +1652,7 @@ structure Statics :
               , _
               ) =>
                 (* If the constructors match, then... *)
-                if longid_eq (id, id') then
+                if SH.longid_eq (id, id') then
                   (* Verify that their types match. *)
                   (case instantiate_tyscheme ctx tyscheme of
                     TVarrow (in_ty, TVapp (tyvals', tyid')) =>
@@ -1959,7 +1961,7 @@ structure Statics :
                         end
                   | (Abstract (n, absid), SOME _) =>
                       SymDict.insert new_tynamedict tyname
-                        (Scheme (guard_tyscheme (n, fn tyvals => TVabs (tyvals, absid))))
+                        (Scheme (SH.guard_tyscheme (n, fn tyvals => TVabs (tyvals, absid))))
                   | (_, NONE) =>
                         spf
                           (`"Failed to find type definition for "fi"\

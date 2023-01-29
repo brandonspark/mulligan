@@ -202,7 +202,7 @@ structure Debugger :
         | Eunit => throw Vunit
         | Eselect sym => throw (Vselect sym)
         | Eident {opp = _, id} => (* special stuff here *)
-            if longid_eq (id, [Symbol.fromValue "::"]) then
+            if SH.longid_eq (id, [Symbol.fromValue "::"]) then
               throw Basis.cons
             else
               (case Context.get_ident_opt ctx id of

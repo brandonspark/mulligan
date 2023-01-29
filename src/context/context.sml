@@ -4,6 +4,8 @@
   * See the file LICENSE for details.
   *)
 
+structure SH = SMLSyntaxHelpers
+
 structure Context :
   sig
 
@@ -449,7 +451,7 @@ structure Context :
     fun get_con ctx id =
       case get_con_opt ctx id of
         NONE =>
-          prog_err ("Nonexistent constructor " ^ lightblue (longid_to_str id))
+          prog_err ("Nonexistent constructor " ^ lightblue (SH.longid_to_str id))
       | SOME ans => ans
 
     fun is_con ctx id = case get_con_opt ctx id of NONE => false | _ => true
@@ -483,7 +485,7 @@ structure Context :
       handle CouldNotFind =>
         prog_err
           ("Could not open nonexistent module "
-          ^ TerminalColors.text TerminalColors.lightblue (longid_to_str path)
+          ^ TerminalColors.text TerminalColors.lightblue (SH.longid_to_str path)
           )
 
     fun get_val_opt ctx id =
@@ -505,7 +507,7 @@ structure Context :
     fun get_val ctx id =
       case get_val_opt ctx id of
         NONE =>
-          prog_err ("Nonexistent value binding to identifier " ^ lightblue (longid_to_str id))
+          prog_err ("Nonexistent value binding to identifier " ^ lightblue (SH.longid_to_str id))
       | SOME ans => ans
 
     fun get_ident_opt ctx id =
@@ -592,7 +594,7 @@ structure Context :
     fun get_type_synonym ctx id =
       case get_type_synonym_opt ctx id of
         NONE =>
-          prog_err ("Nonexistent type synonym " ^ lightblue (longid_to_str id))
+          prog_err ("Nonexistent type synonym " ^ lightblue (SH.longid_to_str id))
       | SOME ans => ans
 
     fun get_dtydict (ctx : SMLSyntax.context) = ! (#dtydict ctx)
@@ -978,7 +980,7 @@ structure Context :
 
     fun break_fn ctx (id : longid) do_break =
       let
-        val name = lightblue (longid_to_str id)
+        val name = lightblue (SH.longid_to_str id)
         val res = ref NONE
         val (xs, x) = snoc id
         val setting =
@@ -1267,7 +1269,7 @@ structure Context :
     local
       fun insert_tyvar tyvar l =
         case
-          List.find (fn tyvar' => tyvar_eq (tyvar, tyvar')) l
+          List.find (fn tyvar' => SH.tyvar_eq (tyvar, tyvar')) l
         of
           NONE => tyvar :: l
         | SOME _ => l
