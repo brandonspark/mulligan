@@ -425,6 +425,14 @@ structure SMLSyntax =
     (*          VALUES          *)
     (****************************)
 
+    (* While we have a representation for expressions already, the debugger 
+     * is interested in trying to step expressions to values. In this case, 
+     * it is sometimes useful to have a first-class notion of values.
+     * 
+     * This type is that representation. It represents a step away from the
+     * literal concrete text of the manipulated program, and goes towards
+     * something more abstract that can be used. 
+     *)
     and value =
         Vnumber of number
       | Vstring of symbol
@@ -460,10 +468,14 @@ structure SMLSyntax =
           }
       | Vbasis of { name : symbol, function : value -> value }
 
-    and typspec_status =
-        Abstract of int * AbsId.t
-      | Concrete of type_scheme
-
+    (* We also have a notion of values for signatures. 
+     * 
+     * A signature is parsed into a `SMLSyntax.signat`, which does not
+     * do anything like resolving abstract types, minting new TyIds for
+     * datatypes, or otherwise processing the textual data into something
+     * that can be used. This datatype can be more nicely manipulated
+     * when we do things like signature ascription in the statics. 
+     *)
     and sigval =
       Sigval of
         { valspecs : (type_scheme * AbsId.t list) dict
@@ -477,6 +489,12 @@ structure SMLSyntax =
         , modspecs : sigval dict
         }
 
+    (* Type specifications can be abstract or concrete.
+     *)
+    and typspec_status =
+        Abstract of int * AbsId.t
+      | Concrete of type_scheme
+
     and functorval =
       Functorval of
         { arg_seal : { id : symbol option, sigval : sigval }
@@ -488,6 +506,14 @@ structure SMLSyntax =
     (*          SCOPE          *)
     (****************************)
 
+    (* Scopes are a reified notion of the bindings which exist at a 
+     * particular lexical scope.
+     * 
+     * In particular, we need to keep track of things like value bindings,
+     * type bindings, and module bindings, which all have separate
+     * namespaces. There are also infixities.
+     *
+     *)
     and id_info =
         V of value
       | C of TyId.t
@@ -500,7 +526,7 @@ structure SMLSyntax =
 
     and scope =
       Scope of
-          (* TODO: combine these three *)
+          (* TODO: combine these two `identdict` and `valtydict` *)
         { identdict : identdict (* identifiers -> values *)
         , valtydict : valtydict (* val identifiers -> types *)
         , moddict : moddict (* maps to module scopes *)
@@ -535,6 +561,21 @@ structure SMLSyntax =
     (****************************)
     (*     CONTEXT AND SCOPE    *)
     (****************************)
+
+    (* The context we carry around throughout evaluation of the debugger.
+     * 
+     * There's a few things in here that are useful:
+     * - scope and outer_scopes, which detail the various scopes we are in
+     * - sigdict and functordict, which are top-level module information
+     * - dtydict, which is a persistent source of information about each
+     *   datatype's definition.
+     *   We need this around because we may have to still reference a
+     *   datatype long after it's out of scope.
+     *   THINK: I'm not convinced this (or the statics) are necessary.
+     * - tyvars, which is a set of all the tyvars currently in scope.
+     * - hole_print_fn, which we use for the debugger's pretty-printer
+     * - settings, which holds global settings for the debugger
+     *)
 
     and context =
       { scope : scope
