@@ -18,5 +18,3 @@ structure Either =
   struct
     datatype ('a, 'b) t = INL of 'a | INR of 'b
   end
-
-datatype either = datatype Either.t

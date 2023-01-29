@@ -17,7 +17,9 @@
 (* Global helpers *)
 (*****************************************************************************)
 
-infix |>
+(* So we have slightly more precedence than `<|`. 
+ *)
+infix 1 |>
 fun x |> f = f x
 
 fun fst (x, _) = x
@@ -30,11 +32,11 @@ fun snd (_, y) = y
  * With low precedence, we won't have to put parentheses, and the `print` 
  * is understood to go last.
  *)
-infixr 9 <|
+infixr 0 <|
 fun f <| x = f x
 
 (* a unit test!!!! *)
-val _ : string = (fn x => x + 1) <| 2 |> (fn _ => "") 
+val _ : string = (fn x => "") <| 2 |> (fn _ => 4) 
 
 fun orange s = TerminalColors.text TerminalColors.orange s
 fun red s = TerminalColors.text TerminalColors.red s
