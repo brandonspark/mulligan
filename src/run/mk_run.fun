@@ -1,3 +1,8 @@
+(** Brandon Wu 
+  *
+  * Copyright (c) 2022-2023
+  * See the file LICENSE for details.
+  *)
 
 (* The MkRun functor allows the debugger to be run, with control over how each
  * step is handled, whether or not the `running` flag is set on start-up, and

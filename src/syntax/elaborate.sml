@@ -1,3 +1,8 @@
+(** Brandon Wu 
+  *
+  * Copyright (c) 2022-2023
+  * See the file LICENSE for details.
+  *)
 
 (* The point of this is to elaborate the austere AST to the simpler AST.
  *

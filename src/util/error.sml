@@ -1,3 +1,9 @@
+(** Brandon Wu 
+  *
+  * Copyright (c) 2022-2023
+  * See the file LICENSE for details.
+  *)
+
 datatype warning =
   ParseWarning of (string * string list)
 | InvalidExt of string
