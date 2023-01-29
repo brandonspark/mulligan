@@ -206,7 +206,7 @@ structure Context :
     fun scope_infixdict (Scope {infixdict, ...}) = infixdict
     fun scope_tynamedict (Scope {tynamedict, ...}) = tynamedict
 
-    fun scope_set_identdict (Scope {  identdict, valtydict, moddict, infixdict,
+    fun scope_set_identdict (Scope {  identdict = _, valtydict, moddict, infixdict,
                                     tynamedict}) new =
       Scope { identdict = new
             , valtydict = valtydict
@@ -214,7 +214,7 @@ structure Context :
             , infixdict = infixdict
             , tynamedict = tynamedict
             }
-    fun scope_set_valtydict (Scope {  identdict, valtydict, moddict, infixdict,
+    fun scope_set_valtydict (Scope {  identdict, valtydict = _, moddict, infixdict,
                                     tynamedict}) new =
       Scope { identdict = identdict
             , valtydict = new
@@ -222,7 +222,7 @@ structure Context :
             , infixdict = infixdict
             , tynamedict = tynamedict
             }
-    fun scope_set_moddict (Scope {  identdict, valtydict, moddict, infixdict,
+    fun scope_set_moddict (Scope {  identdict, valtydict, moddict = _, infixdict,
                                     tynamedict}) new =
       Scope { identdict = identdict
             , valtydict = valtydict
@@ -230,7 +230,7 @@ structure Context :
             , infixdict = infixdict
             , tynamedict = tynamedict
             }
-    fun scope_set_infixdict (Scope {  identdict, valtydict, moddict, infixdict,
+    fun scope_set_infixdict (Scope {  identdict, valtydict, moddict, infixdict = _,
                                     tynamedict}) new =
       Scope { identdict = identdict
             , valtydict = valtydict
@@ -239,7 +239,7 @@ structure Context :
             , tynamedict = tynamedict
             }
     fun scope_set_tynamedict (Scope {  identdict, valtydict, moddict, infixdict,
-                                    tynamedict}) new =
+                                    tynamedict = _}) new =
       Scope { identdict = identdict
             , valtydict = valtydict
             , moddict = moddict
@@ -282,7 +282,7 @@ structure Context :
 
     fun ctx_rec (scope as Scope { identdict, ... }) =
       SymDict.map
-        (fn V (Vfn {matches, env, rec_env, break, abstys}) =>
+        (fn V (Vfn {matches, env, rec_env = _, break, abstys}) =>
             V (Vfn { matches = matches
                   , env = env
                   , rec_env = SOME scope
@@ -300,7 +300,7 @@ structure Context :
     (* For looking backwards through all contexts, stopping on the first scope
      * that returns SOME.
      *)
-    fun map_scope_id f (ctx as {scope, outer_scopes, dtydict, sigdict, functordict,
+    fun map_scope_id f ({scope, outer_scopes, dtydict, sigdict, functordict,
     tyvars, hole_print_fn, settings, abstys}) id =
       let
         fun map_thing' scopes =

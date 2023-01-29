@@ -75,7 +75,8 @@ structure Location =
       and plug_hole v location =
         case location of
           (EHOLE exp_hole :: rest) => (plug_exp_hole v exp_hole, rest)
-        | (DVALBINDS _ :: rest) => (Value.value_to_exp v, location)
+          (* THINK: I no longer understand what this does. *)
+        | (DVALBINDS _ :: _) => (Value.value_to_exp v, location)
         | (CLOSURE _ :: rest) => plug_hole v rest
         | ( ELET _
           | DLOCAL _

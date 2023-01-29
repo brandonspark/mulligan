@@ -122,8 +122,8 @@ structure Basis :
           poly_eq left left' andalso poly_eq right right' andalso Symbol.eq (id, id')
       | (Vfn _, _) => prog_err "= called on function value"
       | (_, Vfn _) => prog_err "= called on function value"
-      | (Vbasis {name, ...}, _) => prog_err "= called on basis function value"
-      | (_, Vbasis {name, ...}) => prog_err "= called on basis function value"
+      | (Vbasis _, _) => prog_err "= called on basis function value"
+      | (_, Vbasis _) => prog_err "= called on basis function value"
       | _ => false
 
     val poly_eq = fn v1 => fn v2 => convert (poly_eq v1 v2)
@@ -530,7 +530,7 @@ structure Basis :
         }
 
 
-    val initial =
+    val initial : SMLSyntax.context =
       { scope = initial_scope
       , outer_scopes = []
       , dtydict = ref (tyid_dict_from_list initial_dtys)
