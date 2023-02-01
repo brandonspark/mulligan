@@ -1,4 +1,6 @@
-../../cmlib/cmlib.mlb
+ann "milletDiagnosticsIgnore all" in
+  ../../cmlib/cmlib.mlb
+end
 $(SML_LIB)/basis/basis.mlb
 $(SML_LIB)/basis/mlton.mlb
 

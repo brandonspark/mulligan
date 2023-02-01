@@ -5,6 +5,7 @@
   *)
 
 structure SH = SMLSyntaxHelpers
+structure S = SMLSyntax
 
 structure Context :
   sig
@@ -16,15 +17,15 @@ structure Context :
 
     (* Context stuff. *)
 
-    type value = SMLSyntax.value
-    type scope = SMLSyntax.scope
-    type t = SMLSyntax.context
-    type identdict = SMLSyntax.identdict
+    type value = S.value
+    type scope = S.scope
+    type t = S.context
+    type identdict = S.identdict
 
     (* The longid is purely for the pretty printer. We have to have an idea of
      * what to call the exception.
      *)
-    exception Raise of SMLSyntax.longid * ExnId.t * SMLSyntax.value option
+    exception Raise of S.longid * ExnId.t * S.value option
 
     val scope_empty : scope
     val merge_scope : t -> scope -> t
@@ -36,37 +37,37 @@ structure Context :
     val scope_set_identdict : scope -> identdict -> scope
     val scope_set_moddict : scope -> scope SymDict.dict -> scope
 
-    val get_ident_opt : t -> SMLSyntax.longid -> SMLSyntax.id_info option
-    val get_val : t -> SMLSyntax.longid -> value
-    val get_val_opt : t -> SMLSyntax.longid -> value option
-    val get_con_opt : t -> SMLSyntax.longid -> TyId.t option
-    val get_exn_opt : t -> SMLSyntax.longid -> ExnId.t option
-    val get_ident_ty_opt : t -> SMLSyntax.longid -> (SMLSyntax.sign * SMLSyntax.type_scheme) option
-    val get_type_synonym : t -> SMLSyntax.longid -> SMLSyntax.synonym
-    val get_sigval_opt : t -> SMLSyntax.symbol -> SMLSyntax.sigval option
-    val get_functorval_opt : t -> SMLSyntax.symbol -> SMLSyntax.functorval option
-    val get_ident_ty : t -> SMLSyntax.longid -> SMLSyntax.sign * SMLSyntax.type_scheme
-    val get_module : t -> SMLSyntax.longid -> scope
-    val get_sig : t -> SMLSyntax.symbol -> SMLSyntax.sigval
-    val get_functor : t -> SMLSyntax.symbol -> SMLSyntax.functorval
-    val get_dtydict : t -> SMLSyntax.dtydict
-    val get_datatype_with_longid : t -> SMLSyntax.longid -> SMLSyntax.dtyinfo
-    val get_infixity : t -> SMLSyntax.symbol -> SMLSyntax.infixity * int
+    val get_ident_opt : t -> S.longid -> S.id_info option
+    val get_val : t -> S.longid -> value
+    val get_val_opt : t -> S.longid -> value option
+    val get_con_opt : t -> S.longid -> TyId.t option
+    val get_exn_opt : t -> S.longid -> ExnId.t option
+    val get_ident_ty_opt : t -> S.longid -> (S.sign * S.type_scheme) option
+    val get_type_synonym : t -> S.longid -> S.synonym
+    val get_sigval_opt : t -> S.symbol -> S.sigval option
+    val get_functorval_opt : t -> S.symbol -> S.functorval option
+    val get_ident_ty : t -> S.longid -> S.sign * S.type_scheme
+    val get_module : t -> S.longid -> scope
+    val get_sig : t -> S.symbol -> S.sigval
+    val get_functor : t -> S.symbol -> S.functorval
+    val get_dtydict : t -> S.dtydict
+    val get_datatype_with_longid : t -> S.longid -> S.dtyinfo
+    val get_infixity : t -> S.symbol -> S.infixity * int
 
-    val is_con : t -> SMLSyntax.longid -> bool
-    val is_exn : t -> SMLSyntax.longid -> bool
+    val is_con : t -> S.longid -> bool
+    val is_exn : t -> S.longid -> bool
 
-    val add_exn : t -> ExnId.t -> SMLSyntax.symbol * SMLSyntax.type_scheme -> t
-    val add_type_synonym : t -> SMLSyntax.symbol -> SMLSyntax.synonym -> t
-    val add_val_ty_bindings : t -> (SMLSyntax.symbol * SMLSyntax.type_scheme) list -> t
+    val add_exn : t -> ExnId.t -> S.symbol * S.type_scheme -> t
+    val add_type_synonym : t -> S.symbol -> S.synonym -> t
+    val add_val_ty_bindings : t -> (S.symbol * S.type_scheme) list -> t
     val add_unquantified_val_ty_bindings :
-      t -> (SMLSyntax.symbol * SMLSyntax.tyval) list -> t
-    (*val add_con : t -> SMLSyntax.symbol -> t *)
-    val add_infix : t -> (SMLSyntax.symbol * SMLSyntax.infixity * int) -> t
-    val add_module : t -> SMLSyntax.symbol -> scope -> t
-    val add_sig : t -> SMLSyntax.symbol -> SMLSyntax.sigval -> t
-    val add_functor : t -> SMLSyntax.symbol -> SMLSyntax.functorval -> t
-    val add_abstys : t -> SMLSyntax.type_scheme AbsIdDict.dict -> t
+      t -> (S.symbol * S.tyval) list -> t
+    (*val add_con : t -> S.symbol -> t *)
+    val add_infix : t -> (S.symbol * S.infixity * int) -> t
+    val add_module : t -> S.symbol -> scope -> t
+    val add_sig : t -> S.symbol -> S.sigval -> t
+    val add_functor : t -> S.symbol -> S.functorval -> t
+    val add_abstys : t -> S.type_scheme AbsIdDict.dict -> t
     val add_scoped_tyvars : t -> SymSet.set -> t
 
     (* cm_export path init_ctx after_ctx exports =>* restricted_ctx 
@@ -75,9 +76,9 @@ structure Context :
      *)
     val cm_export :
       string -> t -> t ->
-                { structs : SMLSyntax.symbol list
-                , sigs : SMLSyntax.symbol list
-                , functors : SMLSyntax.symbol list
+                { structs : S.symbol list
+                , sigs : S.symbol list
+                , functors : S.symbol list
                 } -> t
 
     val add_hole_print_fn : t -> (unit -> PrettySimpleDoc.t) -> t
@@ -86,58 +87,52 @@ structure Context :
     val set_substitute : t -> bool -> unit
     val is_substitute : t -> bool
 
-    val get_settings : t -> SMLSyntax.settings
+    val get_settings : t -> S.settings
     val get_print_depth : t -> int
 
-    val break_fn : t -> SMLSyntax.longid -> bool -> t * SMLSyntax.symbol option ref
-    val remove_infix : t -> SMLSyntax.symbol -> t
+    val break_fn : t -> S.longid -> bool -> t * S.symbol option ref
+    val remove_infix : t -> S.symbol -> t
 
     val enter_scope : t -> t
-    val exit_scope : SMLSyntax.symbol -> t -> t
+    val exit_scope : S.symbol -> t -> t
     val pop_scope : t -> scope
     val pop_penultimate : t -> t
     val exit_local : t -> t
 
     val open_scope : t -> scope -> t
-    val open_path : t -> SMLSyntax.symbol list -> t
+    val open_path : t -> S.symbol list -> t
 
-    val add_bindings : t -> (SMLSyntax.symbol * value) list -> t
-    val add_bindings_combined : t -> (SMLSyntax.symbol * value * SMLSyntax.tyval) list -> t
-    val add_rec_bindings : t -> (SMLSyntax.symbol * value) list -> t
+    val add_val_bindings : t -> (S.symbol * value) list -> t
+    val add_val_rec_bindings : t -> (S.symbol * value) list -> t
+    val add_val_bindings_combined : t -> (S.symbol * value * S.tyval) list -> t
 
     (* Type stuff. *)
 
     val synth_ty :
-         (SMLSyntax.symbol * SMLSyntax.tyval list -> SMLSyntax.tyval option)
-      -> (SMLSyntax.symbol -> SMLSyntax.tyval option)
-      -> SMLSyntax.context
-      -> SMLSyntax.ty
-      -> SMLSyntax.tyval
-    val synth_ty' :
-         SMLSyntax.context
-      -> SMLSyntax.ty
-      -> SMLSyntax.tyval
+         (S.symbol * S.tyval list -> S.tyval option)
+      -> (S.symbol -> S.tyval option)
+      -> S.context
+      -> S.ty
+      -> S.tyval
+    val synth_ty' : t -> S.ty -> S.tyval
 
-    val norm_tyval :
-         t
-      -> SMLSyntax.tyval
-      -> SMLSyntax.tyval
+    val norm_tyval : t -> S.tyval -> S.tyval
 
     val mk_type_scheme :
-         (SMLSyntax.symbol * SMLSyntax.tyval list -> SMLSyntax.tyval option)
-      -> SMLSyntax.symbol list
-      -> SMLSyntax.ty
+         (S.symbol * S.tyval list -> S.tyval option)
+      -> S.symbol list
+      -> S.ty
       -> t
-      -> SMLSyntax.type_scheme
+      -> S.type_scheme
 
-    val replicate_datatype : t -> SMLSyntax.symbol * SMLSyntax.symbol list -> t
+    val replicate_datatype : t -> S.symbol * S.symbol list -> t
 
-    val get_current_tyvars : (SMLSyntax.tyval -> SMLSyntax.tyvar list) -> t -> SMLSyntax.tyvar list
+    val get_current_tyvars : (S.tyval -> S.tyvar list) -> t -> S.tyvar list
 
     val add_datbind :
-        (SMLSyntax.symbol * SMLSyntax.tyval list -> SMLSyntax.tyval option)
+        (S.symbol * S.tyval list -> S.tyval option)
      -> t
-     -> TyId.t * SMLSyntax.datbind
+     -> TyId.t * S.datbind
      -> t
 
   end =
@@ -889,7 +884,7 @@ structure Context :
     fun open_scope ctx new_scope =
       merge_scope ctx new_scope
 
-    fun add_bindings_combined ctx bindings =
+    fun add_val_bindings_combined ctx bindings =
       lift (fn (scope, rest) =>
         let
           val identdict = scope_identdict scope
@@ -911,7 +906,7 @@ structure Context :
         end
       ) ctx
 
-    fun add_bindings ctx bindings =
+    fun add_val_bindings ctx bindings =
       lift (fn (scope, rest) =>
         let
           val identdict = scope_identdict scope
@@ -927,18 +922,17 @@ structure Context :
         end
       ) ctx
 
-    fun add_rec_bindings ctx bindings =
+    fun add_val_rec_bindings ctx bindings =
       lift (fn (scope, rest) =>
         let
           val identdict = scope_identdict scope
 
           val rec_identdict =
-            List.foldl
-              (fn ((id, value), identdict) =>
-                SymDict.insert identdict id (V value)
-              )
-              SymDict.empty
-              bindings
+            bindings
+            |> List.foldl (fn ((id, value), identdict) =>
+                 SymDict.insert identdict id (V value)
+               ) 
+               SymDict.empty
             |> scope_set_identdict scope
             |> ctx_rec
             |> scope_identdict
@@ -981,7 +975,7 @@ structure Context :
     fun break_fn ctx (id : longid) do_break =
       let
         val name = lightblue (SH.longid_to_str id)
-        val res = ref NONE
+        val res : symbol option ref option ref = ref NONE
         val (xs, x) = snoc id
         val setting =
           if do_break then SOME x

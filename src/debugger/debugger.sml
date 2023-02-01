@@ -94,12 +94,6 @@ structure Debugger :
 
     exception Perform of perform
 
-    fun iter_list f z l =
-      case l of
-        [] => z
-      | x::xs =>
-          iter_list f (f (x, xs, z)) xs
-
     (* Check if these bindings are supposed to be breakpoints when
      * bound to.
      *)
@@ -685,7 +679,7 @@ structure Debugger :
                 valbinds
             val ctx = orig_ctx
           in
-            iter_list
+            ListUtils.fold_with_tail
               (* THINK: should i use `recc`? *)
               (fn ({recc, pat, exp}, rest, pairs) =>
                 let
@@ -726,9 +720,9 @@ structure Debugger :
                  * have already been added during the synth_dec step.
                  *)
                 if List.foldl (fn (x, y) => x orelse y) false (List.map #recc valbinds) then
-                  Context.add_rec_bindings new_ctx bindings
+                  Context.add_val_rec_bindings new_ctx bindings
                 else
-                  Context.add_bindings new_ctx bindings
+                  Context.add_val_bindings new_ctx bindings
                )
           end
       | Statics.DEC_FUN (ctx, {tyvars = _, fvalbinds}) =>
@@ -837,7 +831,7 @@ structure Debugger :
               (fn fvalbind => get_fvalbinding fvalbind orig_ctx)
               fvalbinds
         in
-          Context.add_rec_bindings ctx fvalbindings
+          Context.add_val_rec_bindings ctx fvalbindings
         end
       | Statics.DEC_CTX ctx => ctx
       | Statics.DEC_CONT f =>
@@ -946,7 +940,7 @@ structure Debugger :
     and eval_strdec location strdec ctx =
       case strdec of
         DMseq strdecs =>
-          iter_list
+          ListUtils.fold_with_tail
             (fn (strdec, strdecs, ctx) =>
               eval_strdec (DMSEQ strdecs :: location) strdec ctx
             )
@@ -955,7 +949,7 @@ structure Debugger :
       | DMdec dec =>
           eval_dec location dec ctx
       | DMstruct modules =>
-          iter_list
+          ListUtils.fold_with_tail
             (fn ({id, seal, module}, rest, acc) =>
               ( id
               , seal
@@ -991,7 +985,7 @@ structure Debugger :
       | DMlocal {left_dec, right_dec} =>
           ( case left_dec of
               DMseq strdecs =>
-                iter_list
+                ListUtils.fold_with_tail
                   (fn (strdec, strdecs, ctx) =>
                     eval_strdec (DMLOCAL (strdecs, right_dec) :: CLOSURE ctx :: location) strdec ctx
                   )
@@ -1036,7 +1030,7 @@ structure Debugger :
       | Thole => raise Fail "shouldn't eval thole"
 
     fun eval_program ast ctx =
-      iter_list
+      ListUtils.fold_with_tail
         (fn (topdec, topdecs, ctx) =>
           eval_topdec [Location.PROG topdecs] topdec ctx
         )

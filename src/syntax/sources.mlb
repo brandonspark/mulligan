@@ -1,13 +1,15 @@
-local
-  ../../parse-sml/src/base/sources.mlb
-  ../../parse-sml/src/ast/sources.mlb
-  ../../parse-sml/src/ast/AstType.sml
-  ../../parse-sml/src/parse/sources.mlb
-in
-  structure Ast
-  structure Seq
-  structure Token
-  structure MaybeLongToken
+ann "milletDiagnosticsIgnore all" in
+  local
+    ../../parse-sml/src/base/sources.mlb
+    ../../parse-sml/src/ast/sources.mlb
+    ../../parse-sml/src/ast/AstType.sml
+    ../../parse-sml/src/parse/sources.mlb
+  in
+    structure Ast
+    structure Seq
+    structure Token
+    structure MaybeLongToken
+  end
 end
 
 $(SML_LIB)/basis/basis.mlb

@@ -22,6 +22,10 @@ signature LISTUTILS =
     val map_cons : ('a -> 'b) -> ('a -> 'b) -> 'a list -> 'b list
     val cons_rev : 'a list -> 'a -> 'a list
 
+    val mapi : ('a * int -> 'b) -> 'a list -> 'b list
+
+    val fold_with_tail : ('a * 'a list * 'b -> 'b) -> 'b -> 'a list -> 'b
+
     val flatten : 'a list list -> 'a list
   end
 
@@ -41,6 +45,21 @@ structure ListUtils : LISTUTILS =
 
     fun map_cons _ _ [] = []
       | map_cons f g (x::xs) = f x :: List.map g xs
+
+    fun mapi f l =
+      List.foldl
+        (fn (x, (i, acc)) =>
+          (i + 1, f (x, i) :: acc)
+        )
+        (0, [])
+        l
+      |> (fn l => List.rev (#2 l))
+
+    fun fold_with_tail f z l =
+      case l of
+        [] => z
+      | x::xs =>
+          fold_with_tail f (f (x, xs, z)) xs
 
     fun cons_rev L x = x::L
     (* I could instead write `Fn.curry (Fn.flip op::)`, but then I get value

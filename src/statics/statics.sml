@@ -5,31 +5,67 @@
   *)
 
 structure SH = SMLSyntaxHelpers
+structure B = Basis
 
-structure Statics :
+open SMLSyntax
+open Error
+open PrettyPrintAst
+
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* Type-checking and everything type-related.
+ * 
+ * While the debugger generally assumes a compiling program, and a debugger
+ * need only be able to display the dynamic behavior of a program, we'd like 
+ * it such that the debugger could also support commands that printed out the
+ * types of bound variables.
+ *
+ * This is impossible without implementing the statics of ML, so here we are.
+ *
+ * In reality, I'm pretty sure that this entire file is a waste of time, but 
+ * hey, features.
+ *)
+
+(*****************************************************************************)
+(* Types *)
+(*****************************************************************************)
+
+(* This is so we can facilitate a little bit of code reuse between the
+  * statics and the debugger.
+  *
+  * The debugger needs to do pretty much the exact same stuff as the statics
+  * for a dec, plus a little bit more. This only happens in four cases
+  * though, so instead the statics will do all the statics stuff, then
+  * provide a value of this type, which the debugger will dispatch on to do
+  * all the real-time stuff.
+  *
+  * THINK: I'm no longer convinced `DEC_CONT` is necessary.
+  *)
+datatype dec_status =
+    DEC_VAL of Context.t * Context.t * {tyvars : SMLSyntax.symbol list, valbinds : SMLSyntax.valbinds}
+  | DEC_FUN of Context.t * {tyvars : SMLSyntax.symbol list, fvalbinds : SMLSyntax.fvalbinds}
+  | DEC_CTX of Context.t
+  | DEC_CONT of
+      Location.location list
+    * (Location.location list -> SMLSyntax.dec -> Context.t -> Context.t)
+    -> Context.t
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
+signature STATICS =
   sig
-    val set_up_valbinds :
-        SMLSyntax.context
-     -> { tyvars : SMLSyntax.symbol list
-        , valbinds : SMLSyntax.valbinds
-        }
-     -> SMLSyntax.context * SMLSyntax.context
-
-    val set_up_fvalbinds :
-        SMLSyntax.context
-     -> { tyvars : SMLSyntax.symbol list
-        , fvalbinds : SMLSyntax.fvalbinds
-        }
-     -> SMLSyntax.context
-
-    datatype dec_status =
-        DEC_VAL of Context.t * Context.t * {tyvars : SMLSyntax.symbol list, valbinds : SMLSyntax.valbinds}
-      | DEC_FUN of Context.t * {tyvars : SMLSyntax.symbol list, fvalbinds : SMLSyntax.fvalbinds}
-      | DEC_CTX of Context.t
-      | DEC_CONT of
-           Location.location list
-         * (Location.location list -> SMLSyntax.dec -> Context.t -> Context.t)
-         -> Context.t
+    (* This file is best separated from the rest of the debugger, and there are
+     * four output formats that the statics can return useful information in,
+     * when running the statics on a declaration. 
+     *
+     * These are in declaring a value, declaring a function, returning just
+     * a new context, and returning a continuation.
+     * So these are what `synth_dec` returns.
+     *)
+    datatype dec_status = datatype dec_status
 
     val synth :
         Context.t
@@ -47,10 +83,12 @@ structure Statics :
      -> { opacity : SMLSyntax.opacity, sigval : SMLSyntax.sigval} option
      -> Context.scope
 
-    val nexpansive : Context.t -> SMLSyntax.exp -> bool
-
     exception Mismatch of string
 
+    (* i no longer understand this absty nonsense 
+     *)
+    (* !!can raise Mismatch!!
+     *)
     val apply_fn :
          {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list * Context.t * SMLSyntax.scope option
       -> Context.value
@@ -58,6 +96,8 @@ structure Statics :
       -> SMLSyntax.type_scheme AbsIdDict.dict
       -> (SMLSyntax.symbol * Context.value * SMLSyntax.tyval) list * Context.t * SMLSyntax.exp
 
+    (* !!can raise Mismatch!!
+     *)
     val match_against :
          Context.t
       -> {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list
@@ -65,162 +105,221 @@ structure Statics :
       -> SMLSyntax.tyval
       -> (SMLSyntax.symbol * Context.value * SMLSyntax.tyval) list * Context.t * SMLSyntax.exp
 
+    (* match_pat ctx pat v ty
+     * returns the bindings produced by matching value `v` of type `ty` 
+     * against pattern `pat`
+     * !!can raise Mismatch!!
+     *)
     val match_pat :
          Context.t
       -> SMLSyntax.pat
       -> Context.value
       -> SMLSyntax.tyval
       -> (SMLSyntax.symbol * Context.value * SMLSyntax.tyval) list
+  end 
 
-  end =
-  struct
-    open Common
-    open SMLSyntax
-    open Error
-    open PrettyPrintAst
+(*****************************************************************************)
+(* Helpers *)
+(*****************************************************************************)
 
-    val sym = Symbol.fromValue
+val sym = Symbol.fromValue
 
-    fun iter_list f z l =
-      case l of
-        [] => z
-      | x::xs =>
-          iter_list f (f (x, xs, z)) xs
+fun new () = TVvar (Ref.new NONE)
 
-    fun new () = TVvar (Ref.new NONE)
+fun instantiate_tyscheme (ctx : context) ((arity, ty_fn) : type_scheme) : tyval =
+  Context.norm_tyval ctx (ty_fn (List.tabulate (arity, fn _ => new ())))
 
-    val bool_ty = Basis.bool_ty
-
-    fun mapi f l =
+(* Unification of types requires checking that unification variables do not
+  * occur in the type to be unified with (circularity). This function
+  * facilitates that.
+  *)
+fun occurs_check (r : restrict option ref) (tyval : tyval) : bool =
+  case tyval of
+    TVtyvar _ => false
+  | TVvar (_, ref NONE) =>
+      (* If r = r', then they actually both can unify, so this isn't an
+        * issue.
+        * So assume not occurring.
+        *)
+      false
+  | ( TVapp (tyvals, _)
+    | TVabs (tyvals, _)
+    | TVprod tyvals ) =>
       List.foldl
-        (fn (x, (i, acc)) =>
-          (i + 1, f (x, i) :: acc)
+        (fn (tyval, b) =>
+          b orelse occurs_check r tyval
         )
-        (0, [])
-        l
-      |> (fn l => List.rev (#2 l))
+        false
+        tyvals
+  | TVrecord fields =>
+      List.foldl
+        (fn ({tyval, ...}, b) =>
+            b orelse occurs_check r tyval
+        )
+        false
+        fields
+  | TVvar (_, r' as ref (SOME (Rows fields))) =>
+      r = r' orelse
+      List.foldl
+        (fn ({tyval, ...}, b) =>
+            b orelse occurs_check r tyval
+        )
+        false
+        fields
+  | TVvar (_, r' as ref (SOME (Ty tyval))) =>
+      r = r' orelse occurs_check r tyval
+  | TVarrow (t1, t2) =>
+      occurs_check r t1 orelse occurs_check r t2
 
-    (* Unification of types requires checking that unification variables do not
-     * occur in the type to be unified with (circularity). This function
-     * facilitates that.
-     *)
-    fun occurs_check r tyval =
-      case tyval of
-        TVtyvar _ => false
-      | TVvar (_, ref NONE) =>
-          (* If r = r', then they actually both can unify, so this isn't an
-           * issue.
-           * So assume not occurring.
-           *)
-          false
-      | ( TVapp (tyvals, _)
-        | TVabs (tyvals, _)
-        | TVprod tyvals ) =>
-          List.foldl
-            (fn (tyval, b) =>
-              b orelse occurs_check r tyval
-            )
-            false
-            tyvals
-      | TVrecord fields =>
-          List.foldl
-            (fn ({tyval, ...}, b) =>
-               b orelse occurs_check r tyval
-            )
-            false
-            fields
-      | TVvar (_, r' as ref (SOME (Rows fields))) =>
-          r = r' orelse
-          List.foldl
-            (fn ({tyval, ...}, b) =>
-               b orelse occurs_check r tyval
-            )
-            false
-            fields
-      | TVvar (_, r' as ref (SOME (Ty tyval))) =>
-          r = r' orelse occurs_check r tyval
-      | TVarrow (t1, t2) =>
-          occurs_check r t1 orelse occurs_check r t2
+(* Get the essential information from each fname_args.
+  * We need the function name, pat bindings, and types of the patterns.
+  *)
+fun get_fname_args_info synth_pat fname_args ctx =
+  let
+    fun bindings_and_tys_of_pats ctx pats =
+      let
+        val (bindings_list, pat_tys) = 
+          pats
+          |> List.map (fn pat => synth_pat ctx pat) 
+          |> ListPair.unzip
+      in
+        (List.concat bindings_list, pat_tys)
+      end
+  in
+    case fname_args of
+      Fprefix {id, args, ...} =>
+        bindings_and_tys_of_pats ctx args
+        |> (fn (bindings, ty) => (id, bindings, ty))
+    | Finfix {left, id, right} =>
+        let
+          val (left_bindings, left_pat_ty) =
+            synth_pat ctx left
+          val (right_bindings, right_pat_ty) =
+            synth_pat ctx right
+        in
+          (id, left_bindings @ right_bindings, [TVprod [left_pat_ty, right_pat_ty]])
+        end
+    | Fcurried_infix {left, right, args, id} =>
+        let
+          val (left_bindings, left_pat_ty) =
+            synth_pat ctx left
+          val (right_bindings, right_pat_ty) =
+            synth_pat ctx right
+          val (rest_bindings, rest_pat_tys) =
+            bindings_and_tys_of_pats ctx args
+        in
+          ( id
+          , left_bindings @ right_bindings @ rest_bindings
+          , TVprod [left_pat_ty, right_pat_ty] :: rest_pat_tys
+          )
+        end
+  end
+  
+(*****************************************************************************)
+(* Tyvars and quantification *)
+(*****************************************************************************)
 
+fun tyvars_remove l tyvar =
+  List.foldr
+    (fn (tyvar', acc) =>
+      if SH.tyvar_eq (tyvar, tyvar') then
+        acc
+      else
+        tyvar' :: acc
+    )
+    []
+    l
 
-    (* Non-expansive expressions refer to those expressions which are syntactic
-     * values, i.e. do not evaluate significantly when being bound to an
-     * identifier. Only non-expansive expressions may have their types
-     * generalized at a binding site (due to unsafety with polymorphic references,
-     * exceptions, and continuations), so this function just checks for that.
-     *)
-    fun nexpansive_left_app ctx exp =
-      case exp of
-        ( Eparens exp
-        | Etyped {exp, ...} ) =>
-          nexpansive_left_app ctx exp
-      | Eident {id, ...} => Context.is_con ctx id
-      | _ => false
+fun tyvars_difference l1 l2 =
+  List.foldr
+    (fn (tyvar, acc) =>
+      tyvars_remove acc tyvar
+    )
+    l1
+    l2
 
-    fun nexpansive ctx exp =
-      case exp of
-        ( Enumber _
-        | Estring _
-        | Echar _
-        | Eident _
-        ) => true
-      | Erecord fields =>
-          List.foldl
-            (fn ({lab = _, exp}, acc) =>
-              acc andalso
-              nexpansive ctx exp
-            )
-            true
-            fields
-      | Eselect _ => false
-      | Eunit => true
-      | Etuple exps =>
-          List.foldl
-            (fn (exp, acc) => acc andalso nexpansive ctx exp)
-            true
-            exps
-      | Elist exps =>
-          List.foldl
-            (fn (exp, acc) => acc andalso nexpansive ctx exp)
-            true
-            exps
-      | Eparens exp => nexpansive ctx exp
-      | Eapp {left, right} =>
-          nexpansive ctx right andalso nexpansive_left_app ctx left
-      | Einfix {left, right, id} =>
-          Context.is_con ctx [id] andalso nexpansive ctx (Etuple [left, right])
-      | Etyped {exp, ...} =>
+(* This is big quadratic complexity, but we're not using sets because
+  * we want the tyvars to be numbered in a "sensible" ordering. This
+  * means that we want the order.
+  *
+  * There shouldn't be that many tyvars anyways. So it should be fine.
+  *)
+fun tyvars_dedup l =
+  case l of
+    [] => []
+  | x::xs => x :: tyvars_dedup (tyvars_remove xs x)
+
+(*****************************************************************************)
+(* Non-expansivity *)
+(*****************************************************************************)
+(* Non-expansive expressions refer to those expressions which are syntactic
+  * values, i.e. do not evaluate significantly when being bound to an
+  * identifier. Only non-expansive expressions may have their types
+  * generalized at a binding site (due to unsafety with polymorphic references,
+  * exceptions, and continuations), so this function just checks for that.
+  *)
+fun nexpansive_left_app ctx exp =
+  case exp of
+    ( Eparens exp
+    | Etyped {exp, ...} ) =>
+      nexpansive_left_app ctx exp
+  | Eident {id, ...} => Context.is_con ctx id
+  | _ => false
+
+fun nexpansive ctx exp =
+  case exp of
+    ( Enumber _
+    | Estring _
+    | Echar _
+    | Eident _
+    ) => true
+  | Erecord fields =>
+      List.foldl
+        (fn ({lab = _, exp}, acc) =>
+          acc andalso
           nexpansive ctx exp
-      | Efn _ => true
-      | ( Eseq _
-        | Elet _
-        | Eandalso _
-        | Eorelse _
-        | Ehandle _
-        | Eraise _
-        | Eif _
-        | Ewhile _
-        | Ecase _
-        ) => false
-      | Ehole => prog_err "should not happen, ehole in statics"
+        )
+        true
+        fields
+  | Eselect _ => false
+  | Eunit => true
+  | Etuple exps =>
+      List.foldl
+        (fn (exp, acc) => acc andalso nexpansive ctx exp)
+        true
+        exps
+  | Elist exps =>
+      List.foldl
+        (fn (exp, acc) => acc andalso nexpansive ctx exp)
+        true
+        exps
+  | Eparens exp => nexpansive ctx exp
+  | Eapp {left, right} =>
+      nexpansive ctx right andalso nexpansive_left_app ctx left
+  | Einfix {left, right, id} =>
+      Context.is_con ctx [id] andalso nexpansive ctx (Etuple [left, right])
+  | Etyped {exp, ...} =>
+      nexpansive ctx exp
+  | Efn _ => true
+  | ( Eseq _
+    | Elet _
+    | Eandalso _
+    | Eorelse _
+    | Ehandle _
+    | Eraise _
+    | Eif _
+    | Ewhile _
+    | Ecase _
+    ) => false
+  | Ehole => prog_err "should not happen, ehole in statics"
 
-    (* This is so we can facilitate a little bit of code reuse between the
-     * statics and the debugger.
-     *
-     * The debugger needs to do pretty much the exact same stuff as the statics
-     * for a dec, plus a little bit more. This only happens in four cases
-     * though, so instead the statics will do all the statics stuff, then
-     * provide a value of this type, which the debugger will dispatch on to do
-     * all the real-time stuff.
-     *)
-    datatype dec_status =
-        DEC_VAL of Context.t * Context.t * {tyvars : SMLSyntax.symbol list, valbinds : SMLSyntax.valbinds}
-      | DEC_FUN of Context.t * {tyvars : SMLSyntax.symbol list, fvalbinds : SMLSyntax.fvalbinds}
-      | DEC_CTX of Context.t
-      | DEC_CONT of
-          Location.location list
-        * (Location.location list -> SMLSyntax.dec -> Context.t -> Context.t)
-        -> Context.t
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
+
+structure Statics : STATICS =
+  struct
+    datatype dec_status = datatype dec_status
 
     (* Need to replace tyvars with their substituted counterparts.
      *)
@@ -278,6 +377,8 @@ structure Statics :
           fields1
       ; ()
       )
+
+    and void_unify ctx t1 t2 = ( unify ctx t1 t2; () )
 
     and unify ctx t1 t2 =
       ( case (Context.norm_tyval ctx t1, Context.norm_tyval ctx t2) of
@@ -447,6 +548,8 @@ structure Statics :
             |> type_err
       end
 
+    (* THINK: Maybe implement a visitor...
+     *)
     and synth ctx exp =
       case exp of
         Enumber (Int _) => Basis.int_ty
@@ -578,9 +681,9 @@ structure Statics :
             (synth ctx exp) (* TODO: check these functions *)
             (Context.synth_ty (fn _ => NONE) (fn _ => NONE) ctx ty)
       | ( Eandalso {left, right} | Eorelse {left, right} ) =>
-          ( unify ctx (synth ctx left) bool_ty
-          ; unify ctx (synth ctx right) bool_ty
-          ; bool_ty
+          ( unify ctx (synth ctx left) B.bool_ty
+          ; unify ctx (synth ctx right) B.bool_ty
+          ; B.bool_ty
           )
       | Ehandle {exp, matches} =>
           List.foldl
@@ -604,11 +707,11 @@ structure Statics :
           ; new ()
           )
       | Eif {exp1, exp2, exp3} =>
-          ( unify ctx (synth ctx exp1) bool_ty
+          ( unify ctx (synth ctx exp1) B.bool_ty
           ; unify ctx (synth ctx exp2) (synth ctx exp3)
           )
       | Ewhile {exp1, exp2 = _} =>
-          ( unify ctx (synth ctx exp1) bool_ty
+          ( unify ctx (synth ctx exp1) B.bool_ty
           ; Basis.unit_ty
           )
       | Ecase {exp, matches} =>
@@ -653,8 +756,7 @@ structure Statics :
        *)
       if not is_nexpansive then
         ( id
-        , SH.guard_tyscheme
-            (0, fn _ => Context.norm_tyval ctx tyval)
+        , SH.guard_tyscheme (0, fn _ => Context.norm_tyval ctx tyval)
         )
       else
         let
@@ -667,40 +769,50 @@ structure Statics :
            * through the context, as a unification var might be spawned at any
            * time by relying on a value which has already been bound in the
            * context.
+           * 
+           * For instance, take the following program:
+           * val x = 
+               fn (x : 'a) =>
+                 let 
+                   val f = fn (y : 'b) => if true then x else y
+                 in 
+                   f 2
+                 end 
+           *
+           * The question: Can the binding of `f` be polymorphically generalized?
+           * The answer is that it can't. This is because, even though it purports
+           * to introduce a brand new type variable 'b, in reality we see that the
+           * unification variable corresponding to 'b is actually constrained to
+           * be the same as 'a.
+           *
+           * So it does not suffice to look through all the unification variables
+           * in the type of `fn (y : 'b) => if true then x else y`, as it will
+           * rely on the unification variable that has yet to be "closed", the one
+           * corresponding to 'a.
+           *
+           * Our algorithm will be to take the difference of the unification variables
+           * in the type of the value we are trying to generalize, and any "unclosed"
+           * unification variables within our context.
+           *
            * So we'll do the search.
            *)
+
+           (* TODO: There is almost assuredly a better way of implementing this
+            *
+            * One way I can think of off the top of my head is that we can somehow
+            * record what the newly minted unification variables are, every time that
+            * we go and synthesize the tyval from some declaration.
+            *
+            * The ones which are truly new, and not constrained by any existing
+            * unification vars, are the ones which can be safely "closed".
+            *
+            * A really easy way to affect this is that if ints are used to represent
+            * each unique unification var, then all unification vars greater than the
+            * latest number of unification var, prior to generating a type for the
+            * declaration, must be new.
+            *)
           val quantified_tyvars =
             let
-              fun tyvars_remove l tyvar =
-                List.foldr
-                  (fn (tyvar', acc) =>
-                    if SH.tyvar_eq (tyvar, tyvar') then
-                      acc
-                    else
-                      tyvar' :: acc
-                  )
-                  []
-                  l
-
-              fun tyvars_difference l1 l2 =
-                List.foldr
-                  (fn (tyvar, acc) =>
-                    tyvars_remove acc tyvar
-                  )
-                  l1
-                  l2
-
-              (* This is big quadratic complexity, but we're not using sets because
-               * we want the tyvars to be numbered in a "sensible" ordering. This
-               * means that we want the order.
-               *
-               * There shouldn't be that many tyvars anyways. So it should be fine.
-               *)
-              fun tyvars_dedup l =
-                case l of
-                  [] => []
-                | x::xs => x :: tyvars_dedup (tyvars_remove xs x)
-
               (* These are all of the tyvars that are within our current binding
                * tyval.
                *)
@@ -726,11 +838,8 @@ structure Statics :
                *)
               val search_fn =
                 fn tyvar =>
-                  case
-                    List.find (fn (tyvar', _) => SH.tyvar_eq (tyvar, tyvar')) paired_tys
-                  of
-                    NONE => NONE
-                  | SOME (_, ty) => SOME ty
+                  List.find (fn (tyvar', _) => SH.tyvar_eq (tyvar, tyvar')) paired_tys
+                  |> Option.map snd 
             in
               quantify_tyval search_fn ctx tyval
             end
@@ -756,6 +865,10 @@ structure Statics :
               |> union_sets
             )
 
+        (* We add these to the context so that, if we ever need to
+           generalize a val declaration _within_ this one, we don't
+           generalize the explicitly declared type variables here.
+         *)
         val ctx =
           Context.add_scoped_tyvars orig_ctx tyvars
 
@@ -795,6 +908,8 @@ structure Statics :
          *)
         (* TODO: Apparently, these val bindings should see each other in an
          * "unquantified" manner.
+         * This means that mutually recursive val decs cannot use each other
+         * in a polymorphically generalized way.
          *)
         val exp_ctx =
           if is_rec then
@@ -805,16 +920,14 @@ structure Statics :
         (* Check that each purported pat type unifies with the expression's
          * type.
          *)
-        val () =
-          List.foldr
-            (fn (({exp, ...}, pat_ty), ()) =>
-              ( unify ctx (synth exp_ctx exp) pat_ty
-              ; ()
-              )
-            )
-            ()
-            (ListPair.zipEq (valbinds, pat_tys))
+        val _ =
+          ListPair.zipEq (valbinds, pat_tys)
+          |> List.map (fn ({exp, ...}, pat_ty) => 
+              unify ctx (synth exp_ctx exp) pat_ty 
+          )
 
+        (* These are the final, polymorphically generalized bindings.
+         *)
         val quantified_bindings =
           List.map
             (fn (id, tyval) => quantify_binding (id, tyval) orig_ctx)
@@ -834,10 +947,10 @@ structure Statics :
         val tyvars =
           SymSet.union
             (set_from_list tyvars)
-            ( List.map
-                (fn fvalbind =>
-                  List.map
-                    (fn {fname_args, ty, exp} =>
+            ( fvalbinds
+              |> List.map (fn fvalbind =>
+                  fvalbind
+                  |> List.map (fn {fname_args, ty, exp} =>
                       union_three
                         (CollectTyvars.collect_tyvars_fname_args fname_args)
                         (case ty of
@@ -845,70 +958,30 @@ structure Statics :
                         | SOME ty => CollectTyvars.collect_tyvars_ty ty)
                         (CollectTyvars.collect_tyvars exp)
                     )
-                    fvalbind
                   |> union_sets
                 )
-                fvalbinds
               |> union_sets
             )
 
+        (* We add them for the same reason, so we don't generalize these tyvars
+           when doing declarations inside of the functions.
+         *)
         val ctx =
           Context.add_scoped_tyvars orig_ctx tyvars
 
-        (* Get the essential information from each fname_args.
-         * We need the function name, pat bindings, and types of the patterns.
-         *)
-        fun get_fname_args_info fname_args ctx =
-          let
-            fun get_pat_list_ty_bindings ctx pats =
-              List.foldr
-                (fn (pat, (bindings, pat_tys)) =>
-                  let
-                    val (bindings', pat_ty) = synth_pat ctx pat
-                  in
-                    (bindings @ bindings', pat_ty :: pat_tys)
-                  end
-                )
-                ([], [])
-                pats
-          in
-            case fname_args of
-              Fprefix {id, args, ...} =>
-                get_pat_list_ty_bindings ctx args
-                |> (fn (bindings, ty) => (id, bindings, ty))
-            | Finfix {left, id, right} =>
-                let
-                  val (left_bindings, left_pat_ty) =
-                    synth_pat ctx left
-                  val (right_bindings, right_pat_ty) =
-                    synth_pat ctx right
-                in
-                  (id, left_bindings @ right_bindings, [TVprod [left_pat_ty, right_pat_ty]])
-                end
-            | Fcurried_infix {left, right, args, id} =>
-                let
-                  val (left_bindings, left_pat_ty) =
-                    synth_pat ctx left
-                  val (right_bindings, right_pat_ty) =
-                    synth_pat ctx right
-                  val (rest_bindings, rest_pat_tys) =
-                    get_pat_list_ty_bindings ctx args
-                in
-                  ( id
-                  , left_bindings @ right_bindings @ rest_bindings
-                  , TVprod [left_pat_ty, right_pat_ty] :: rest_pat_tys
-                  )
-                end
-          end
-
-
         (* This context has all of the mutually recursive function names
-         * added into the context.
+         * added into the context (but not the arguments!).
          * We will use this to evaluate each individual function.
          *)
-        val (fn_bindings, fn_data, new_ctx) =
+        val (bindings_per_fn, info_per_fn, new_ctx : Context.t) =
           List.foldr
             (fn (fvalbind, (acc_bindings, fn_data, new_ctx)) =>
+              (* Care that we use `ctx` and not `new_ctx` here!
+                 `new_ctx` sees the individual function's types.
+                 We want to type-check without those, as we are just type-checking
+                 the patterns.
+                 It might not matter, actually, but it's better not to.
+               *)
               let
                 (* This is the actual output type of this function.
                  * We will enforce constraints on it as we go.
@@ -916,81 +989,73 @@ structure Statics :
                  *)
                 val out_ty = new ()
 
-                fun some_unify tyopt =
+                fun unify_opt tyopt =
                   case tyopt of
                     NONE => ()
                   | SOME ty =>
-                      ( unify
-                          ctx
-                          out_ty
-                          (Context.synth_ty' ctx ty)
-                      ; ()
-                      )
+                      void_unify
+                        ctx
+                        out_ty
+                        (Context.synth_ty' ctx ty)
               in
-                (* Make sure that the names for each function clause match.
-                 * Also, ensure that their purported out types unify.
+                (* For each fvalbind, we unify the return types among clauses,
+                 * and unify the types of the arguments. We also verify that
+                 * all the clauses are concerning the same function name.
+                 *
+                 * We also collect the types of bindings produced by the
+                 * patterns, and the expression of the function bodies. These
+                 * will be used to type-check the function interior.
                  *)
-                List.foldr
-                  (fn ({fname_args, ty, exp}, acc) =>
-                    let
-                      val (id', bindings', pat_tys') = get_fname_args_info fname_args ctx
-
-                      (* If there is a type annotation, then we should unify it
-                       * with our prospective output type.
+                fvalbind
+                |> List.map (fn {fname_args, ty, exp} =>
+                  let
+                    val (id, bindings, pat_tys) = get_fname_args_info synth_pat fname_args ctx
+                  in
+                    (* Unify with this given return type 
+                     *)
+                    ( unify_opt ty
+                    ; (id, pat_tys, (bindings, exp))
+                    )
+                  end
+                )
+                |> List.foldr (fn ((new_id, new_pat_tys, new_clause_info), acc) => 
+                  case acc of
+                    NONE => SOME (new_id, new_pat_tys, [new_clause_info])
+                  | SOME (id, pat_tys, clause_info) =>
+                    (* If the function names don't match, this is invalid.
+                     *)
+                    if not (Symbol.eq (id, new_id)) then
+                      prog_err <| spf
+                        (`"Function clauses have different names "fi" and "fi"")
+                                                                  id      new_id
+                    else
+                      (* Unify the argument pat types 
                        *)
-                      val _ = some_unify ty
-                      val id =
-                        case acc of
-                          NONE => id'
-                        | SOME (id, _, _, _) =>
-                          if Symbol.eq (id, id') then id
-                          else
-                            (* TODO: extract *)
-                            spf
-                              (`"Function clauses have different names "fi" and "fi"")
-                              id
-                              id'
-                            |> prog_err
-                    in
-                      (* For each function clause, we're accumulating that
-                       * clause's bindings and body expressions.
-                       *
-                       * Overall, we're also ensuring that the name of the
-                       * function and the types of the patterns of its
-                       * curried arguments still match.
-                       *)
-                      case acc of
-                        NONE => SOME (id, [bindings'], pat_tys', [exp])
-                      | SOME (_, bindings, pat_tys, exps) =>
-                          ( List.map
-                              (fn (pat_ty1, pat_ty2) => unify ctx pat_ty1 pat_ty2)
-                              (ListPair.zipEq (pat_tys, pat_tys'))
-                          ; SOME (id, bindings' :: bindings, pat_tys, exp :: exps)
-                          )
-                    end
-                  )
-                  NONE
-                  fvalbind
+                      ( ListPair.zipEq (pat_tys, new_pat_tys) 
+                        |> List.map (fn (pat_ty1, pat_ty2) => unify ctx pat_ty1 pat_ty2)
+                      ; SOME (id, pat_tys, new_clause_info :: clause_info)  
+                      )
+                )
+                NONE
                 |> (fn NONE => raise Fail "shouldn't happen"
-                   | SOME (id, bindings, pat_tys, exps) =>
+                   | SOME (id, pat_tys, info_by_clause) =>
                      let
-                       val fn_binding =
-                          ( id
-                          , List.foldr
-                              (fn (pat_ty, acc) =>
-                               TVarrow (pat_ty, acc)
-                              )
-                              out_ty
-                              pat_tys
-                          )
+                       val fn_type = 
+                          List.foldr
+                            (fn (pat_ty, acc) =>
+                              TVarrow (pat_ty, acc)
+                            )
+                            out_ty
+                            pat_tys
+                       val fn_binding = (id, fn_type) 
                      in
                        (* Here, we want to keep
                         * 1) the binding of each function
-                        * 2) the overall information of each function
+                        * 2) the overall information (bindings and body exp) of each function
                         * 3) the context when adding that function binding to it
                         *)
                        ( fn_binding :: acc_bindings
-                       , (id, bindings, pat_tys, exps, out_ty) :: fn_data
+                       , (info_by_clause, out_ty) :: fn_data
                        , Context.add_unquantified_val_ty_bindings new_ctx [fn_binding]
                        )
                      end
@@ -1004,48 +1069,39 @@ structure Statics :
          * type (in the context of its argument bindings) unifies with every
          * other clause's type.
          *)
-        fun validate_clauses fn_data =
-          List.foldl
+        val () = 
+          info_per_fn
+          |> List.app (fn (clause_infos, out_ty) =>
             (* THINK: Verify the `id` and `pat_tys` are not needed here. 
              *)
-            (fn ((_, bindings, _, exps, out_ty), ()) =>
-              List.foldl
-                (fn ((bindings, exp), ()) =>
-                  let
-                    (* Add each clause's patterns into it, then unify the output
-                     * types with the synthesized type of that clause's body.
-                     *)
-                    val new_ctx =
-                      Context.add_unquantified_val_ty_bindings new_ctx bindings
-                  in
-                    ( unify
-                        ctx
-                        (synth new_ctx exp)
-                        out_ty
-                    ; ()
-                    )
-                  end
-                )
-                ()
-                (ListPair.zipEq (bindings, exps))
+            clause_infos
+            |> List.app (fn (clause_bindings, clause_exp) =>
+              let
+                (* Add each clause's patterns into it, then unify the output
+                  * types with the synthesized type of that clause's body.
+                  *)
+                val new_ctx =
+                  Context.add_unquantified_val_ty_bindings new_ctx clause_bindings
+              in
+                void_unify
+                  ctx
+                  (synth new_ctx clause_exp)
+                  out_ty
+              end
             )
-            ()
-            fn_data
-
-        val _ = validate_clauses fn_data
+          )
 
         (* Set all the new tyvars to quantified variables.
          *)
         val quantified_bindings =
-          List.map
-            (fn binding => quantify_binding binding orig_ctx)
-            (List.map (fn binding => (binding, true)) fn_bindings)
+          bindings_per_fn
+          (* Functions are non-expansive. 
+           *)
+          |> List.map (fn binding => (binding, true))
+          |> List.map (fn binding => quantify_binding binding orig_ctx)
       in
         Context.add_val_ty_bindings orig_ctx quantified_bindings
       end
-
-    and instantiate_tyscheme ctx (arity, ty_fn) =
-      Context.norm_tyval ctx (ty_fn (List.tabulate (arity, fn _ => new ())))
 
     and synth_pat ctx pat =
       case pat of
@@ -1432,7 +1488,7 @@ structure Statics :
             ( fn (location, f) =>
               ( case left_dec of
                   Dseq decs =>
-                    iter_list
+                    ListUtils.fold_with_tail
                       (fn (dec, decs, ctx) =>
                         f (Location.DLOCAL (decs, right_dec) :: Location.CLOSURE ctx :: location) dec ctx
                       )
@@ -1486,7 +1542,7 @@ structure Statics :
       | Dseq decs =>
           DEC_CONT
             (fn (location, f) =>
-              iter_list
+              ListUtils.fold_with_tail
                 (fn (dec, decs, ctx) =>
                   f (Location.DSEQ decs :: location) dec ctx
                 )
@@ -1497,7 +1553,7 @@ structure Statics :
 
     exception Mismatch of string
 
-    fun match_pat ctx pat v tyval =
+    fun match_pat ctx pat v tyval : (symbol * value * tyval) list =
       ( case (pat, v, Context.norm_tyval ctx tyval) of
           (Pnumber i1, Vnumber (Int i2), _) =>
             if i1 = i2 then
@@ -1545,12 +1601,12 @@ structure Statics :
               fun to_tyfields tyval =
                 case Context.norm_tyval ctx tyval of
                   TVprod tyvals =>
-                    (mapi (fn (tyval, i) => { lab = Symbol.fromValue (Int.toString i)
-                                     , tyval = tyval
-                                     }
-                          )
-                          tyvals
-                    )
+                    ListUtils.mapi 
+                      (fn (tyval, i) => { lab = Symbol.fromValue (Int.toString i)
+                                        , tyval = tyval
+                                        }
+                      )
+                      tyvals
                 | TVrecord fields => fields
                 | _ => raise Fail "TODO"
 
@@ -1776,11 +1832,8 @@ structure Statics :
             NONE => raise Mismatch "failed to match"
           | SOME ans => ans
       in
-        (bindings, Context.add_bindings_combined ctx bindings, exp)
+        (bindings, Context.add_val_bindings_combined ctx bindings, exp)
       end
-
-    val match_pat = fn ctx => fn pat => fn value => fn tyval =>
-      match_pat ctx pat value tyval
 
     fun apply_fn (matches, env, VE) value tyval abstys =
       let
@@ -1795,7 +1848,6 @@ structure Statics :
       in
         (bindings, ctx, exp)
       end
-
 
     (* TODO: add a wrapper around this that says what module and signature it
      * failed to ascribe

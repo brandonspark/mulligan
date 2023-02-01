@@ -1,11 +1,12 @@
-$(SML_LIB)/basis/basis.mlb
-
-../syntax/sources.mlb
-../context/sources.mlb
-../util/sources.mlb
-../pretty-print/sources.mlb
-
 local
+  $(SML_LIB)/basis/basis.mlb
+
+  ../syntax/sources.mlb
+  ../context/sources.mlb
+  ../util/sources.mlb
+  ../pretty-print/sources.mlb
+
+
   common.sml
   collect_tyvars.sml
   statics.sml
