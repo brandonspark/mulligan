@@ -1867,7 +1867,7 @@ struct
     case location of
     (* EXP hole *)
       EHOLE exp => PrettySimpleDoc.toString true (show_exp ctx exp)
-    | CLOSURE ctx => "<CLOSURE>"
+    | CLOSURE _ => "<CLOSURE>"
         (* When you enter a function application, your entire context changes
          * to the closure of the function.
          * To prevent the pretty printer from applying this new context
