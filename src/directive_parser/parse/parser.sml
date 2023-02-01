@@ -83,14 +83,8 @@ structure DirectiveParser :> PARSER =
         fun error x = Error x
       end
 
-    structure Input =
-      struct
-        structure Streamable = StreamStreamable
-        structure Arg = Arg
-      end
-
     structure ParseMain =
-      ParserFun (Input)
+      ParserFun (structure Streamable = StreamStreamable structure Arg = Arg)
 
     fun parse cs =
       let
