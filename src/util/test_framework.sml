@@ -123,7 +123,7 @@ structure TestFramework : TESTFRAMEWORK =
             ; (0, 1)
             )
 
-        fun run' ctx i test =
+        fun run' ctx test =
           case test of
             Test test => handle_test ctx test
           | Suite (name, tests) =>
@@ -136,7 +136,7 @@ structure TestFramework : TESTFRAMEWORK =
                             , test_name = "ERR"
                             }
                       in
-                        ( run' ctx num test ++ acc
+                        ( run' ctx test ++ acc
                         , num + 1
                         )
                       end
@@ -148,7 +148,7 @@ structure TestFramework : TESTFRAMEWORK =
         (* !! here we run the tests !! 
          *)
         val ((passed, failed), time) =
-          with_time_str (fn () => run' base_context 0 test)
+          with_time_str (fn () => run' base_context test)
 
       in
         ( print (border2 ^ "\n")
