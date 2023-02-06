@@ -4,8 +4,10 @@
   * See the file LICENSE for details.
   *)
 
+
+structure TC = TerminalColors
+
 local
-  open Common
   open Error
 
   (* This is my step handler.

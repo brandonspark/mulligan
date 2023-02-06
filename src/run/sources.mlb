@@ -1,12 +1,5 @@
 $(SML_LIB)/basis/basis.mlb
 
-../util/sources.mlb
-../directive_parser/sources.mlb
-../syntax/sources.mlb
-../context/sources.mlb
-../pretty-print/sources.mlb
-../debugger/sources.mlb
-
 ann "milletDiagnosticsIgnore all" in
   local
     ../../parse-sml/src/base/sources.mlb
@@ -20,10 +13,24 @@ ann "milletDiagnosticsIgnore all" in
     structure TCS = TerminalColorString
     structure SyntaxHighlighter
     structure CommandLineArgs
+
+  end
+
+  local
+    ../util/sources.mlb
+    ../directive_parser/sources.mlb
+    ../syntax/sources.mlb
+    ../context/sources.mlb
+    ../pretty-print/sources.mlb
+    ../debugger/sources.mlb
+
+    common.sml
+    mk_run.fun
+    run_debugger.sml
+    run_test.sml
+  in
+    structure RunDebugger
+    structure RunTest
   end
 end
 
-common.sml
-mk_run.fun
-run_debugger.sml
-run_test.sml

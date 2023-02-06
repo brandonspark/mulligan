@@ -4,6 +4,8 @@
   * See the file LICENSE for details.
   *)
 
+structure TC = TerminalColors
+
 (* The MkRun functor allows the debugger to be run, with control over how each
  * step is handled, whether or not the `running` flag is set on start-up, and
  * whether things should be printed.
@@ -16,13 +18,13 @@ functor MkRun
          Context.t
        * Location.location list
        * Debugger.focus
-       * Common.run_status ref
+       * run_status ref
        * ( Context.t
          * Location.location list
          * Debugger.focus
-         )  Common.frame list ref
+         )  frame list ref
       -> exn
-      -> Common.prog_status
+      -> prog_status
     val running : bool
     val print_flag : bool
   ) :
@@ -33,7 +35,6 @@ functor MkRun
   end =
   struct
     open Error
-    open Common
     open PrettyPrintAst
     open Printf
 
@@ -228,25 +229,26 @@ functor MkRun
           let
             fun recur _ = start_loop info
 
-            fun parse_command input =
-              case input of
-                (* An empty input repeats the previous command.
-                 *)
-                "\n" => !last_command
-              | _ =>
-                let
-                  val new_command = DirectiveParser.parse_opt input
-                in
-                  (* Save this as the last command only if it properly parsed.
-                   *)
-                  ( Option.map (fn new => last_command := SOME new) new_command
-                  ; new_command
-                  )
-                end
+            fun parse_command () =
+              let
+                val input = TextIO.input TextIO.stdIn
+              in
+                case input of
+                  (* An empty input repeats the previous command.
+                  *)
+                  "\n" => !last_command
+                | _ =>
+                  case DirectiveParser.parse_opt input of
+                    NONE => NONE
+                  | SOME cmd =>
+                      ( last_command := SOME cmd
+                      ; SOME cmd
+                      )  
+              end
           in
           ( TextIO.output (TextIO.stdOut, "- ")
           ; TextIO.flushOut TextIO.stdOut
-          ; case parse_command (TextIO.input TextIO.stdIn) of
+          ; case parse_command () of
               SOME Directive.Step => step info false
             | SOME Directive.Evaluate => step info true
             | SOME Directive.Stop =>
