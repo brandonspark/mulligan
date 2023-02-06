@@ -310,15 +310,11 @@ structure CM_Lexer :> LEXER =
 
       end
 
-    structure Input =
-      struct
-
-       structure Streamable = StreamStreamable
-       structure Arg = Arg
-      end
-
     structure LexMain =
-      LexMainFun (Input)
+      LexMainFun (
+        structure Streamable = StreamStreamable
+        structure Arg = Arg
+      )
 
     fun doLex f s = lazy (fn () => f s (Arg.LEX f) 0)
 
