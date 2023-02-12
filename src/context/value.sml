@@ -670,7 +670,7 @@ structure Value :
                 of
                   (NONE, NONE) => NONE
                 | (SOME _, SOME _) => raise Fail "shouldn't be possible"
-                | (SOME ty, _) => SOME (ty)
+                | (SOME ty, _) => SOME ty
                 | (_, SOME (_, tyid)) => SOME (TVapp (tyvals, tyid))
             in
               { valspecs = valspecs
