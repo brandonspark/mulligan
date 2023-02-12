@@ -4,136 +4,155 @@
   * See the file LICENSE for details.
   *)
 
+open SMLSyntax
+open Error
+structure TF = TestFramework
+
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* Integration testing for `mulligan`.
+ * These tests allow us to verify that the extensional behavior of the 
+ * debugger is behaving as expected.
+ *)
+
+(*****************************************************************************)
+(* Helpers *)
+(*****************************************************************************)
+
+val sym = Symbol.fromValue
+
+val true_val =
+  Vconstr {id = [sym "true"], arg = NONE}
+val false_val =
+  Vconstr {id = [sym "false"], arg = NONE}
+
+fun vstring s = Vstring (sym s)
+
+fun mk_record fields =
+  Vrecord (List.map (fn (lab, value) => {lab = sym lab, value = value}) fields)
+
+(* Set up the runner with our precise testing configuration.
+  *)
+val run_test = 
+  Run.run 
+    { step_handler = Run.test_handler
+    , running = true 
+    , print_flag = false
+    , colored_output = false
+    , commands = []
+    }
+
+(*****************************************************************************)
+(* Test outcomes *)
+(*****************************************************************************)
+
+datatype outcome =
+    RES of Context.value
+  | RAISE of Context.value
+  | ERR of Error.error
+
+fun outcome_eq (outcome1, outcome2) =
+  case (outcome1, outcome2) of
+    (RES v1, RES v2) => Value.value_eq (v1, v2)
+  | (RAISE v1, RAISE v2) => Value.value_eq (v1, v2)
+  | (ERR e1, ERR e2) => Error.error_eq (e1, e2)
+  | _ => false
+
+fun show_outcome outcome =
+  case outcome of
+    RES v => "RES " ^ PrettyPrintAst.print_value Basis.initial v
+  | RAISE v => "RAISE " ^ PrettyPrintAst.print_value Basis.initial v
+  | ERR error => "ERR " ^ Error.show_error error
+
+(*****************************************************************************)
+(* Run-handling logic *)
+(*****************************************************************************)
+
+(* This handles the result of a run into our `outcome` type.
+  *)
+fun run_handler test_name exn =
+  case exn of
+    Signal (SigError error) => ERR error
+  | Context.Raise (name, exnid, arg) => RAISE (Vexn {name = name, exnid = exnid, arg = arg})
+  | ParseSMLError.Error e =>
+      ( print ("Parse error during test " ^ lightblue test_name ^ "\n")
+      ; TCS.print
+          (ParseSMLError.show {highlighter = SOME SyntaxHighlighter.fuzzyHighlight} e)
+      ; if List.null (MLton.Exn.history exn) then () else
+          print ("\n" ^ String.concat (List.map (fn ln => ln ^ "\n") (MLton.Exn.history exn)))
+      ; OS.Process.exit OS.Process.failure
+      )
+  | _ =>
+      ( print ("Unknown exception caught during test " ^ lightblue test_name ^ "\n")
+      ; raise exn
+      )
+
+fun evaluate test_name text =
+  let
+    val source =
+      Source.loadFromString
+        { filename = test_name
+        , text = text
+        }
+  in
+    ( case Context.get_val_opt (run_test source Basis.initial) [Symbol.fromValue "res"] of
+        (* If we didn't bind `res`, say that it's some random unlikely value. 
+         *)
+        NONE => RES (Vselect (sym "terminated but res unbound")) 
+      | SOME value => RES value
+    )
+    handle exn =>
+      run_handler test_name exn
+  end
+
+(*****************************************************************************)
+(* Test framework assertions *)
+(*****************************************************************************)
+
+
+fun assert_is test_name (text, outcome) =
+  TF.assert_equal
+    (SOME show_outcome)
+    outcome_eq
+    (evaluate test_name text, outcome)
+
+fun assert_is_rolling test_name pairs =
+  List.foldl
+    (fn ((text, outcome), acc) =>
+      ( assert_is test_name (acc ^ " " ^ text, outcome)
+      ; acc ^ " " ^ text
+      )
+    )
+    ""
+    pairs
+
+fun assert_ill_typed test_name text =
+  case (evaluate test_name text) of
+    ERR (TypeError _) => ()
+  | outcome => TF.assert_failure (text ^ "\nGot: " ^ show_outcome outcome)
+
+fun assert_evaluates test_name text =
+  case (evaluate test_name text) of
+    RES _ => ()
+  | outcome => TF.assert_failure (text ^ "\nGot: " ^ show_outcome outcome)
+
+fun assert_errs test_name text =
+  case (evaluate test_name text) of
+    ERR _ => ()
+  | outcome => TF.assert_failure (text ^ "\nGot: " ^ show_outcome outcome)
+
+(*****************************************************************************)
+(* Test outcomes *)
+(*****************************************************************************)
+
 structure Test :
   sig
-    datatype outcome =
-        RES of Context.value
-      | RAISE of Context.value
-      | ERR of Error.error
-
     val run_tests : unit -> unit
   end =
   struct
     open TestFramework
-    open SMLSyntax
     open Error
-
-    val sym = Symbol.fromValue
-
-    val true_val =
-      Vconstr {id = [sym "true"], arg = NONE}
-    val false_val =
-      Vconstr {id = [sym "false"], arg = NONE}
-
-    fun vstring s = Vstring (sym s)
-
-    fun mk_record fields =
-      Vrecord (List.map (fn (lab, value) => {lab = sym lab, value = value}) fields)
-
-    infix >:: >:::
-
-    datatype outcome =
-        RES of Context.value
-      | RAISE of Context.value
-      | ERR of Error.error
-
-    fun outcome_eq (outcome1, outcome2) =
-      case (outcome1, outcome2) of
-        (RES v1, RES v2) => Value.value_eq (v1, v2)
-      | (RAISE v1, RAISE v2) => Value.value_eq (v1, v2)
-      | (ERR e1, ERR e2) => Error.error_eq (e1, e2)
-      | _ => false
-
-    fun show_outcome outcome =
-      case outcome of
-        RES v => "RES " ^ PrettyPrintAst.print_value Basis.initial v
-      | RAISE v => "RAISE " ^ PrettyPrintAst.print_value Basis.initial v
-      | ERR error => "ERR " ^ Error.show_error error
-
-    fun run_handler test_name exn =
-      case exn of
-        Signal (SigError error) => ERR error
-      | Context.Raise (name, exnid, arg) => RAISE (Vexn {name = name, exnid = exnid, arg = arg})
-      | ParseSMLError.Error e =>
-          ( print ("Parse error during test " ^ lightblue test_name ^ "\n")
-          ; TCS.print
-              (ParseSMLError.show {highlighter = SOME SyntaxHighlighter.fuzzyHighlight} e)
-          ; if List.null (MLton.Exn.history exn) then () else
-              print ("\n" ^ String.concat (List.map (fn ln => ln ^ "\n") (MLton.Exn.history exn)))
-          ; OS.Process.exit OS.Process.failure
-          )
-      | _ =>
-          ( print ("Unknown exception caught during test " ^ lightblue test_name ^ "\n")
-          ; raise exn
-          )
-
-    (* Set up the runner with our precise testing configuration.
-     *)
-    val run_test = 
-      Run.run 
-        { step_handler = Run.test_handler
-        , running = true 
-        , print_flag = false
-        , colored_output = false
-        , commands = []
-        }
-
-    fun evaluate_base check_res test_name text =
-      let
-        val source =
-          Source.loadFromString
-            { filename = test_name
-            , text = text
-            }
-      in
-        ( if check_res then
-            ( case Context.get_val_opt (run_test source Basis.initial) [Symbol.fromValue "res"] of
-                NONE => raise Fail "failed to find res in terminated test"
-              | SOME value => RES value
-            )
-          else
-            ( run_test source Basis.initial
-            ; RES Vunit
-            )
-        )
-        handle exn =>
-          run_handler test_name exn
-      end
-
-    val evaluate_res = evaluate_base true
-    val evaluate = evaluate_base false
-
-
-    fun assert_is test_name (text, outcome) =
-      assert_equal
-        (SOME show_outcome)
-        outcome_eq
-        (evaluate_res test_name text, outcome)
-
-    fun assert_is_rolling test_name pairs =
-      List.foldl
-        (fn ((text, outcome), acc) =>
-          ( assert_is test_name (acc ^ " " ^ text, outcome)
-          ; acc ^ " " ^ text
-          )
-        )
-        ""
-        pairs
-
-    fun assert_ill_typed test_name text =
-      case (evaluate test_name text) of
-        ERR (TypeError _) => ()
-      | outcome => assert_failure (text ^ "\nGot: " ^ show_outcome outcome)
-
-    fun assert_evaluates test_name text =
-      case (evaluate test_name text) of
-        RES _ => ()
-      | outcome => assert_failure (text ^ "\nGot: " ^ show_outcome outcome)
-
-    fun assert_errs test_name text =
-      case (evaluate test_name text) of
-        ERR _ => ()
-      | outcome => assert_failure (text ^ "\nGot: " ^ show_outcome outcome)
 
     fun test_arithmetic ctx =
       let
@@ -654,6 +673,9 @@ structure Test :
         ()
       end
 
+    infix >::
+    infix >:::
+
     fun run_tests () =
       TestFramework.run
         ( "integration" >:::
@@ -672,6 +694,7 @@ structure Test :
         )
   end
 
+(* let's go! *)
 val _ = 
   ( Test.run_tests ()
   ; Snapshots.run ()
