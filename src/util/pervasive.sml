@@ -36,7 +36,7 @@ infixr 0 <|
 fun f <| x = f x
 
 (* a unit test!!!! *)
-val _ : string = (fn x => "") <| 2 |> (fn _ => 4) 
+val _ : string = (fn _ => "") <| 2 |> (fn _ => 4) 
 
 fun orange s = TerminalColors.text TerminalColors.orange s
 fun red s = TerminalColors.text TerminalColors.red s
@@ -99,7 +99,9 @@ fun with_time_str f =
   let
     val timer = Timer.startRealTimer () 
     val res = f ()
-    val elapsed_time = Time.toReal (Timer.checkRealTimer timer)
+    val elapsed_time = 
+      Time.toReal (Timer.checkRealTimer timer)
+      |> Real.fromLarge IEEEReal.TO_NEAREST
 
     val time_str = Real.fmt (StringCvt.FIX (SOME 2)) elapsed_time 
   in
