@@ -3,5 +3,6 @@
 ../src/syntax/sources.mlb
 ../src/context/sources.mlb
 ../src/run/sources.mlb
+../src/pretty-print/sources.mlb
 
 test.sml

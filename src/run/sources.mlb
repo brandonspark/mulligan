@@ -24,13 +24,9 @@ ann "milletDiagnosticsIgnore all" in
     ../pretty-print/sources.mlb
     ../debugger/sources.mlb
 
-    common.sml
-    mk_run.fun
-    run_debugger.sml
-    run_test.sml
+    run.sml
   in
-    structure RunDebugger
-    structure RunTest
+    structure Run
   end
 end
 

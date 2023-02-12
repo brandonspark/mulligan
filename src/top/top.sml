@@ -47,7 +47,7 @@ fun handle_file cur_path filename ctx =
       (* Given an `sml`, `sig`, or `fun` file, then we run the debugger!
        *)
       | (_, SOME ("sml" | "sig" | "fun")) =>
-          RunDebugger.eval_source
+          Run.run_debugger
             (Source.loadFromFile (FilePath.fromUnixPath filename))
             ctx
       (* On a `cm` file, we transitively parse the dependencies, and handle 
@@ -142,7 +142,7 @@ structure Top =
         val doHelp = CommandLineArgs.parseFlag "help"
       in
         if doHelp orelse List.null args then
-          ( print RunDebugger.help_message
+          ( print Run.help_message
           ; OS.Process.exit OS.Process.success
           )
         else

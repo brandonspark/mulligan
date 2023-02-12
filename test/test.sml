@@ -76,12 +76,12 @@ structure Test :
             }
       in
         ( if check_res then
-            ( case Context.get_val_opt (RunTest.eval_source source Basis.initial) ([Symbol.fromValue "res"]) of
+            ( case Context.get_val_opt (Run.run_test source Basis.initial) ([Symbol.fromValue "res"]) of
                 NONE => raise Fail "failed to find res in terminated test"
               | SOME value => RES value
             )
           else
-            ( RunTest.eval_source source Basis.initial
+            ( Run.run_test source Basis.initial
             ; RES (Vunit)
             )
         )
