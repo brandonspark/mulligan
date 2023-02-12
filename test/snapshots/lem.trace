@@ -1,0 +1,98 @@
+==========================================================
+Evaluating file test/snapshots/lem.sml...
+----------------------------------------------------------
+
+Loaded program:
+
+datatype ('a, 'b) either = INL of 'a | INR of 'b
+type 'a lem = ('a, 'a Cont.cont) either
+val lem_proof : unit -> 'a lem =
+    fn () =>
+      callcc
+        ( fn ret =>
+            INL (callcc (fn na => throw ret (INR na)))
+        )
+val res =
+    case lem_proof () of
+      INL n => n * n
+    | INR nn =>
+      throw nn 2
+
+- ==> 
+val lem_proof : unit -> 'a lem =
+    fn () =>
+      callcc
+        ( fn ret =>
+            INL (callcc (fn na => throw ret (INR na)))
+        )
+
+- ==> 
+val res =
+    case
+      ( fn () =>
+          callcc
+            ( fn ret =>
+                INL (callcc (fn na => throw ret (INR na)))
+            )
+      )
+        ()
+    of
+      INL n => n * n
+    | INR nn =>
+      throw nn 2
+
+- ==> 
+val res =
+    case
+      callcc
+        ( fn ret =>
+            INL (callcc (fn na => throw ret (INR na)))
+        )
+    of
+      INL n => n * n
+    | INR nn =>
+      throw nn 2
+
+- ==> 
+val res =
+    case INL (callcc (fn na => throw cont6 (INR na))) of
+      INL n => n * n
+    | INR nn =>
+      throw nn 2
+
+- ==> 
+val res =
+    case INL (throw cont6 (INR cont7)) of
+      INL n => n * n
+    | INR nn =>
+      throw nn 2
+
+- ==> 
+val res =
+    case INL (throw[cont6] (INR cont7)) of
+      INL n => n * n
+    | INR nn =>
+      throw nn 2
+
+- ==> 
+val res =
+    case INR cont7 of INL n => n * n | INR nn => throw nn 2
+
+- ==> 
+val res = throw cont7 2
+
+- ==> 
+val res = throw[cont7] 2
+
+- ==> 
+val res =
+    case INL 2 of INL n => n * n | INR nn => throw nn 2
+
+- ==> 
+val res = 2 * 2
+
+- ==> 
+val res = 4
+
+- Program evaluation finished.
+
