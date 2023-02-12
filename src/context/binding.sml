@@ -120,8 +120,8 @@ structure Binding :
       case fname_args of
         Fprefix {id, args, ...} =>
           union_sets
-            ( [ MarkerSet.singleton (VAL id) ]
-              @ List.map (get_pat_bindings ctx) args
+            ( MarkerSet.singleton (VAL id)
+              :: List.map (get_pat_bindings ctx) args
             )
       | Finfix {left, id, right} =>
           union_sets
