@@ -661,4 +661,7 @@ structure Test :
         )
   end
 
-val _ = Test.run_tests ()
+val _ = 
+  ( Test.run_tests ()
+  ; Snapshots.run ()
+  )

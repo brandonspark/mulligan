@@ -1,8 +1,10 @@
 
-../src/util/sources.mlb
 ../src/syntax/sources.mlb
 ../src/context/sources.mlb
 ../src/run/sources.mlb
 ../src/pretty-print/sources.mlb
+../src/directive_parser/sources.mlb
+../src/util/sources.mlb
 
+snapshots.sml
 test.sml

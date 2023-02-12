@@ -26,6 +26,7 @@ local
   fresh_sym.sml
   cont.sml
   ids.sml
+  io.sml
   ref.sml
   test_framework.sml
   error.sml

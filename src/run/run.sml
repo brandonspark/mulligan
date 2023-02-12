@@ -82,6 +82,10 @@ signature RUN =
     val run_debugger : Source.t -> Context.t -> Context.t
 
     val run_test : Source.t -> Context.t -> Context.t
+
+    (* run the given trace with some pre-set commands 
+     *)
+    val run_debugger_with_commands : Directive.t list -> Source.t -> Context.t -> Context.t
   end
 
 (*****************************************************************************)
@@ -521,6 +525,13 @@ structure Run : RUN =
              , running = false
              , print_flag = true 
              , commands = []
+             }
+
+    fun run_debugger_with_commands commands =
+      mk_run { step_handler = interactive_handler
+             , running = false
+             , print_flag = true 
+             , commands = commands 
              }
 
     fun test_handler (ctx, _, _, _, store) exn =

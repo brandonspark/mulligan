@@ -42,7 +42,36 @@ fun orange s = TerminalColors.text TerminalColors.orange s
 fun red s = TerminalColors.text TerminalColors.red s
 fun lightblue s = TerminalColors.text TerminalColors.lightblue s
 
+fun opt_all l =
+  List.foldr (fn (x, acc) => 
+    case (x, acc) of
+      (_, NONE) => NONE
+    | (NONE, _) => NONE 
+    | (SOME x, SOME acc) => SOME (x :: acc)
+  ) (SOME []) l 
+
 fun push x r = r := x :: (!r)
+
+(* returns absolute paths *)
+fun files_of_directory path =
+  let 
+    val stream = OS.FileSys.openDir path
+    val files = ref [] 
+
+    fun aux () =
+      case OS.FileSys.readDir stream of 
+        NONE => ()
+      | SOME file => 
+          ( aux ()
+          ; push (OS.Path.joinDirFile {dir = path, file = file}) files 
+          )
+  in
+    ( aux ();
+      !files
+    )
+  end
+
+fun file_exists path = Posix.FileSys.access (path, [])
 
 datatype either = datatype Either.t
 
