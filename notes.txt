@@ -67,3 +67,4 @@ KNOWN ISSUES:
   is currently being evaluated
 - equality types
 - update prettysimpledoc
+- error handling is not complete (CouldNotFind, Mismatch?)
