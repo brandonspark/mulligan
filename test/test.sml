@@ -76,13 +76,13 @@ structure Test :
             }
       in
         ( if check_res then
-            ( case Context.get_val_opt (Run.run_test source Basis.initial) ([Symbol.fromValue "res"]) of
+            ( case Context.get_val_opt (Run.run_test source Basis.initial) [Symbol.fromValue "res"] of
                 NONE => raise Fail "failed to find res in terminated test"
               | SOME value => RES value
             )
           else
             ( Run.run_test source Basis.initial
-            ; RES (Vunit)
+            ; RES Vunit
             )
         )
         handle exn =>
@@ -132,7 +132,7 @@ structure Test :
         val typed_tests =
           [ ("val res = 1 + 2", RES (Vnumber (Int 3)))
           , ("val res = 1 * 2", RES (Vnumber (Int 2)))
-          , ("val res = 1 - 2", RES (Vnumber (Int (~1))))
+          , ("val res = 1 - 2", RES (Vnumber (Int ~1)))
           , ("val res = 1 div 2", RES (Vnumber (Int 0)))
           , ("val res = 1 mod 2", RES (Vnumber (Int 1)))
           , ("val x = 1.0 / 1.2 val res = ()", RES Vunit)
@@ -235,7 +235,7 @@ structure Test :
             )
 
           , ("val f = (fn (x, y) => (x orelse true, y + 2)) \
-             \val (res, _) = f (false, 1)" , RES (true_val)
+             \val (res, _) = f (false, 1)" , RES true_val
             )
           , ("val f = (fn (x, y) => (x orelse true, y + 2)) \
              \val (_, res) = f (false, 1)", RES (Vnumber (Int 3))
@@ -265,7 +265,7 @@ structure Test :
             , RES true_val
             )
           , ( "val res = (#b r) ^ \" there\""
-            , RES (vstring ("hi there"))
+            , RES (vstring "hi there")
             )
           , ( "val res = (#c r) div 50"
             , RES (Vnumber (Int 3))
@@ -534,7 +534,7 @@ structure Test :
             \    datatype t3 = datatype t2                   \
             \  end                                           "
 
-          val err_tests =
+          val _ =
             [ "local datatype t = FOO in end val _ = FOO"
             , "local val x = 2 in end val _ = x + 2"
             , "val _ = let val x = 2 in 5 end val res = x + 2"
