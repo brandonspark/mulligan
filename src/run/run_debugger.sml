@@ -83,5 +83,8 @@ in
       ( val step_handler = step_handler
         val running = false
         val print_flag = true
+        (* These commands are strictly for testing purposes.
+         *)
+        val commands = []
       )
 end

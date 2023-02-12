@@ -58,5 +58,8 @@ in
       ( val step_handler = step_handler
         val running = true
         val print_flag = false
+        (* These commands are for trace-testing purposes
+         *)
+        val commands = []
       )
 end

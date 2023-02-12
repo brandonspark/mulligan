@@ -27,6 +27,7 @@ functor MkRun
       -> prog_status
     val running : bool
     val print_flag : bool
+    val commands : Directive.t list
   ) :
   sig
     val help_message : string
@@ -115,6 +116,8 @@ functor MkRun
         val breaks : SMLSyntax.symbol option ref list ref = ref []
 
         val last_command : Directive.t option ref = ref NONE
+
+        val commands : Directive.t list ref = ref commands
 
         fun display (ctx, location, focus) =
           case !run of
@@ -230,21 +233,27 @@ functor MkRun
             fun recur _ = start_loop info
 
             fun parse_command () =
-              let
-                val input = TextIO.input TextIO.stdIn
-              in
-                case input of
-                  (* An empty input repeats the previous command.
-                  *)
-                  "\n" => !last_command
-                | _ =>
-                  case DirectiveParser.parse_opt input of
-                    NONE => NONE
-                  | SOME cmd =>
-                      ( last_command := SOME cmd
-                      ; SOME cmd
-                      )  
-              end
+              case !commands of
+                cmd::rest =>
+                  ( commands := rest 
+                  ; SOME cmd
+                  )
+              | [] => 
+                  let
+                    val input = TextIO.input TextIO.stdIn
+                  in
+                    case input of
+                      (* An empty input repeats the previous command.
+                      *)
+                      "\n" => !last_command
+                    | _ =>
+                      case DirectiveParser.parse_opt input of
+                        NONE => NONE
+                      | SOME cmd =>
+                          ( last_command := SOME cmd
+                          ; SOME cmd
+                          )  
+                  end
           in
           ( TextIO.output (TextIO.stdOut, "- ")
           ; TextIO.flushOut TextIO.stdOut
