@@ -6,6 +6,7 @@
 
 open Printf
 structure TF = TestFramework 
+structure TC = TerminalColors
 
 (*****************************************************************************)
 (* Prelude *)
@@ -39,11 +40,12 @@ fun redirect_to_file file f =
     val stdout_fd = Posix.IO.dup Posix.FileSys.stdout 
     val stderr_fd = Posix.IO.dup Posix.FileSys.stderr
 
+
     val file_fd = 
       Posix.FileSys.createf 
         ( file
         , Posix.FileSys.O_WRONLY
-        , Posix.FileSys.O.flags []
+        , Posix.FileSys.O.flags [Posix.FileSys.O.trunc]
         , Posix.FileSys.S.flags [Posix.FileSys.S.irwxu]
         )
   in
@@ -75,9 +77,9 @@ structure Snapshots =
 
         val trace_contents =
           if file_exists trace_file then
-            IO.cat trace_file
+            String.concat (IO.cat trace_file)
           else
-            ["<nonexistent file>"] 
+            "<nonexistent file>"
 
         fun test_fn _ =
           case commands of
@@ -100,15 +102,15 @@ structure Snapshots =
                       Basis.initial 
                   )
 
-                val new_trace_contents = IO.cat trace_file 
+                val new_trace_contents = String.concat (IO.cat trace_file)
               in
                 if trace_contents = new_trace_contents then
                   ()
                 else
                   TF.assert_failure 
                   <| spf (`"Trace contents have changed -- was:\n"fs"\nnow:\n"fs"") 
-                    (String.concat trace_contents)  
-                    (String.concat new_trace_contents)
+                    trace_contents
+                    new_trace_contents
               end
       in
         TF.mk_test (OS.Path.file cmd_file, test_fn)

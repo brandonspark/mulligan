@@ -49,6 +49,7 @@ type runner_env = {
     -> prog_status,
   running : bool,
   print_flag : bool,
+  colored_output : bool,
   commands : Directive.t list
 }
 
@@ -132,11 +133,14 @@ structure Run : RUN =
       \  print_depth = <i>  print evaluation context <i> layers deep when stepping\n"
 
     (* TODO: ugly, try to think of a better way to separate this logic *)
-    fun mk_run {step_handler, running, print_flag, commands} : Source.t -> Context.t -> Context.t =
+    fun mk_run {step_handler, running, print_flag, colored_output, commands} : Source.t -> Context.t -> Context.t =
       let
         val print =
           if print_flag then
-            print
+            if colored_output then 
+              print
+            else
+              fn s => print (TC.decolorify s) 
           else
             (fn _ => ())
 
@@ -524,6 +528,8 @@ structure Run : RUN =
       mk_run { step_handler = interactive_handler
              , running = false
              , print_flag = true 
+             (* TODO: make customizable *)
+             , colored_output = true
              , commands = []
              }
 
@@ -531,6 +537,7 @@ structure Run : RUN =
       mk_run { step_handler = interactive_handler
              , running = false
              , print_flag = true 
+             , colored_output = false
              , commands = commands 
              }
 
@@ -571,6 +578,7 @@ structure Run : RUN =
       mk_run { step_handler = test_handler
              , running = true 
              , print_flag = false
+             , colored_output = false
              , commands = []
              }
   end
