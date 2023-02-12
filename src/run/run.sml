@@ -189,7 +189,7 @@ structure Run : RUN =
 
             fun step (ctx, location, focus) evaluate =
               let
-                val _ = store := Frame (ctx, location, focus) :: !store
+                val _ = push (Frame (ctx, location, focus)) store
 
                 fun set () =
                   if evaluate then run := Running else ()
@@ -358,7 +358,7 @@ structure Run : RUN =
                     ( spf (`"Breakpoint set on function value bound to "fl"\n") longid |> print
                     ; let
                         val (_, broken) = Context.break_fn ctx longid true
-                        val _ = breaks := broken :: !breaks
+                        val _ = push broken breaks 
                       in
                         start_loop info
                       end

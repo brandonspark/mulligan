@@ -42,6 +42,8 @@ fun orange s = TerminalColors.text TerminalColors.orange s
 fun red s = TerminalColors.text TerminalColors.red s
 fun lightblue s = TerminalColors.text TerminalColors.lightblue s
 
+fun push x r = r := x :: (!r)
+
 datatype either = datatype Either.t
 
 infix fs fi fli ftv fe fv fp fl
