@@ -53,7 +53,7 @@ fun redirect_to_file file f =
     ; Posix.IO.dup2 { old = file_fd, new = Posix.FileSys.stderr }
     ; f () 
     ; Posix.IO.dup2 { old = stdout_fd, new = Posix.FileSys.stdout } 
-    ; Posix.IO.dup2 { old = stderr_fd, new = Posix.FileSys.stdout } 
+    ; Posix.IO.dup2 { old = stderr_fd, new = Posix.FileSys.stderr } 
     )
   end
     
