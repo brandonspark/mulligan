@@ -68,6 +68,7 @@ fun parse_commands_file cmd_file =
 
 structure Snapshots =
   struct
+
     fun test_of_file cmd_file = 
       let 
         val trace_file = OS.Path.base cmd_file ^ "." ^ trace_ext   
@@ -88,6 +89,17 @@ structure Snapshots =
               <| spf (`"Failed to parse command file "fs"") (OS.Path.file cmd_file)
           | SOME commands =>
               let 
+                val config = 
+                  { step_handler = Run.interactive_handler
+                  , running = false
+                  , print_flag = true 
+                  (* Snapshot output should be uncolored, so that the trace
+                  * files are actually human-readable.
+                  *)
+                  , colored_output = false
+                  , commands = commands 
+                  }
+
                 (* This will overwrite the existing trace file.
                  * It would be nice to not be side-effecting, and instead
                  * merely inform that the tests have changed, but in all honesty
@@ -96,8 +108,7 @@ structure Snapshots =
                  *)
                 val () = 
                   redirect_to_file trace_file (fn () => 
-                    Run.run_debugger_with_commands 
-                      commands 
+                    Run.run config
                       (Source.loadFromFile (FilePath.fromUnixPath prog_file))
                       Basis.initial 
                   )

@@ -67,6 +67,17 @@ structure Test :
           ; raise exn
           )
 
+    (* Set up the runner with our precise testing configuration.
+     *)
+    val run_test = 
+      Run.run 
+        { step_handler = Run.test_handler
+        , running = true 
+        , print_flag = false
+        , colored_output = false
+        , commands = []
+        }
+
     fun evaluate_base check_res test_name text =
       let
         val source =
@@ -76,12 +87,12 @@ structure Test :
             }
       in
         ( if check_res then
-            ( case Context.get_val_opt (Run.run_test source Basis.initial) [Symbol.fromValue "res"] of
+            ( case Context.get_val_opt (run_test source Basis.initial) [Symbol.fromValue "res"] of
                 NONE => raise Fail "failed to find res in terminated test"
               | SOME value => RES value
             )
           else
-            ( Run.run_test source Basis.initial
+            ( run_test source Basis.initial
             ; RES Vunit
             )
         )

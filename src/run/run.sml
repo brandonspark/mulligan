@@ -35,18 +35,20 @@ datatype prog_status =
     Step of Context.t * Location.location list * Debugger.focus
   | Finished of Context.t
 
-type runner_env = {
-  step_handler :
-        Context.t
+type handler =
+    Context.t
+    * Location.location list
+    * Debugger.focus
+    * run_status ref
+    * ( Context.t
       * Location.location list
       * Debugger.focus
-      * run_status ref
-      * ( Context.t
-        * Location.location list
-        * Debugger.focus
-        )  frame list ref
-    -> exn
-    -> prog_status,
+      )  frame list ref
+  -> exn
+  -> prog_status
+
+type runner_env = {
+  step_handler : handler,
   running : bool,
   print_flag : bool,
   colored_output : bool,
@@ -80,20 +82,19 @@ signature RUN =
   sig
     val help_message : string 
     
-    val run_debugger : Source.t -> Context.t -> Context.t
-
-    val run_test : Source.t -> Context.t -> Context.t
-
     (* run the given trace with some pre-set commands 
      *)
-    val run_debugger_with_commands : Directive.t list -> Source.t -> Context.t -> Context.t
+    val run : runner_env -> Source.t -> Context.t -> Context.t
+
+    val interactive_handler : handler 
+    val test_handler : handler 
   end
 
 (*****************************************************************************)
 (* Implementation *)
 (*****************************************************************************)
 
-(* The mk_run function allows the debugger to be run, with control over how each
+(* The run function allows the debugger to be run, with control over how each
  * step is handled, whether or not the `running` flag is set on start-up, and
  * whether things should be printed.
  *
@@ -105,7 +106,8 @@ structure Run : RUN =
     val help_message =
       "usage: mulligan [ARGS] FILE ... FILE\n" ^
       "Command-line arguments:\n" ^
-      "  --help             displays this message\n\n" ^
+      "  --help             displays this message\n\n\
+      \  --no-color         disables colored output\n" ^
 
       "Debugger commands:\n" ^
       "  step               steps evaluation forward by one\n\
@@ -133,7 +135,7 @@ structure Run : RUN =
       \  print_depth = <i>  print evaluation context <i> layers deep when stepping\n"
 
     (* TODO: ugly, try to think of a better way to separate this logic *)
-    fun mk_run {step_handler, running, print_flag, colored_output, commands} : Source.t -> Context.t -> Context.t =
+    fun run {step_handler, running, print_flag, colored_output, commands} : Source.t -> Context.t -> Context.t =
       let
         val print =
           if print_flag then
@@ -524,23 +526,6 @@ structure Run : RUN =
         ; raise exn
         )
 
-    val run_debugger = 
-      mk_run { step_handler = interactive_handler
-             , running = false
-             , print_flag = true 
-             (* TODO: make customizable *)
-             , colored_output = true
-             , commands = []
-             }
-
-    fun run_debugger_with_commands commands =
-      mk_run { step_handler = interactive_handler
-             , running = false
-             , print_flag = true 
-             , colored_output = false
-             , commands = commands 
-             }
-
     fun test_handler (ctx, _, _, _, store) exn =
       case exn of
         Debugger.Perform
@@ -573,12 +558,4 @@ structure Run : RUN =
           print ("\n" ^ String.concat (List.map (fn ln => ln ^ "\n") (MLton.Exn.history exn)))
         ; raise exn
         )
-
-    val run_test = 
-      mk_run { step_handler = test_handler
-             , running = true 
-             , print_flag = false
-             , colored_output = false
-             , commands = []
-             }
   end

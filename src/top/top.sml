@@ -25,7 +25,7 @@ structure TC = TerminalColors
 (* This function deals with recursing into all the dependencies of a CM
  * file, or actually evaluating the source text of an SML program.
  *)
-fun handle_file cur_path filename ctx =
+fun handle_file config cur_path filename ctx =
   let
     val filename =
       if OS.Path.isAbsolute filename then
@@ -47,7 +47,7 @@ fun handle_file cur_path filename ctx =
       (* Given an `sml`, `sig`, or `fun` file, then we run the debugger!
        *)
       | (_, SOME ("sml" | "sig" | "fun")) =>
-          Run.run_debugger
+          Run.run config
             (Source.loadFromFile (FilePath.fromUnixPath filename))
             ctx
       (* On a `cm` file, we transitively parse the dependencies, and handle 
@@ -61,7 +61,7 @@ fun handle_file cur_path filename ctx =
                 val ctx' =
                   List.foldl
                     (fn (source, ctx) =>
-                      handle_file dir 
+                      handle_file config dir 
                         ( case source of
                           CM_Token.PATH sym => Symbol.toValue sym
                         | CM_Token.STRING s => s
@@ -140,6 +140,15 @@ structure Top =
       let
         val args = CommandLineArgs.positional ()
         val doHelp = CommandLineArgs.parseFlag "help"
+        val no_color = CommandLineArgs.parseBool "no-color" false
+
+        val config = 
+          { step_handler = Run.interactive_handler
+          , running = false
+          , print_flag = true 
+          , colored_output = not no_color 
+          , commands = []
+          }
       in
         if doHelp orelse List.null args then
           ( print Run.help_message
@@ -148,7 +157,7 @@ structure Top =
         else
           ( List.foldl
               (fn (filename, ctx) =>
-                handle_file "" filename ctx
+                handle_file config "" filename ctx
               )
               Basis.initial
               args
