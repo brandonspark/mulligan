@@ -55,13 +55,11 @@ type runner_env = {
   commands : Directive.t list
 }
 
-
-
 (*****************************************************************************)
 (* Helpers *)
 (*****************************************************************************)
 
-fun print_focus ctx location focus numopt =
+fun show_focus ctx location focus numopt =
   case focus of
     (Debugger.VAL (exp, _) | Debugger.EXP (exp, _)) =>
       PrettyPrintAst.report
@@ -135,7 +133,7 @@ structure Run : RUN =
       \  print_depth = <i>  print evaluation context <i> layers deep when stepping\n"
 
     (* TODO: ugly, try to think of a better way to separate this logic *)
-    fun run {step_handler, running, print_flag, colored_output, commands} : Source.t -> Context.t -> Context.t =
+    fun run {step_handler, running, print_flag, colored_output, commands} source ctx : Context.t =
       let
         val print =
           if print_flag then
@@ -148,10 +146,46 @@ structure Run : RUN =
 
         fun println s = print (s ^ "\n")
 
+        (* A store of all of the "frames" of the debugger we have
+         * stepped through, since the beginning of execution.
+         *)
+        val store : ( Context.t
+            * Location.location list
+            * Debugger.focus
+            ) frame list ref = ref []
+
+        (* Whether we should autorun through execution.
+         *)
+        val run : run_status ref =
+          ref (if running then Running else Stepping)
+
+        (* All of the identifiers that we should break up, if we bind
+         * to them.
+         *)
+        val breaks : SMLSyntax.symbol option ref list ref = ref []
+
+        (* The last command executed.
+         *)
+        val last_command : Directive.t option ref = ref NONE
+
+        (* Some commands to run at the beginning.
+         * This is pretty much just for snapshot testing.
+         *)
+        val commands : Directive.t list ref = ref commands
+
+        fun display (ctx, location, focus) =
+          case !run of
+            Running => ()
+          | Stepping =>
+            print ("==> \n"
+              ^ show_focus ctx location focus NONE
+              ^ "\n"
+              )
+
         (* The eval_source function takes in an SML source and gets us into the main loop, via
         * Perform being raised on the first expression redex.
         *)
-        fun eval_source source ctx =
+        fun parse_ast_from_source source ctx =
           let
             val _ =
               surround
@@ -168,293 +202,290 @@ structure Run : RUN =
                 ^ PrettyPrintAst.pretty ctx ast true
                 ^ "\n\n"
                 )
-
-            (* The step function is responsible for doing the stepping. Upon handling
-            * a Perform upon the first redex, it re-enters the interactive loop
-            * with the new evaluation information, pausing the evaluation.
-            *)
-
-            val store : ( Context.t
-                * Location.location list
-                * Debugger.focus
-                ) frame list ref = ref []
-
-            val run : run_status ref =
-              ref (if running then Running else Stepping)
-
-            val breaks : SMLSyntax.symbol option ref list ref = ref []
-
-            val last_command : Directive.t option ref = ref NONE
-
-            val commands : Directive.t list ref = ref commands
-
-            fun display (ctx, location, focus) =
-              case !run of
-                Running => ()
-              | Stepping =>
-                print ("==> \n"
-                  ^ print_focus ctx location focus NONE
-                  ^ "\n"
-                  )
-
-            fun step (ctx, location, focus) evaluate =
-              let
-                val _ = push (Frame (ctx, location, focus)) store
-
-                fun set () =
-                  if evaluate then run := Running else ()
-                fun unset () =
-                  if evaluate then run := Stepping else ()
-
-                val new_info =
-                  ( case focus of
-                    Debugger.VAL (_, cont) =>
-                      Cont.throw cont ()
-                  | Debugger.EXP (exp, cont) =>
-                    ( case Value.exp_to_value ctx exp of
-                        SOME value =>
-                          Cont.throw cont (suspend value)
-                      | _ =>
-                        let
-                          val _ = set ()
-
-                          (* This ensures that once we throw back to this
-                            * continuation, we unset.
-                            *)
-                          val new_cont =
-                            Cont.do_after cont
-                              (fn x =>
-                                ( unset ()
-                                ; if evaluate then
-                                    Cont.callcc (fn cont =>
-                                      raise Debugger.Perform (Debugger.Step
-                                        { context = ctx
-                                        , location = location
-                                        , focus = Debugger.VAL (Value.value_to_exp (x ()), cont)
-                                        , stop = false
-                                        }
-                                    ))
-                                  else ()
-                                ; x
-                                )
-                              )
-                        in
-                          Debugger.eval location exp ctx new_cont
-                          (* If we are evaluating some expression, and it raises an
-                            * exception, we need to percolate that up to our caller.
-                            *)
-                          handle
-                            Context.Raise exninfo =>
-                              Cont.throw new_cont (fn () => raise Context.Raise exninfo)
-                        end
-                    )
-                  | Debugger.PROG ast =>
-                      ( set ()
-                      ; Finished (Debugger.eval_program ast ctx)
-                      )
-                  )
-                  handle exn => step_handler (ctx, location, focus, run, store) exn
-
-              in
-                case new_info of
-                  Finished ctx =>
-                    ( print (orange "Program evaluation finished.\n\n")
-                    ; ctx
-                    )
-                | Step info =>
-                    ( display info
-                    ; start_loop info
-                    )
-              end
-
-            and execute_prev info num_opt =
-              let
-                fun print_report (info as (ctx, location, focus)) =
-                  ( display (ctx, location, focus)
-                  ; info
-                  )
-
-                fun rewind n l =
-                  case (n, l) of
-                    ( (_, []) | (0, _) ) =>
-                      (store := l; print_report info)
-                  | (1, (Frame info | Starred info) :: rest) =>
-                      ( store := rest
-                      ; print_report info
-                      )
-                  | (_, _ :: rest) =>
-                      rewind (n - 1) rest
-              in
-                start_loop (rewind (Option.getOpt (num_opt, 1)) (!store))
-              end
-
-            and start_loop info =
-              (case !run of
-                Running => step info false
-              | Stepping => main_loop info
-              )
-
-            (* The main loop is responsible for accepting user input and controlling
-            * what is done by the program.
-            *)
-            and main_loop (info as (ctx, location, focus)) =
-              let
-                fun recur _ = start_loop info
-
-                fun parse_command () =
-                  case !commands of
-                    cmd::rest =>
-                      ( commands := rest 
-                      ; SOME cmd
-                      )
-                  | [] => 
-                      let
-                        val input = TextIO.input TextIO.stdIn
-                      in
-                        case input of
-                          (* An empty input repeats the previous command.
-                          *)
-                          "\n" => !last_command
-                        | _ =>
-                          case DirectiveParser.parse_opt input of
-                            NONE => NONE
-                          | SOME cmd =>
-                              ( last_command := SOME cmd
-                              ; SOME cmd
-                              )  
-                      end
-              in
-              ( TextIO.output (TextIO.stdOut, "- ")
-              ; TextIO.flushOut TextIO.stdOut
-              ; case parse_command () of
-                  SOME Directive.Step => step info false
-                | SOME Directive.Evaluate => step info true
-                | SOME Directive.Stop =>
-                    ( print (lightblue "Bye bye!\n")
-                    ; OS.Process.exit OS.Process.success
-                    )
-                | SOME (Directive.Reveal i') =>
-                    let
-                      val print_dec = #print_dec (Context.get_settings ctx)
-                      val old_setting = !print_dec
-                    in
-                      ( print_dec := false
-                      ; print ("Revealing:\n"
-                              ^ print_focus ctx location focus i'
-                              ^ "\n")
-                      ; print_dec := old_setting
-                      )
-                      |> recur
-                    end
-                | SOME (Directive.Prev num_opt) => execute_prev info num_opt
-                | SOME (Directive.Last num_opt) =>
-                    let
-                      fun last l i =
-                        case (l, i) of
-                          ([], _) => (info, [])
-                        | ([(Frame x | Starred x)], _) => (x, [])
-                        | (Starred x :: rest, 1) => (x, rest)
-                        | (Frame _ :: rest, _) => last rest i
-                        | (Starred _ :: rest, _) => last rest (i - 1)
-
-                      val (info, rest) = last (!store) (Option.getOpt (num_opt, 1))
-                    in
-                      ( store := rest
-                      ; display info
-                      )
-                      |> recur
-                    end
-                | SOME (Directive.BreakFn longid) =>
-                    ( spf (`"Breakpoint set on function value bound to "fl"\n") longid |> print
-                    ; let
-                        val (_, broken) = Context.break_fn ctx longid true
-                        val _ = push broken breaks 
-                      in
-                        start_loop info
-                      end
-                    )
-                | SOME (Directive.BreakBind id) =>
-                    let
-                      val break_assigns = Context.get_break_assigns ctx
-                    in
-                      ( spf (`"Breakpoint set on bindings to identifier "fi"\n") id |> print
-                      ; break_assigns := SymSet.insert (!break_assigns) id
-                      )
-                      |> recur
-                    end
-                | SOME Directive.Run =>
-                    recur (run := Running)
-                | SOME (Directive.Clear NONE) =>
-                    ( List.map (fn broken => broken := NONE) (!breaks)
-                    ; breaks := []
-                    ; Context.get_break_assigns ctx := SymSet.empty
-                    ; print "All breakpoints cleared.\n"
-                    )
-                    |> recur
-                | SOME (Directive.Clear (SOME longid)) =>
-                    ( spf (`"Breaking function "fl"\n") longid |> print
-                    ; Context.break_fn ctx longid false
-                    )
-                    |> recur
-                | SOME (Directive.Print longid) =>
-                    ( spf (`"Printing value of identifier "fl"\n") longid |> print
-                    ; Context.get_val ctx longid
-                      |> PrettyPrintAst.print_value ctx
-                      |> println
-                    )
-                    |> recur
-                | SOME (Directive.Set (setting, value)) =>
-                    let
-                      fun sym_to_bool s =
-                        case Symbol.toValue s of
-                          "true" => SOME true
-                        | "false" => SOME false
-                        | _ => NONE
-                    in
-                      recur
-                        ( case (Symbol.toValue setting, value) of
-                          (_, Directive.VALUE s) =>
-                            (case (Symbol.toValue setting, sym_to_bool s) of
-                              (_, NONE) => print "Expected a boolean value.\n"
-                            | ("substitute", SOME b) =>
-                                Context.set_substitute ctx b
-                            | ("print_dec", SOME b) =>
-                                #print_dec (Context.get_settings ctx) := b
-                            | _ => print "Unrecognized setting."
-                            )
-                        | ("print_depth", Directive.NUM i) =>
-                            #print_depth (Context.get_settings ctx) := i
-                        | _ => print "Unrecognized setting.\n"
-                        )
-                    end
-                | SOME (Directive.Report s) =>
-                    recur
-                      ( case Symbol.toValue s of
-                        "ctx" => print (PrettyPrintAst.ctx_toString ctx ^ "\n")
-                      | "location" => print (PrettyPrintAst.location_toString ctx location ^ "\n")
-                      | _ => print "Unrecognized report.\n"
-                      )
-                | SOME Directive.Help =>
-                    recur (print help_message)
-                | SOME (Directive.TypeOf longid) =>
-                    (case Context.get_ident_ty_opt ctx longid of
-                      NONE => recur (print "Cannot find type of unbound identifier.\n")
-                    | SOME (_, tyscheme) => recur (println (PrettyPrintAst.print_tyscheme tyscheme))
-                    )
-                | NONE =>
-                    recur (print "Unrecognized command.\n")
-              )
-              end
           in
-            (* This call will result in entering the interactive loop.
-            *
-            * This handler gets entered at any point that we checkpoint _after_ a
-            * throw.
-            *)
-            start_loop (ctx, [Location.PROG ast], Debugger.PROG ast)
+            ast
           end
+
+          (* The step function is responsible for doing the stepping.
+           * There are only two actions `step` can take -- either it: 
+           * - chooses to recurse and evaluate a sub-expression, or 
+           * - it is finished evaluating an exp, and throws to a cont
+           * 
+           * If the evaluation of that expression ever signals that it 
+           * is at a "significant redex", it raises Perform, and we enter
+           * back into `start_loop` immediately.
+           *)
+          fun step (ctx, location, focus) evaluate =
+            let
+              val _ = push (Frame (ctx, location, focus)) store
+
+              (* if we finish evaluating the currently focused expression with
+               * `evaluate`, we need to set the run flag back to stepping  
+               *)
+              fun set () =
+                if evaluate then run := Running else ()
+              fun unset () =
+                if evaluate then run := Stepping else ()
+
+              val new_info =
+                ( case focus of
+                  Debugger.VAL (_, cont) =>
+                    Cont.throw cont ()
+                | Debugger.EXP (exp, cont) =>
+                  ( case Value.exp_to_value ctx exp of
+                      SOME value =>
+                        Cont.throw cont (suspend value)
+                    | _ =>
+                      let
+                        val _ = set ()
+
+                        (* This ensures that once we throw back to this
+                          * continuation, we continue stepping. 
+                          *)
+                        val new_cont =
+                          Cont.do_after cont
+                            (fn x =>
+                              ( unset ()
+                              ; if evaluate then
+                                  Cont.callcc (fn cont =>
+                                    (* THINK: why does it make sense to raise Perform
+                                     * here? i don't understand
+                                     *)
+                                    raise Debugger.Perform (Debugger.Step
+                                      { context = ctx
+                                      , location = location
+                                      , focus = Debugger.VAL (Value.value_to_exp (x ()), cont)
+                                      , stop = false
+                                      }
+                                  ))
+                                else ()
+                              ; x
+                              )
+                            )
+                      in
+                        Debugger.eval location exp ctx new_cont
+                        (* If we are evaluating some expression, and it raises an
+                          * exception, we need to percolate that up to our caller.
+                          *)
+                        handle
+                          Context.Raise exninfo =>
+                            Cont.throw new_cont (fn () => raise Context.Raise exninfo)
+                      end
+                  )
+                | Debugger.PROG ast =>
+                    ( set ()
+                    ; Finished (Debugger.eval_program ast ctx)
+                    )
+                )
+                handle exn => step_handler (ctx, location, focus, run, store) exn
+
+            in
+              case new_info of
+                Finished ctx =>
+                  ( print (orange "Program evaluation finished.\n\n")
+                  ; ctx
+                  )
+              | Step info =>
+                  ( display info
+                  ; start_loop info
+                  )
+            end
+
+          and execute_prev info num_opt =
+            let
+              fun print_report (info as (ctx, location, focus)) =
+                ( display (ctx, location, focus)
+                ; info
+                )
+
+              fun rewind n l =
+                case (n, l) of
+                  ( (_, []) | (0, _) ) =>
+                    (store := l; print_report info)
+                | (1, (Frame info | Starred info) :: rest) =>
+                    ( store := rest
+                    ; print_report info
+                    )
+                | (_, _ :: rest) =>
+                    rewind (n - 1) rest
+
+              val num_steps = Option.getOpt (num_opt, 1)
+            in
+              start_loop (rewind num_steps (!store))
+            end
+
+          and start_loop info =
+            (* If we're not running, then block for input.
+             * Otherwise, allow stepping to happen.
+             * In a sense, this means that if we are in `Running`,
+             * we implicitly do `step` automatically.
+             *)
+            (case !run of
+              Running => step info false
+            | Stepping => main_loop info
+            )
+
+          (* The main loop is responsible for accepting user input and controlling
+          * what is done by the program.
+          *)
+          and main_loop (info as (ctx, location, focus)) =
+            let
+              fun recur _ = start_loop info
+
+              fun parse_command () =
+                case !commands of
+                  cmd::rest =>
+                    ( commands := rest 
+                    ; SOME cmd
+                    )
+                | [] => 
+                    let
+                      val input = TextIO.input TextIO.stdIn
+                    in
+                      case input of
+                        (* An empty input repeats the previous command.
+                        *)
+                        "\n" => !last_command
+                      | _ =>
+                        case DirectiveParser.parse_opt input of
+                          NONE => NONE
+                        | SOME cmd =>
+                            ( last_command := SOME cmd
+                            ; SOME cmd
+                            )  
+                    end
+            in
+            ( TextIO.output (TextIO.stdOut, "- ")
+            ; TextIO.flushOut TextIO.stdOut
+            ; case parse_command () of
+                SOME Directive.Step => step info false
+              | SOME Directive.Evaluate => step info true
+              | SOME Directive.Stop =>
+                  ( print (lightblue "Bye bye!\n")
+                  ; OS.Process.exit OS.Process.success
+                  )
+              | SOME (Directive.Reveal i') =>
+                  let
+                    val print_dec = #print_dec (Context.get_settings ctx)
+                    val old_setting = !print_dec
+                  in
+                    ( print_dec := false
+                    ; print ("Revealing:\n"
+                            ^ show_focus ctx location focus i'
+                            ^ "\n")
+                    ; print_dec := old_setting
+                    )
+                    |> recur
+                  end
+              | SOME (Directive.Prev num_opt) => execute_prev info num_opt
+              | SOME (Directive.Last num_opt) =>
+                  let
+                    fun last l i =
+                      case (l, i) of
+                        ([], _) => (info, [])
+                      | ([(Frame x | Starred x)], _) => (x, [])
+                      | (Starred x :: rest, 1) => (x, rest)
+                      | (Frame _ :: rest, _) => last rest i
+                      | (Starred _ :: rest, _) => last rest (i - 1)
+
+                    val (info, rest) = last (!store) (Option.getOpt (num_opt, 1))
+                  in
+                    ( store := rest
+                    ; display info
+                    )
+                    |> recur
+                  end
+              | SOME (Directive.BreakFn longid) =>
+                  ( spf (`"Breakpoint set on function value bound to "fl"\n") longid |> print
+                  ; let
+                      val (_, broken) = Context.break_fn ctx longid true
+                      val _ = push broken breaks 
+                    in
+                      start_loop info
+                    end
+                  )
+              | SOME (Directive.BreakBind id) =>
+                  let
+                    val break_assigns = Context.get_break_assigns ctx
+                  in
+                    ( spf (`"Breakpoint set on bindings to identifier "fi"\n") id |> print
+                    ; break_assigns := SymSet.insert (!break_assigns) id
+                    )
+                    |> recur
+                  end
+              | SOME Directive.Run =>
+                  recur (run := Running)
+              | SOME (Directive.Clear NONE) =>
+                  ( List.map (fn broken => broken := NONE) (!breaks)
+                  ; breaks := []
+                  ; Context.get_break_assigns ctx := SymSet.empty
+                  ; print "All breakpoints cleared.\n"
+                  )
+                  |> recur
+              | SOME (Directive.Clear (SOME longid)) =>
+                  ( print <| spf (`"Breaking function "fl"\n") longid
+                  ; Context.break_fn ctx longid false
+                  )
+                  |> recur
+              | SOME (Directive.Print longid) =>
+                  ( print <| spf (`"Printing value of identifier "fl"\n") longid
+                  ; Context.get_val ctx longid
+                    |> PrettyPrintAst.print_value ctx
+                    |> println
+                  )
+                  |> recur
+              | SOME (Directive.Set (setting, value)) =>
+                  let
+                    fun sym_to_bool s =
+                      case Symbol.toValue s of
+                        "true" => SOME true
+                      | "false" => SOME false
+                      | _ => NONE
+                  in
+                    recur
+                      ( case (Symbol.toValue setting, value) of
+                        (_, Directive.VALUE s) =>
+                          (case (Symbol.toValue setting, sym_to_bool s) of
+                            (_, NONE) => print "Expected a boolean value.\n"
+                          | ("substitute", SOME b) =>
+                              Context.set_substitute ctx b
+                          | ("print_dec", SOME b) =>
+                              #print_dec (Context.get_settings ctx) := b
+                          | _ => print "Unrecognized setting."
+                          )
+                      | ("print_depth", Directive.NUM i) =>
+                          #print_depth (Context.get_settings ctx) := i
+                      | _ => print "Unrecognized setting.\n"
+                      )
+                  end
+              | SOME (Directive.Report s) =>
+                  recur
+                    ( case Symbol.toValue s of
+                      "ctx" => print (PrettyPrintAst.ctx_toString ctx ^ "\n")
+                    | "location" => print (PrettyPrintAst.location_toString ctx location ^ "\n")
+                    | _ => print "Unrecognized report.\n"
+                    )
+              | SOME Directive.Help =>
+                  recur (print help_message)
+              | SOME (Directive.TypeOf longid) =>
+                  (case Context.get_ident_ty_opt ctx longid of
+                    NONE => recur (print "Cannot find type of unbound identifier.\n")
+                  | SOME (_, tyscheme) => recur (println (PrettyPrintAst.print_tyscheme tyscheme))
+                  )
+              | NONE =>
+                  recur (print "Unrecognized command.\n")
+            )
+            end
+
+        (* let's go! *)
+        val ast = parse_ast_from_source source ctx
       in
-        eval_source
+        (* This call will result in entering the interactive loop.
+        *
+        * This handler gets entered at any point that we checkpoint _after_ a
+        * throw.
+        *)
+        start_loop (ctx, [Location.PROG ast], Debugger.PROG ast)
       end
 
 
@@ -484,7 +515,7 @@ structure Run : RUN =
               ( red "Error" ^ ": Evaluation failure\n"
                 ^ mk_reason reason
                 ^ "Context:\n"
-                ^ print_focus ctx location focus NONE
+                ^ show_focus ctx location focus NONE
                 |> surround TC.softred
                 |> print
               ; OS.Process.exit OS.Process.failure
@@ -493,7 +524,7 @@ structure Run : RUN =
               ( red "Error" ^ ": User-induced error\n"
                 ^ mk_reason reason
                 ^ "Context:\n"
-                ^ print_focus ctx location focus NONE
+                ^ show_focus ctx location focus NONE
                 |> surround TC.softred
                 |> print
               ; Step (ctx, location, focus)
@@ -502,7 +533,7 @@ structure Run : RUN =
               ( red "Error" ^ ": Invalid program\n"
                 ^ mk_reason reason
                 ^ "Context:\n"
-                ^ print_focus ctx location focus NONE
+                ^ show_focus ctx location focus NONE
                 |> surround TC.softred
                 |> print
               ; OS.Process.exit OS.Process.failure
@@ -511,7 +542,7 @@ structure Run : RUN =
               ( red "Error" ^ ": Type error\n"
                 ^ mk_reason reason
                 ^ "Context:\n"
-                ^ print_focus ctx location focus NONE
+                ^ show_focus ctx location focus NONE
                 |> surround TC.softred
                 |> print
               ; OS.Process.exit OS.Process.failure
