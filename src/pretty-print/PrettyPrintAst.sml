@@ -3,114 +3,149 @@
   * See the file LICENSE for details.
   *)
 
-structure PrettyPrintAst :
-sig
-  include PRINTF
+open PrettyPrintContext
+open SMLSyntax
+open PrettySimpleDoc
+open Location
+open Printf
+structure TC = TerminalColors
 
-  val pretty: Context.t -> SMLSyntax.ast -> bool -> string
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* This is for everything related to pretty printing the SML AST.
+ * This is crucially used for the debugger's trace output, since we need to
+ * be able to show the current state of the program.
+ *)
 
-  val report :
-    Context.t -> SMLSyntax.exp -> int -> Location.location list -> string
+(*****************************************************************************)
+(* Helpers *)
+(*****************************************************************************)
 
-  val ctx_toString : Context.t -> string
-  val location_toString : Context.t -> Location.location list -> string
+fun inject y = fn x => (x, y)
 
-  val print_value : Context.t -> Context.value -> string
-  val print_pat : Context.t -> SMLSyntax.pat -> string
-  val print_exp : Context.t -> SMLSyntax.exp -> string
-  val print_tyval : SMLSyntax.tyval -> string
-  val print_tyscheme : SMLSyntax.type_scheme -> string
-  val print_longid : SMLSyntax.longid -> string
+val empty_set = MarkerSet.empty
 
-  (* Some format flags for Printf.
-   *)
-  val ftv : (SMLSyntax.tyval -> 'a, 'b, 'state) Printf.t * string -> ('a, 'b, 'state) Printf.t
-  val fp : (SMLSyntax.pat -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
-  val fe : (SMLSyntax.exp -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
-  val fv : (SMLSyntax.value -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
-  val fl : (SMLSyntax.longid -> 'a, 'b, 'state) Printf.t * string -> ('a, 'b, 'state) Printf.t
-end =
+fun union_sets l =
+  List.foldl
+    (fn (set, acc) =>
+      MarkerSet.union set acc
+    )
+    MarkerSet.empty
+    l
 
+val union = MarkerSet.union
+
+fun curry f = fn x => fn y => f (x, y)
+
+(*****************************************************************************)
+(* Colors! *)
+(*****************************************************************************)
+
+val white = TC.hsv {h=38.0, s=0.0, v=0.75}
+val orange = TC.hsv {h=35.0, s=0.79, v=0.9}
+val green = TC.hsv {h=128.0, s=0.43, v=0.9}
+val heavygreen = TC.hsv {h=117.0, s=1.0, v=0.26}
+val blue = TC.hsv {h=220.0, s=0.75, v=0.85}
+val heavyblue = TC.hsv {h=222.0, s=0.95, v=0.85}
+val lightblue = TC.hsv {h=200.0, s=0.45, v=0.83}
+val yellow = TC.hsv {h=55.0, s=0.81, v=0.90}
+val purple = TC.hsv {h=269.0, s=0.52, v=1.0}
+val pink = TC.hsv {h=300.0, s=0.61, v=0.9}
+val red = TC.hsv {h=0.0, s=0.72, v=0.8}
+val heavyred = TC.hsv {h=0.0, s=0.83, v=0.85}
+val cyan = TC.hsv {h=186.0, s=0.73, v=1.0}
+val brown = TC.hsv {h=21.0, s=0.82, v=0.70}
+
+(*****************************************************************************)
+(* Pretty-printing helpers *)
+(*****************************************************************************)
+
+infix 2 +++ ++ +-+ $$ // $$< //< ^^ \\
+
+(* Juxtaposition *)
+fun x ++ y = beside (x, y)
+
+(* Space-separated juxtaposition *) 
+fun x +-+ y = x ++ space ++ y
+
+(* Optionally space-separated juxtaposition *) 
+fun x +++ y = x ++ softspace ++ y
+
+(* Newline or space-separated *)
+fun x $$ y = aboveOrSpace (x, y)
+fun x $$< y = y $$ x
+
+(* Newline or juxtaposed *)
+fun x // y = aboveOrBeside (x, y)
+fun x //< y = y // x
+
+fun spaces n =
+  List.foldl op++ empty (List.tabulate (n, fn _ => space))
+
+(* +-+ or indented newline *)
+fun x \\ y =
+  group (x $$ (spaces 2 ++ y))
+
+val text_syntax = text lightblue
+val text_literal = text brown
+val text_lab = text blue
+
+fun parensAround (x: doc) =
+  group (text_syntax "(" +++ x // text_syntax ")")
+
+fun separateWithSpaces (items: doc option list) : doc =
+  let
+    val items: doc list = List.mapPartial (fn x => x) items
+  in
+    case items of
+      [] => empty
+    | first :: rest =>
+        List.foldl (fn (next, prev) => prev +-+ next) first rest
+  end
+
+fun separateWithNewlines items =
+  List.foldr
+    (fn (x, acc) => x $$ acc)
+    empty
+    items
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
+signature PRETTYPRINTAST =
+  sig
+    val pretty: Context.t -> SMLSyntax.ast -> bool -> string
+
+    val report :
+      Context.t -> SMLSyntax.exp -> int -> Location.location list -> string
+
+    val show_ctx : Context.t -> string
+    val show_location : Context.t -> Location.location list -> string
+
+    val show_value : Context.t -> Context.value -> string
+    val show_pat : Context.t -> SMLSyntax.pat -> string
+    val show_exp : Context.t -> SMLSyntax.exp -> string
+    val show_tyval : SMLSyntax.tyval -> string
+    val show_tyscheme : SMLSyntax.type_scheme -> string
+    val show_longid : SMLSyntax.longid -> string
+
+    (* Some format flags for printf.
+    *)
+    val ftv : (SMLSyntax.tyval -> 'a, 'b, 'state) Printf.t * string -> ('a, 'b, 'state) Printf.t
+    val fp : (SMLSyntax.pat -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
+    val fe : (SMLSyntax.exp -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
+    val fv : (SMLSyntax.value -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
+    val fl : (SMLSyntax.longid -> 'a, 'b, 'state) Printf.t * string -> ('a, 'b, 'state) Printf.t
+  end 
+
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
+
+structure PrettyPrintAst : PRETTYPRINTAST =
 struct
-  open PrettyPrintContext
-
-  open SMLSyntax
-  structure PD = PrettySimpleDoc
-  open PD
-  open Location
-  open Printf
-
-  structure TC = TerminalColors
-
-  infix |>
-  fun x |> f = f x
-
-  fun inject y = fn x => (x, y)
-  val empty_set = MarkerSet.empty
-  fun union_sets l =
-    List.foldl
-      (fn (set, acc) =>
-        MarkerSet.union set acc
-      )
-      MarkerSet.empty
-      l
-  val union = MarkerSet.union
-
-  val white = TC.hsv {h=38.0, s=0.0, v=0.75}
-  val orange = TC.hsv {h=35.0, s=0.79, v=0.9}
-  val green = TC.hsv {h=128.0, s=0.43, v=0.9}
-  val heavygreen = TC.hsv {h=117.0, s=1.0, v=0.26}
-  val blue = TC.hsv {h=220.0, s=0.75, v=0.85}
-  val heavyblue = TC.hsv {h=222.0, s=0.95, v=0.85}
-  val lightblue = TC.hsv {h=200.0, s=0.45, v=0.83}
-  val yellow = TC.hsv {h=55.0, s=0.81, v=0.90}
-  val purple = TC.hsv {h=269.0, s=0.52, v=1.0}
-  val pink = TC.hsv {h=300.0, s=0.61, v=0.9}
-  val red = TC.hsv {h=0.0, s=0.72, v=0.8}
-  val heavyred = TC.hsv {h=0.0, s=0.83, v=0.85}
-  val cyan = TC.hsv {h=186.0, s=0.73, v=1.0}
-  val brown = TC.hsv {h=21.0, s=0.82, v=0.70}
-
-
-  infix 2 +++ ++ +-+ $$ // $$< //< ^^ \\
-  fun x ++ y = beside (x, y)
-  fun x +-+ y = x ++ space ++ y
-  fun x +++ y = x ++ softspace ++ y
-  fun x $$ y = aboveOrSpace (x, y)
-  fun x $$< y = y $$ x
-  fun x // y = aboveOrBeside (x, y)
-  fun x //< y = y // x
-
-  fun spaces n =
-    List.foldl op++ empty (List.tabulate (n, fn _ => space))
-
-  fun x \\ y =
-    group (x $$ (spaces 2 ++ y))
-
-  val text_syntax = text lightblue
-  val text_literal = text brown
-  val text_lab = text blue
-
-
-  fun parensAround (x: doc) =
-    group (text_syntax "(" +++ x // text_syntax ")")
-
-  fun separateWithSpaces (items: doc option list) : doc =
-    let
-      val items: doc list = List.mapPartial (fn x => x) items
-    in
-      case items of
-        [] => empty
-      | first :: rest =>
-          List.foldl (fn (next, prev) => prev +-+ next) first rest
-    end
-
-  fun separateWithNewlines items =
-    List.foldr
-      (fn (x, acc) => x $$ acc)
-      empty
-      items
-
   (* if all is true: apply delim to all elements, including first.
    * delim is prepended to any mapped elements. *)
   fun apply_list_base f delim all l =
@@ -138,18 +173,18 @@ struct
       if smush then group result else result
     end
 
-  fun show_list_base smush f delim all space l =
+  fun p_list_base smush f delim all space l =
     combine_list space smush (apply_list_base f delim all l)
 
-  (* show_list by default calls show_list_base with these settings:
+  (* p_list by default calls p_list_base with these settings:
    * - Group the combined list
    * - Do not newline-separate
    * - Delimiter is applied to not all elements *)
-  fun show_list f delim l = show_list_base true f delim false false l
+  fun p_list f delim l = p_list_base true f delim false false l
 
   (* Delim is put after all but the last element, instead of before all but the
    * first. *)
-  fun show_list_after f delim l =
+  fun p_list_after f delim l =
     case l of
       [] => text_syntax ""
     | [elem] => f elem
@@ -167,12 +202,12 @@ struct
    * `mk true` is applied to the first element, and `mk false` is applied to the
    * rest.
    * That's what this function does. *)
-  fun show_list_mk mk l =
+  fun p_list_mk mk l =
     List.foldl op$$<
       (mk true (List.nth (l, 0)))
       (List.map (mk false) (List.drop (l, 1)))
 
-  fun show_seq mk first delim last l =
+  fun p_seq mk first delim last l =
     let
       val res =
         List.foldl
@@ -189,36 +224,34 @@ struct
       | SOME ans => group (ans // text_syntax last)
     end
 
-  fun curry f = fn x => fn y => f (x, y)
-
   (* Suppose we would like to show all the elements in a list with some
    * delimiter, in such a way that the first element is prepended with one
    * (spaced) string, and then all after are prepended with a different string.
    * That's what this does. *)
-  fun show_list_prepend color smush first after f delim l =
+  fun p_list_prepend color smush first after f delim l =
     combine_list true smush
       (ListUtils.map_cons
         (curry (op +-+) (text color first))
         (curry (op +-+) (text color after))
         (apply_list_base f delim false l))
 
-  fun show_symbol color = text color o Symbol.toValue
-  fun show_symbol_node color = text color o Symbol.toValue
+  fun p_symbol color = text color o Symbol.toValue
+  fun p_symbol_node color = text color o Symbol.toValue
 
-  fun show_char c = text_literal ("#\"" ^ Char.toString c ^ "\"")
+  fun p_char c = text_literal ("#\"" ^ Char.toString c ^ "\"")
 
-  fun show_id color identifier = (show_symbol_node color) identifier
+  fun p_id color identifier = (p_symbol_node color) identifier
 
-  fun show_longid color longid =
+  fun p_longid color longid =
     let
       val mapped =
         List.tabulate
           ( List.length longid
           , fn i =>
               if i = List.length longid - 1 then
-                show_symbol_node color (List.nth (longid, i))
+                p_symbol_node color (List.nth (longid, i))
               else
-                show_symbol_node orange (List.nth (longid, i))
+                p_symbol_node orange (List.nth (longid, i))
           )
     in
       case mapped of
@@ -230,64 +263,64 @@ struct
             tl
     end
 
-  val show_tyvar = show_id yellow
+  val p_tyvar = p_id yellow
 
-  fun show_tyvars tyvars =
+  fun p_tyvars tyvars =
     parensAround (
-      show_list show_tyvar ", " tyvars
+      p_list p_tyvar ", " tyvars
     )
-  fun show_tyvars_option [] = NONE
-    | show_tyvars_option [tyvar] = SOME (show_tyvar tyvar)
-    | show_tyvars_option other =  SOME (show_tyvars other)
+  fun p_tyvars_option [] = NONE
+    | p_tyvars_option [tyvar] = SOME (p_tyvar tyvar)
+    | p_tyvars_option other =  SOME (p_tyvars other)
 
   fun bool_to_option b default =
     if b then SOME default
     else NONE
 
-  fun show_setting (name, value) =
+  fun p_setting (name, value) =
     group (
-      show_id blue name ++ text_syntax "="
+      p_id blue name ++ text_syntax "="
       $$
-      show_id white value
+      p_id white value
     )
-  fun show_settings settings =
-    text_syntax "{" ++ show_list show_setting ", " settings ++ text_syntax "}"
+  fun p_settings settings =
+    text_syntax "{" ++ p_list p_setting ", " settings ++ text_syntax "}"
 
-  fun show_plugin (name, settings) =
+  fun p_plugin (name, settings) =
     case settings of
-      [] => show_id white name
-    | _ => group (show_id white name $$ show_settings settings)
-  fun show_plugins plugins =
-    show_list show_plugin "," plugins
+      [] => p_id white name
+    | _ => group (p_id white name $$ p_settings settings)
+  fun p_plugins plugins =
+    p_list p_plugin "," plugins
 
   local
     open SMLSyntax
     val color = green
-    val show_tyvar = show_id yellow
-    val show_id = show_id color
-    val show_longid = show_longid color
+    val p_tyvar = p_id yellow
+    val p_id = p_id color
+    val p_longid = p_longid color
   in
-    fun show_ty ty = show_ty_ ty
-    and show_ty_ ty_ =
+    fun p_ty ty = p_ty_ ty
+    and p_ty_ ty_ =
       case ty_ of
         Tident longid =>
-        show_longid longid
+        p_longid longid
       | Ttyvar id =>
-        show_tyvar id
+        p_tyvar id
       | Tapp (typarams, longid) =>
           (case typarams of
-            [] => show_longid longid
-          | [elem] => show_atty elem +-+ show_longid longid
+            [] => p_longid longid
+          | [elem] => p_atty elem +-+ p_longid longid
           | _ =>
-            text_syntax "(" ++ show_list show_ty ", " typarams ++ text_syntax
-            ")" +-+ show_longid longid)
+            text_syntax "(" ++ p_list p_ty ", " typarams ++ text_syntax
+            ")" +-+ p_longid longid)
       | Tprod tys =>
-          show_list show_ty " * " tys
+          p_list p_ty " * " tys
       | Tarrow (t1, t2) =>
         group (
-            show_atty t1 +-+ text_syntax "->"
+            p_atty t1 +-+ text_syntax "->"
             $$
-            show_atty t2
+            p_atty t2
         )
       | Trecord fields =>
         let
@@ -295,71 +328,71 @@ struct
             List.map
               (fn {lab, ty} =>
                 group (
-                  show_symbol_node blue lab +-+ text_syntax ":"
+                  p_symbol_node blue lab +-+ text_syntax ":"
                   $$
-                  spaces 2 ++ show_ty ty
+                  spaces 2 ++ p_ty ty
                 ))
               fields
         in
           group (
             text_syntax "{"
             ++
-            show_list_after (fn x => x) ", " fields_doc
+            p_list_after (fn x => x) ", " fields_doc
             ++
             text_syntax "}"
           )
         end
-      | Tparens ty => show_atty ty
-    and show_atty ty =
+      | Tparens ty => p_atty ty
+    and p_atty ty =
       case ty of
         ( Tident _
         | Ttyvar _
         | Tapp (([] | [_]), _)
-        | Trecord _ ) => show_ty ty
-      | _ => parensAround (show_ty ty)
+        | Trecord _ ) => p_ty ty
+      | _ => parensAround (p_ty ty)
 
-    and show_tyval tyval =
+    and p_tyval tyval =
       case tyval of
         TVtyvar id =>
-          show_tyvar id
+          p_tyvar id
       | TVapp (tyvals, tyid) =>
           (case tyvals of
             [] => text color (TyId.show tyid)
-          | [elem] => show_attyval elem +-+ text color (TyId.show tyid)
+          | [elem] => p_attyval elem +-+ text color (TyId.show tyid)
           | _ =>
             text_syntax "("
-            ++ show_list show_tyval ", " tyvals
+            ++ p_list p_tyval ", " tyvals
             ++ text_syntax ")"
             +-+ text color (TyId.show tyid)
           )
       | TVprod tys =>
-          show_list show_tyval " * " tys
+          p_list p_tyval " * " tys
       | TVarrow (left, right) =>
           let
-            fun show_side tyval =
+            fun p_side tyval =
               case tyval of
-                TVprod _ => show_tyval tyval
-              | _ => show_attyval tyval
+                TVprod _ => p_tyval tyval
+              | _ => p_attyval tyval
 
-            fun show_arrow l mark r =
+            fun p_arrow l mark r =
               case (r, right) of
                 (TVarrow (l', r'), _) =>
                   (if mark then
-                    text_syntax "->" +-+ show_side l
+                    text_syntax "->" +-+ p_side l
                   else
-                    spaces 3 ++ show_side l
+                    spaces 3 ++ p_side l
                   )
-                  $$ show_arrow l' true r'
+                  $$ p_arrow l' true r'
               | (_, TVarrow _) =>
                   (if mark then
-                    text_syntax "->" +-+ show_side l
+                    text_syntax "->" +-+ p_side l
                    else
-                     spaces 3 ++ show_side l
+                     spaces 3 ++ p_side l
                   )
-                  $$ (text_syntax "->"  +-+ show_side r)
-              | _ => show_side l +-+ text_syntax "->" +-+ show_side r
+                  $$ (text_syntax "->"  +-+ p_side r)
+              | _ => p_side l +-+ text_syntax "->" +-+ p_side r
           in
-            group (show_arrow left false right)
+            group (p_arrow left false right)
           end
       | TVrecord fields =>
         let
@@ -367,16 +400,16 @@ struct
             List.map
               (fn {lab, tyval} =>
                 group (
-                  show_symbol_node blue lab +-+ text_syntax ":"
+                  p_symbol_node blue lab +-+ text_syntax ":"
                   $$
-                  spaces 2 ++ show_tyval tyval
+                  spaces 2 ++ p_tyval tyval
                 ))
               fields
         in
           group (
             text_syntax "{"
             ++
-            show_list_after (fn x => x) ", " fields_doc
+            p_list_after (fn x => x) ", " fields_doc
             ++
             text_syntax "}"
           )
@@ -384,23 +417,23 @@ struct
       | TVvar (r as (_, ref NONE)) =>
           text color (Ref.show r)
       | TVvar (_, ref (SOME (Ty tyval))) =>
-          show_tyval tyval
+          p_tyval tyval
       | TVvar (_, ref (SOME (Rows fields))) =>
         let
           val fields_doc =
             List.map
               (fn {lab, tyval} =>
                 group (
-                  show_symbol_node blue lab +-+ text_syntax ":"
+                  p_symbol_node blue lab +-+ text_syntax ":"
                   $$
-                  spaces 2 ++ show_tyval tyval
+                  spaces 2 ++ p_tyval tyval
                 ))
               fields
         in
           group (
             text_syntax "{"
             ++
-            show_list_after (fn x => x) ", " fields_doc
+            p_list_after (fn x => x) ", " fields_doc
             ++
             text_syntax ", " +-+ text_syntax "..."
             ++
@@ -410,88 +443,88 @@ struct
       | TVabs (tyvals, absid) =>
           (case tyvals of
             [] => text color (AbsId.show absid)
-          | [elem] => show_attyval elem +-+ text color (AbsId.show absid)
+          | [elem] => p_attyval elem +-+ text color (AbsId.show absid)
           | _ =>
             text_syntax "("
-            ++ show_list show_tyval ", " tyvals
+            ++ p_list p_tyval ", " tyvals
             ++ text_syntax ")"
             +-+ text color (AbsId.show absid)
           )
 
-    and show_attyval tyval =
+    and p_attyval tyval =
       case tyval of
         ( TVtyvar _
         | TVapp _
         | TVabs _
         | TVrecord _
         | TVvar (_, ref NONE)
-        | TVvar (_, ref (SOME (Rows _)))) => show_tyval tyval
-      | TVvar (_, ref (SOME (Ty tyval))) => show_tyval tyval
+        | TVvar (_, ref (SOME (Rows _)))) => p_tyval tyval
+      | TVvar (_, ref (SOME (Ty tyval))) => p_tyval tyval
       | ( TVprod _
-        | TVarrow _ ) => parensAround (show_tyval tyval)
+        | TVarrow _ ) => parensAround (p_tyval tyval)
   end
 
   local
     open SMLSyntax
     val color = red
-    val show_id = show_id color
-    val show_constr = show_longid heavyred
-    val show_longid = show_longid color
+    val p_id = p_id color
+    val p_constr = p_longid heavyred
+    val p_longid = p_longid color
     val text = text color
   in
-    fun show_pat ctx pat = show_pat_ ctx pat
-    and show_pat_ ctx pat_ =
+    fun p_pat ctx pat = p_pat_ ctx pat
+    and p_pat_ ctx pat_ =
       case pat_ of
         Pnumber n => text_literal (Int.toString n)
       | Pword s => text_literal ("0w" ^ Symbol.toValue s)
       | Pstring s => text_literal ("\"" ^ Symbol.toValue s ^ "\"")
-      | Pchar c => show_char c
+      | Pchar c => p_char c
       | Pwild => text "_"
       | Pident {opp, id} =>
           if opp then
             text_syntax "op"
             +-+
-            show_longid id
+            p_longid id
           else
-            show_longid id
+            p_longid id
       | Precord patrows =>
-          text_syntax "{" ++ show_list_after (show_patrow ctx) ", " patrows ++ text_syntax "}"
-      | Pparens pat => show_atpat ctx pat
+          text_syntax "{" ++ p_list_after (p_patrow ctx) ", " patrows ++ text_syntax "}"
+      | Pparens pat => p_atpat ctx pat
       | Punit => text "()"
       | Ptuple pats =>
-          parensAround (show_list_after (show_pat ctx) ", " pats)
+          parensAround (p_list_after (p_pat ctx) ", " pats)
       | Plist pats =>
-          text_syntax "[" ++ show_list (show_pat ctx) ", " pats ++ text_syntax "]"
+          text_syntax "[" ++ p_list (p_pat ctx) ", " pats ++ text_syntax "]"
       | Por pats =>
-          text_syntax "(" ++ show_list (show_pat ctx) " | " pats ++ text_syntax ")"
+          text_syntax "(" ++ p_list (p_pat ctx) " | " pats ++ text_syntax ")"
       | Papp {opp, id, atpat} =>
           if opp then
             text_syntax "op"
             +-+
-            show_constr id
+            p_constr id
             +-+
-            show_atpat ctx atpat
+            p_atpat ctx atpat
           else
-            show_constr id
+            p_constr id
             +-+
-            show_atpat ctx atpat
+            p_atpat ctx atpat
       | Pinfix {left, id, right} =>
-          show_atpat ctx left +-+ show_id id +-+ show_atpat ctx right
+          p_atpat ctx left +-+ p_id id +-+ p_atpat ctx right
       | Ptyped {pat, ty} =>
-          show_pat ctx pat
+          p_pat ctx pat
           +-+
           text_syntax ":"
           +-+
-          show_ty ty
+          p_ty ty
       | Playered {opp, id, ty, aspat} =>
           separateWithSpaces
             [ bool_to_option opp (text_syntax "op")
-            , SOME (show_id id)
-            , Option.map show_ty ty
+            , SOME (p_id id)
+            , Option.map p_ty ty
             , SOME (text_syntax "as")
-            , SOME (show_pat ctx aspat) ]
+            , SOME (p_pat ctx aspat) ]
 
-    and show_atpat ctx pat =
+    and p_atpat ctx pat =
       case pat of
         ( Pnumber _
         | Pword _
@@ -504,38 +537,38 @@ struct
         | Ptuple _
         | Plist _
         | Por _
-        ) => show_pat ctx pat
-      | Pparens pat => show_atpat ctx pat
+        ) => p_pat ctx pat
+      | Pparens pat => p_atpat ctx pat
 
       | ( Pident {opp = true, ...}
         | Papp _
         | Pinfix _
         | Ptyped _
         | Playered _
-        ) => parensAround (show_pat ctx pat)
+        ) => parensAround (p_pat ctx pat)
 
-    and show_patrow ctx patrow =
+    and p_patrow ctx patrow =
       case patrow of
         PRellipsis => text "..."
       | PRlab {lab, pat} =>
           group (
-            show_symbol_node blue lab +-+ text_syntax "="
+            p_symbol_node blue lab +-+ text_syntax "="
             $$
-            show_pat ctx pat
+            p_pat ctx pat
           )
       | PRas {id, ty, aspat} =>
           separateWithSpaces
-            [ SOME (show_id id)
-            , Option.map (fn ty => text_syntax ":" +-+ show_ty ty) ty
-            , Option.map (fn pat => text_syntax "as" +-+ show_pat ctx pat) aspat ]
+            [ SOME (p_id id)
+            , Option.map (fn ty => text_syntax ":" +-+ p_ty ty) ty
+            , Option.map (fn pat => text_syntax "as" +-+ p_pat ctx pat) aspat ]
 
   end
 
-  fun show_conbind {opp, id, ty} =
+  fun p_conbind {opp, id, ty} =
     separateWithSpaces
       [ bool_to_option opp (text_syntax "op")
-      , SOME (show_id heavyblue id)
-      , Option.map (fn ty => text_syntax "of" +-+ show_ty ty) ty ]
+      , SOME (p_id heavyblue id)
+      , Option.map (fn ty => text_syntax "of" +-+ p_ty ty) ty ]
 
   fun marker_set_of_list l =
     List.foldl
@@ -548,100 +581,100 @@ struct
   local
     open SMLSyntax
   in
-    val show_number = fn
+    val p_number = fn
       Int i => text_literal (Int.toString i)
     | Word s => text_literal ("0w" ^ s)
     | Real r => text_literal (Real.toString r)
 
-    fun show_fname_args ctx fname_args =
+    fun p_fname_args ctx fname_args =
       case fname_args of
         Fprefix { opp, id, args } =>
           group (
             ( if opp then
-                text_syntax "op" +-+ show_id white id
+                text_syntax "op" +-+ p_id white id
               else
-                show_id white id
+                p_id white id
             )
-            +-+ show_list_base true (show_atpat ctx) "" false true args
+            +-+ p_list_base true (p_atpat ctx) "" false true args
           )
       | Finfix {left, id, right} =>
           separateWithSpaces
-            [ SOME (show_atpat ctx left)
-            , SOME (show_id white id)
-            , SOME (show_atpat ctx right)
+            [ SOME (p_atpat ctx left)
+            , SOME (p_id white id)
+            , SOME (p_atpat ctx right)
             ]
       | Fcurried_infix {left, id, right, args} =>
           parensAround (
             separateWithSpaces
-              [ SOME (show_pat ctx left)
-              , SOME (show_id white id)
-              , SOME (show_pat ctx right)
+              [ SOME (p_pat ctx left)
+              , SOME (p_id white id)
+              , SOME (p_pat ctx right)
               ]
           )
-          +-+ show_list_base true (show_pat ctx) "" false true args
+          +-+ p_list_base true (p_pat ctx) "" false true args
 
-    fun show_exp ctx exp = show_exp_ ctx exp
-    and show_exp_ ctx exp_ =
+    fun p_exp ctx exp = p_exp_ ctx exp
+    and p_exp_ ctx exp_ =
       let
-        val show_exp = show_exp_ ctx
-        val show_atexp = show_atexp ctx
+        val p_exp = p_exp_ ctx
+        val p_atexp = p_atexp ctx
         val color = white
-        val show_id = show_id color
-        val show_constr = show_longid heavyblue
-        val show_longid = show_longid color
+        val p_id = p_id color
+        val p_constr = p_longid heavyblue
+        val p_longid = p_longid color
         val text = text color
       in
       case exp_ of
-        Enumber n => show_number n
-      | Eparens exp => show_atexp exp
+        Enumber n => p_number n
+      | Eparens exp => p_atexp exp
       | Estring s => text_syntax "\"" ++ text_literal (Symbol.toValue s) ++ text_syntax "\""
-      | Echar c => show_char c
+      | Echar c => p_char c
       | Erecord fields =>
-          show_seq
+          p_seq
             (fn {lab, exp} =>
               separateWithSpaces
-                [ SOME (show_symbol_node blue lab)
+                [ SOME (p_symbol_node blue lab)
                 , SOME (text_syntax "=")
-                , SOME (show_exp exp) ] )
+                , SOME (p_exp exp) ] )
             "{"
             ","
             "}"
             fields
       | Eselect lab =>
-          text_syntax "#" ++ show_symbol_node blue lab
+          text_syntax "#" ++ p_symbol_node blue lab
       | Eunit => text "()"
       | Eident {opp, id} =>
           if not (Context.is_substitute ctx) then
-            show_longid id
+            p_longid id
           else if Context.is_con ctx id then
-            show_constr id
+            p_constr id
           else
             let
-              fun show_val_ident id =
+              fun p_val_ident id =
                 (case Context.get_val_opt ctx id of
-                  NONE => show_longid id
+                  NONE => p_longid id
                   (* If it's a recursive function, don't substitute its definition
                    * in.
                    *)
                 | SOME (Vfn {rec_env = SOME _, ...}) =>
-                    show_longid id
-                | SOME value => show_value ctx value
+                    p_longid id
+                | SOME value => p_value ctx value
                 )
             in
               if opp then
-                text_syntax "op" +-+ show_val_ident id
+                text_syntax "op" +-+ p_val_ident id
               else
-                show_val_ident id
+                p_val_ident id
             end
       | Etuple exps =>
-          show_seq show_exp "(" "," ")" exps
+          p_seq p_exp "(" "," ")" exps
       | Elist exps =>
-          show_seq show_exp "[" "," "]" exps
+          p_seq p_exp "[" "," "]" exps
       | Eseq exps =>
-          show_seq show_exp "(" ";" ")" exps
+          p_seq p_exp "(" ";" ")" exps
       | Elet {dec, exps} =>
           let
-            val (dec_doc, bound_ids) = show_dec' ctx dec
+            val (dec_doc, bound_ids) = p_dec' ctx dec
             val new_ctx = Binding.remove_bound_ids ctx bound_ids
           in
             group (
@@ -649,58 +682,58 @@ struct
                 [ text_syntax "let"
                 , spaces 2 ++ dec_doc
                 , text_syntax "in"
-                , spaces 2 ++ show_list (show_exp_ new_ctx) "; " exps
+                , spaces 2 ++ p_list (p_exp_ new_ctx) "; " exps
                 , text_syntax "end"
                 ]
             )
           end
       | Eapp {left = left as Eapp _, right} =>
-          show_exp left \\ show_atexp right
+          p_exp left \\ p_atexp right
       | Eapp {left, right} =>
-          show_atexp left \\ show_atexp right
+          p_atexp left \\ p_atexp right
       | Einfix {left, id, right} =>
           let
-            fun show_infix l i r =
+            fun p_infix l i r =
               case (l, left) of
                 (Einfix {left = l', id = id', right = r'}, _) =>
-                  (show_infix l' id' r')
-                  $$ (show_id id +-+ show_exp r)
+                  (p_infix l' id' r')
+                  $$ (p_id id +-+ p_exp r)
               | (_, Einfix _) =>
-                  show_exp l
-                  $$ (show_id i +-+ show_exp r)
-              | _ => show_exp l +-+ show_id i +-+ show_exp r
+                  p_exp l
+                  $$ (p_id i +-+ p_exp r)
+              | _ => p_exp l +-+ p_id i +-+ p_exp r
           in
             group (
-              show_infix left id right
+              p_infix left id right
             )
           end
       | Etyped {exp, ty} =>
-          show_exp exp +-+ text_syntax ":" +-+ show_ty ty
+          p_exp exp +-+ text_syntax ":" +-+ p_ty ty
       | Eandalso {left, right} =>
-          show_atexp left +-+ text_syntax "andalso" +-+ show_atexp right
+          p_atexp left +-+ text_syntax "andalso" +-+ p_atexp right
       | Eorelse {left, right} =>
-          show_atexp left +-+ text_syntax "orelse" +-+ show_atexp right
+          p_atexp left +-+ text_syntax "orelse" +-+ p_atexp right
       | Ehandle {exp, matches} =>
-          show_atexp exp +-+ text_syntax "handle"
+          p_atexp exp +-+ text_syntax "handle"
           $$
-          show_list (show_match ctx NONE) "| " matches
+          p_list (p_match ctx NONE) "| " matches
       | Eraise exp =>
-          text_syntax "raise" +-+ show_exp exp
+          text_syntax "raise" +-+ p_exp exp
       | Eif {exp1, exp2, exp3} =>
           group (
               group (
                 separateWithNewlines
                   [ text_syntax "if"
-                  , show_exp exp1
+                  , p_exp exp1
                   , text_syntax "then"
-                  , show_exp exp2
+                  , p_exp exp2
                   ]
               )
               $$
               group (
                 text_syntax "else"
                 $$
-                show_exp exp3
+                p_exp exp3
               )
           )
       | Ewhile {exp1, exp2} =>
@@ -708,13 +741,13 @@ struct
             group (
               text_syntax "while"
               $$
-              show_exp exp1
+              p_exp exp1
             )
             $$
             group (
               text_syntax "do"
               $$
-              show_exp exp2
+              p_exp exp2
             )
           )
       | Ecase {exp, matches} =>
@@ -725,7 +758,7 @@ struct
                   group(
                     text_syntax "case"
                     $$
-                    (spaces 2 ++ show_exp exp)
+                    (spaces 2 ++ p_exp exp)
                     $$
                     text_syntax "of"
                   )
@@ -736,18 +769,18 @@ struct
                           SOME (
                             spaces 2 ++
                               group (
-                                show_pat ctx pat
+                                p_pat ctx pat
                                 +-+ text_syntax "=>"
-                                $$ spaces 2 ++ show_exp exp
+                                $$ spaces 2 ++ p_exp exp
                               )
                           )
                         | ({pat, exp}, SOME acc) =>
                           SOME (
                             acc
                             $$ ( text_syntax "|"
-                               +-+ show_pat ctx pat
+                               +-+ p_pat ctx pat
                                +-+ text_syntax "=>"
-                               $$ spaces 2 ++ show_exp exp)
+                               $$ spaces 2 ++ p_exp exp)
                           )
                         )
                         NONE
@@ -764,13 +797,13 @@ struct
             val first_match = List.nth (matches, 0)
 
             val inner =
-              show_match ctx (SOME "fn") first_match
+              p_match ctx (SOME "fn") first_match
           in
             group (
               List.foldl
                   (fn (match, acc) =>
                     acc $$
-                    ( space ++ show_match ctx (SOME "|") match )
+                    ( space ++ p_match ctx (SOME "|") match )
                   )
                   inner
                   (List.drop (matches, 1))
@@ -779,12 +812,12 @@ struct
       | Ehole => Context.get_hole_print_fn ctx ()
       end
 
-    and show_atexp ctx exp =
+    and p_atexp ctx exp =
       let
-        val show_exp = show_exp_ ctx
+        val p_exp = p_exp_ ctx
         val color = white
-        val show_constr = show_longid heavyblue
-        val show_longid = show_longid color
+        val p_constr = p_longid heavyblue
+        val p_longid = p_longid color
       in
       case exp of
         ( Enumber _
@@ -797,26 +830,26 @@ struct
         | Elist _
         | Eseq _
         | Eparens _
-        ) => show_exp exp
+        ) => p_exp exp
       | Eident {opp = false, id} =>
           if not (Context.is_substitute ctx) then
-            show_longid id
+            p_longid id
           else if Context.is_con ctx id then
-            show_constr id
+            p_constr id
           else
             let
-              fun show_val_ident id =
+              fun p_val_ident id =
                 (case Context.get_val_opt ctx id of
-                  NONE => show_longid id
+                  NONE => p_longid id
                   (* If it's a recursive function, don't substitute its definition
                    * in.
                    *)
                 | SOME (Vfn {rec_env = SOME _, ...}) =>
-                    show_longid id
-                | SOME value => show_atvalue ctx value
+                    p_longid id
+                | SOME value => p_atvalue ctx value
                 )
             in
-              show_val_ident id
+              p_val_ident id
             end
       | ( Eident {opp = true, ...}
         | Elet _
@@ -831,56 +864,56 @@ struct
         | Eif _
         | Ewhile _
         | Ecase _
-        | Ehole ) => parensAround (show_exp exp)
+        | Ehole ) => parensAround (p_exp exp)
       end
 
-    and show_value ctx value =
+    and p_value ctx value =
       let
         open Context
-        val show_value = show_value ctx
+        val p_value = p_value ctx
         val color = white
-        val show_id = show_id color
-        val show_constr = show_longid heavyblue
+        val p_id = p_id color
+        val p_constr = p_longid heavyblue
         val text = text color
-        val show_atvalue = show_atvalue ctx
+        val p_atvalue = p_atvalue ctx
       in
       case value of
-        Vnumber n => show_number n
+        Vnumber n => p_number n
       | Vstring s => text_syntax "\"" ++ text_literal (Symbol.toValue s) ++ text_syntax "\""
-      | Vchar c => show_char c
+      | Vchar c => p_char c
       | Vrecord fields =>
-          show_seq
+          p_seq
             (fn {lab, value} =>
               separateWithSpaces
-                [ SOME (show_symbol_node blue lab)
+                [ SOME (p_symbol_node blue lab)
                 , SOME (text_syntax "=")
-                , SOME (show_value value) ] )
+                , SOME (p_value value) ] )
             "{" "," "}"
             fields
       | Vselect lab =>
-          text_syntax "#" ++ show_symbol_node blue lab
+          text_syntax "#" ++ p_symbol_node blue lab
       | Vunit => text "()"
       | Vconstr {id, arg} =>
           ( case arg of
-              NONE => show_constr id
-            | SOME value => show_constr id +-+ show_atvalue value
+              NONE => p_constr id
+            | SOME value => p_constr id +-+ p_atvalue value
           )
       | Vtuple values =>
-          show_seq show_value "(" "," ")" values
+          p_seq p_value "(" "," ")" values
       | Vlist values =>
-          show_seq show_value "[" "," "]" values
+          p_seq p_value "[" "," "]" values
       | Vinfix {left, id, right} =>
           group (
-            show_value left $$ (show_id id +-+ show_value right)
+            p_value left $$ (p_id id +-+ p_value right)
           )
       | Vexn {name, arg, ...} =>
           (case arg of
-            NONE => show_constr name
-          | SOME value => show_constr name +-+ show_atvalue value
+            NONE => p_constr name
+          | SOME value => p_constr name +-+ p_atvalue value
           )
       | Vfn {matches, env, ...} =>
           let
-            val inner = group (show_match env (SOME "fn") (List.nth (matches, 0)))
+            val inner = group (p_match env (SOME "fn") (List.nth (matches, 0)))
           in
             case matches of
               [] => raise Fail "empty matches in fn"
@@ -890,13 +923,13 @@ struct
                     inner
                   else
                   inner $$
-                  space ++ show_list_base false (show_match env NONE) "| " true true tl
+                  space ++ p_list_base false (p_match env NONE) "| " true true tl
                 )
           end
-      | Vbasis {name, ...} => show_id name
+      | Vbasis {name, ...} => p_id name
       end
 
-    and show_atvalue ctx value =
+    and p_atvalue ctx value =
       case value of
         ( Vnumber _
         | Vstring _
@@ -909,15 +942,15 @@ struct
         | Vtuple _
         | Vlist _
         | Vbasis _
-        ) => show_value ctx value
+        ) => p_value ctx value
       | ( Vconstr {arg = SOME _, ...}
         | Vexn {arg = SOME _, ...}
         | Vinfix _
         | Vfn _
-        ) => parensAround (show_value ctx value)
+        ) => parensAround (p_value ctx value)
 
 
-    and show_match ctx prefix {pat, exp} =
+    and p_match ctx prefix {pat, exp} =
       let
         val bound_ids = Binding.get_pat_bindings ctx pat
         val new_ctx = Binding.remove_bound_ids ctx bound_ids
@@ -928,11 +961,11 @@ struct
             | SOME thing => text_syntax thing ++ spaces 1
           )
           ++
-            show_pat ctx pat +-+ text_syntax "=>"
-            \\ show_exp new_ctx exp
+            p_pat ctx pat +-+ text_syntax "=>"
+            \\ p_exp new_ctx exp
         )
       end
-    and show_rec_match_equal ctx {recc, pat, exp} =
+    and p_rec_match_equal ctx {recc, pat, exp} =
       let
         val ctx =
           if recc then
@@ -947,70 +980,70 @@ struct
       in
         if recc then
           group (
-            text_syntax "rec" +-+ show_pat ctx pat +-+ text_syntax "="
+            text_syntax "rec" +-+ p_pat ctx pat +-+ text_syntax "="
             $$
-            show_exp ctx exp
+            p_exp ctx exp
           )
         else
           group (
-            show_pat ctx pat +-+ text_syntax "="
+            p_pat ctx pat +-+ text_syntax "="
             $$
-            show_exp ctx exp
+            p_exp ctx exp
           )
       end
-    and show_dec ctx dec = #1 (show_dec' ctx dec)
-    and show_dec' ctx dec_ =
+    and p_dec ctx dec = #1 (p_dec' ctx dec)
+    and p_dec' ctx dec_ =
       let
         val color = purple
-        val show_exn = show_id pink
-        val show_long_exn = show_longid pink
-        val show_id = show_id white
-        val show_open = show_longid orange
-        val show_longid = show_longid white
+        val p_exn = p_id pink
+        val p_long_exn = p_longid pink
+        val p_id = p_id white
+        val p_open = p_longid orange
+        val p_longid = p_longid white
         val text = text color
 
-        fun show_exbind exbind =
+        fun p_exbind exbind =
           case exbind of
             Xnew {opp, id, ty} =>
               if opp then
                 separateWithSpaces
                   [ SOME (text_syntax "op")
-                  , SOME (show_exn id)
-                  , Option.map (fn ty => text_syntax "of" +-+ show_ty ty) ty ]
+                  , SOME (p_exn id)
+                  , Option.map (fn ty => text_syntax "of" +-+ p_ty ty) ty ]
               else
                 (case ty of
-                  NONE => show_exn id
+                  NONE => p_exn id
                 | SOME ty =>
-                    show_exn id +-+ text_syntax "of" +-+ show_ty ty)
+                    p_exn id +-+ text_syntax "of" +-+ p_ty ty)
           | Xrepl {opp, left_id, right_id} =>
               separateWithSpaces
                 [ bool_to_option opp (text_syntax "op")
-                , SOME (show_exn left_id)
+                , SOME (p_exn left_id)
                 , SOME (text_syntax "=")
-                , SOME (show_long_exn right_id) ]
+                , SOME (p_long_exn right_id) ]
 
-        fun show_typbind {tyvars, tycon, ty} =
+        fun p_typbind {tyvars, tycon, ty} =
           separateWithSpaces
-            [ show_tyvars_option tyvars
-            , SOME (show_id tycon)
+            [ p_tyvars_option tyvars
+            , SOME (p_id tycon)
             , SOME (text_syntax "=")
-            , SOME (show_ty ty)
+            , SOME (p_ty ty)
             ]
 
-        fun show_datbind str mark {tyvars, tycon, conbinds} =
+        fun p_datbind str mark {tyvars, tycon, conbinds} =
           case conbinds of
             [] => raise Fail "empty conbinds in datbind"
           | hd::tl =>
               group (
                 separateWithSpaces
                   [ SOME (text (if mark then str else "and"))
-                  , show_tyvars_option tyvars
-                  , SOME (show_id tycon)
+                  , p_tyvars_option tyvars
+                  , SOME (p_id tycon)
                   , SOME (text_syntax "=") ]
                 $$
-                (spaces 2 ++ (show_conbind hd))
+                (spaces 2 ++ (p_conbind hd))
                 $$
-                show_list_prepend color false "|" "|" show_conbind "" tl
+                p_list_prepend color false "|" "|" p_conbind "" tl
               )
       in
       case dec_ of
@@ -1040,11 +1073,11 @@ struct
                     (group (
                       separateWithSpaces
                         [ SOME (text "val")
-                        , show_tyvars_option tyvars
-                        , SOME (show_rec_match_equal new_ctx hd) ]
+                        , p_tyvars_option tyvars
+                        , SOME (p_rec_match_equal new_ctx hd) ]
                     ))
                     (List.map
-                      (fn match => text "and" +-+ show_rec_match_equal new_ctx match)
+                      (fn match => text "and" +-+ p_rec_match_equal new_ctx match)
                       tl
                     )
                 , bound_ids
@@ -1077,11 +1110,11 @@ struct
               in
                 group (
                   separateWithSpaces
-                    [ SOME (show_fname_args mutual_ctx fname_args)
-                    , Option.map (fn ty => text_syntax ":"  +-+ show_ty ty) ty
+                    [ SOME (p_fname_args mutual_ctx fname_args)
+                    , Option.map (fn ty => text_syntax ":"  +-+ p_ty ty) ty
                     , SOME (text_syntax "=") ]
                   $$
-                  show_exp new_ctx exp
+                  p_exp new_ctx exp
                 )
               end
 
@@ -1100,18 +1133,18 @@ struct
                       tl
                     )
             val fun_docs =
-              show_list_mk mk_fun fvalbinds
+              p_list_mk mk_fun fvalbinds
 
           in
             (group fun_docs, func_names)
           end
       | Dtype typbinds =>
-          show_list_prepend color false "type" "and" show_typbind "" typbinds
+          p_list_prepend color false "type" "and" p_typbind "" typbinds
           |> inject empty_set
       | Ddatdec {datbinds, withtypee} =>
           let
             val datdecs =
-              show_list_mk (show_datbind "datatype") datbinds
+              p_list_mk (p_datbind "datatype") datbinds
           in
             ( case withtypee of
                 NONE => datdecs
@@ -1120,7 +1153,7 @@ struct
                     datdecs
                     $$
                     group (
-                      show_list_prepend color false "withtype" "and" show_typbind "" typbinds
+                      p_list_prepend color false "withtype" "and" p_typbind "" typbinds
                     )
                   )
             , empty_set
@@ -1129,18 +1162,18 @@ struct
       | Ddatrepl {left_tycon, right_tycon} =>
           separateWithSpaces
             [ SOME (text "datatype")
-            , SOME (show_id left_tycon)
+            , SOME (p_id left_tycon)
             , SOME (text_syntax "=")
             , SOME (text "datatype")
-            , SOME (show_longid right_tycon) ]
+            , SOME (p_longid right_tycon) ]
           |> inject empty_set
       | Dabstype {datbinds, withtypee, withh} =>
           let
             val typdecs =
-              show_list_mk (show_datbind "abstype") datbinds
+              p_list_mk (p_datbind "abstype") datbinds
 
             val (with_doc, with_bound_ids) =
-              show_dec' ctx withh
+              p_dec' ctx withh
 
             val withh =
               group (
@@ -1158,7 +1191,7 @@ struct
                   group (
                     typdecs
                     $$
-                    show_list_prepend color false "withtype" "and" show_typbind "" typbinds
+                    p_list_prepend color false "withtype" "and" p_typbind "" typbinds
                     $$
                     withh
                   )
@@ -1167,14 +1200,14 @@ struct
           end
       | Dexception exbinds =>
           group (
-            show_list_prepend color false "exception" "and" show_exbind "" exbinds
+            p_list_prepend color false "exception" "and" p_exbind "" exbinds
           )
           |> inject empty_set
       | Dlocal {left_dec, right_dec} =>
           let
-            val (left_dec_doc, left_bound_ids) = show_dec' ctx left_dec
+            val (left_dec_doc, left_bound_ids) = p_dec' ctx left_dec
             val ctx = Binding.remove_bound_ids ctx left_bound_ids
-            val (right_dec_doc, right_bound_ids) = show_dec' ctx right_dec
+            val (right_dec_doc, right_bound_ids) = p_dec' ctx right_dec
           in
             group (
               text_syntax "local"
@@ -1194,16 +1227,16 @@ struct
             val bound_ids =
               Binding.open_bound_ids ctx longids
           in
-            text_syntax "open" +-+ show_list show_open " " longids
+            text_syntax "open" +-+ p_list p_open " " longids
             |> inject bound_ids
           end
       | Dseq [] => raise Fail "empty dseq"
-      | Dseq [x] => show_dec' ctx x
+      | Dseq [x] => p_dec' ctx x
       | Dseq decs =>
           List.foldl
             (fn (dec, (acc, ctx, acc_boundids)) =>
               let
-                val (dec_doc, bound_ids) = show_dec' ctx dec
+                val (dec_doc, bound_ids) = p_dec' ctx dec
               in
                 ( (case acc of NONE => SOME dec_doc | SOME acc => SOME (acc $$ dec_doc))
                 , Binding.remove_bound_ids ctx bound_ids
@@ -1218,18 +1251,18 @@ struct
           separateWithSpaces
             [ SOME (text_syntax "infix")
             , Option.map (fn n => text_literal (Int.toString n)) precedence
-            , SOME (show_list show_id " " ids) ]
+            , SOME (p_list p_id " " ids) ]
           |> inject empty_set
       | Dinfixr {precedence, ids} =>
           separateWithSpaces
             [ SOME (text_syntax "infixr")
             , Option.map (fn n => text_literal (Int.toString n)) precedence
-            , SOME (show_list show_id " " ids) ]
+            , SOME (p_list p_id " " ids) ]
           |> inject empty_set
       | Dnonfix ids =>
           (text_syntax "nonfix"
           ++
-          show_list show_id " " ids
+          p_list p_id " " ids
           )
           |> inject empty_set
       | Dhole => ( Context.get_hole_print_fn ctx (), empty_set )
@@ -1239,15 +1272,15 @@ struct
   local
     open SMLSyntax
   in
-    fun show_strdec ctx strdec = #1 (show_strdec' ctx strdec)
-    and show_strdec' ctx strdec_ =
+    fun p_strdec ctx strdec = #1 (p_strdec' ctx strdec)
+    and p_strdec' ctx strdec_ =
       let
         val color = orange
-        val show_id = show_id color
+        val p_id = p_id color
       in
       case strdec_ of
         DMdec dec =>
-          show_dec' ctx dec
+          p_dec' ctx dec
       | DMstruct body =>
           let
             fun mk mark {id, seal, module} =
@@ -1255,25 +1288,25 @@ struct
                 group (
                   separateWithSpaces
                     [ SOME (if mark then text_syntax "structure" else text_syntax "and")
-                    , SOME (show_id id)
+                    , SOME (p_id id)
                     , Option.map (fn {opacity, signat} =>
                         case opacity of
-                          Transparent => text_syntax ":" +-+ show_signat signat
-                        | Opaque => text_syntax ":>" +-+ show_signat signat) seal
+                          Transparent => text_syntax ":" +-+ p_signat signat
+                        | Opaque => text_syntax ":>" +-+ p_signat signat) seal
                     , SOME (text_syntax "=") ]
                 )
                 $$
-                spaces 2 ++ (show_module ctx) module
+                spaces 2 ++ (p_module ctx) module
               )
           in
-            show_list_mk mk body
+            p_list_mk mk body
             |> inject (marker_set_of_list (List.map (PrettyPrintContext.MOD o #id) body))
           end
       | DMlocal {left_dec, right_dec} =>
           let
-            val (left_dec_doc, left_bound_ids) = show_strdec' ctx left_dec
+            val (left_dec_doc, left_bound_ids) = p_strdec' ctx left_dec
             val ctx = Binding.remove_bound_ids ctx left_bound_ids
-            val (right_dec_doc, right_bound_ids) = show_strdec' ctx right_dec
+            val (right_dec_doc, right_bound_ids) = p_strdec' ctx right_dec
           in
             group (
               separateWithNewlines
@@ -1290,7 +1323,7 @@ struct
           List.foldl
             (fn (strdec, (acc, ctx, acc_boundids)) =>
               let
-                val (strdec_doc, bound_ids) = show_strdec' ctx strdec
+                val (strdec_doc, bound_ids) = p_strdec' ctx strdec
               in
                 ( case acc of NONE => SOME strdec_doc | SOME acc => SOME (acc $$ strdec_doc)
                 , Binding.remove_bound_ids ctx bound_ids
@@ -1303,42 +1336,42 @@ struct
           |> (fn (doc, _, bound_ids) => (Option.getOpt (doc, text_syntax ""), bound_ids))
       | DMhole => ( Context.get_hole_print_fn ctx (), empty_set )
       end
-    and show_module ctx module = show_module_ ctx module
-    and show_module_ ctx module_ =
+    and p_module ctx module = p_module_ ctx module
+    and p_module_ ctx module_ =
       let
         val color = orange
-        val show_id = show_id color
-        val show_longid = show_longid color
+        val p_id = p_id color
+        val p_longid = p_longid color
       in
       case module_ of
-        Mident longid => show_longid longid
+        Mident longid => p_longid longid
       | Mstruct strdec =>
           group (
             text_syntax "struct"
             $$
-            spaces 2 ++ (show_strdec ctx) strdec
+            spaces 2 ++ (p_strdec ctx) strdec
             $$
             text_syntax "end"
           )
       | Mseal {module, opacity, signat} =>
           separateWithSpaces
-            [ SOME (show_module ctx module)
+            [ SOME (p_module ctx module)
             , SOME (case opacity of Transparent => text_syntax ":" | _ => text_syntax ":>")
-            , SOME (show_signat signat) ]
+            , SOME (p_signat signat) ]
       | Mapp {functorr, arg} =>
           group (
-            show_id functorr +-+ text_syntax "("
+            p_id functorr +-+ text_syntax "("
             ++
             (case arg of
-              Normal_app module => (show_module ctx) module
-            | Sugar_app strdec => (show_strdec ctx) strdec
+              Normal_app module => (p_module ctx) module
+            | Sugar_app strdec => (p_strdec ctx) strdec
             )
             ++
             text_syntax ")"
           )
       | Mlet {dec, module} =>
           let
-            val (strdec_doc, bound_ids) = show_strdec' ctx dec
+            val (strdec_doc, bound_ids) = p_strdec' ctx dec
             val ctx = Binding.remove_bound_ids ctx bound_ids
           in
             group (
@@ -1346,82 +1379,82 @@ struct
                 [ text_syntax "let"
                 , spaces 2 ++ strdec_doc
                 , text_syntax "in"
-                , spaces 2 ++ show_module ctx module
+                , spaces 2 ++ p_module ctx module
                 , text_syntax "end"
                 ]
             )
           end
       | Mhole => Context.get_hole_print_fn ctx ()
       end
-    and show_signat signat = show_signat_ signat
-    and show_signat_ signat_ =
+    and p_signat signat = p_signat_ signat
+    and p_signat_ signat_ =
       let
         val color = orange
-        val show_id = show_id color
-        val show_longid = show_longid color
+        val p_id = p_id color
+        val p_longid = p_longid color
       in
       case signat_ of
         Sspec spec =>
           group (
             text_syntax "sig"
             $$
-            spaces 2 ++ show_spec spec
+            spaces 2 ++ p_spec spec
             $$
             text_syntax "end"
           )
       | Sident id =>
-          show_id id
+          p_id id
       | Swhere {signat, wheretypee} =>
           let
-            fun show_wheretypee mark {tyvars, id, ty} =
+            fun p_wheretypee mark {tyvars, id, ty} =
               group (
                 separateWithSpaces
                   [ SOME (if mark then text_syntax "where type"
                           else text_syntax "and type")
-                  , show_tyvars_option tyvars
-                  , SOME (show_longid id)
+                  , p_tyvars_option tyvars
+                  , SOME (p_longid id)
                   , SOME (text_syntax "=") ]
                   $$
-                  show_ty ty
+                  p_ty ty
               )
           in
             group (
-              show_signat signat
+              p_signat signat
               $$
               text_syntax "where type"
               $$
-              show_list_mk show_wheretypee wheretypee
+              p_list_mk p_wheretypee wheretypee
             )
           end
         end
-    and show_spec spec = show_spec_ spec
-    and show_spec_ spec_ =
+    and p_spec spec = p_spec_ spec
+    and p_spec_ spec_ =
       let
         val color = purple
         val text = text color
-        val show_id = show_id white
-        val show_longid = show_longid white
-        fun show_typdesc {tyvars, tycon, ty} =
+        val p_id = p_id white
+        val p_longid = p_longid white
+        fun p_typdesc {tyvars, tycon, ty} =
           separateWithSpaces
-            [ show_tyvars_option tyvars
-            , SOME (show_id tycon)
-            , Option.map (fn ty => text_syntax "=" +-+ show_ty ty) ty
+            [ p_tyvars_option tyvars
+            , SOME (p_id tycon)
+            , Option.map (fn ty => text_syntax "=" +-+ p_ty ty) ty
             ]
 
-        fun show_datbind str mark {tyvars, tycon, conbinds} =
+        fun p_datbind str mark {tyvars, tycon, conbinds} =
           case conbinds of
             [] => raise Fail "empty conbinds"
           | hd::tl =>
               group (
                 separateWithSpaces
                   [ SOME (text (if mark then str else "and"))
-                  , show_tyvars_option tyvars
-                  , SOME (show_id tycon)
+                  , p_tyvars_option tyvars
+                  , SOME (p_id tycon)
                   , SOME (text_syntax "=") ]
                 $$
-                (spaces 2 ++ (show_conbind hd))
+                (spaces 2 ++ (p_conbind hd))
                 $$
-                show_list_prepend color false "|" "|" show_conbind "" tl
+                p_list_prepend color false "|" "|" p_conbind "" tl
               )
       in
       case spec_ of
@@ -1431,13 +1464,13 @@ struct
               group (
                 separateWithSpaces
                   [ SOME (if mark then text "val" else text "and")
-                  , SOME (show_id id)
+                  , SOME (p_id id)
                   , SOME (text_syntax ":") ]
                 $$
-                spaces 2 ++ show_ty ty
+                spaces 2 ++ p_ty ty
               )
           in
-            show_list_mk mk_valbind valbinds
+            p_list_mk mk_valbind valbinds
           end
       | SPtype typdescs =>
           let
@@ -1445,11 +1478,11 @@ struct
               group (
                 separateWithSpaces
                   [ SOME (if mark then text "type" else text "and")
-                  , SOME (show_typdesc typdesc)
+                  , SOME (p_typdesc typdesc)
                   ]
               )
           in
-            show_list_mk mk_typdesc typdescs
+            p_list_mk mk_typdesc typdescs
           end
       | SPeqtype typdescs =>
           let
@@ -1457,19 +1490,19 @@ struct
               group (
                 separateWithSpaces
                   [ SOME (if mark then text "eqtype" else text "and")
-                  , show_tyvars_option tyvars
-                  , SOME (show_id tycon)
+                  , p_tyvars_option tyvars
+                  , SOME (p_id tycon)
                   ]
               )
           in
-            show_list_mk mk_typdesc typdescs
+            p_list_mk mk_typdesc typdescs
           end
       | SPdatdec datdescs =>
         (* Conbinds look like condescs, but with an extra "opp".
           * Elaborate the condescs to degenerate conbinds to make things
           * easier.
           *)
-        show_list_mk (show_datbind "datatype")
+        p_list_mk (p_datbind "datatype")
           (List.map
             (fn {tyvars, tycon, condescs} =>
               { tyvars = tyvars
@@ -1482,73 +1515,73 @@ struct
       | SPdatrepl {left_tycon, right_tycon} =>
           separateWithSpaces
             [ SOME (text "datatype")
-            , SOME (show_id left_tycon)
+            , SOME (p_id left_tycon)
             , SOME (text_syntax "=")
             , SOME (text "datatype")
-            , SOME (show_longid right_tycon) ]
+            , SOME (p_longid right_tycon) ]
       | SPexception exndescs =>
           let
             fun mk_exndesc mark {id, ty} =
               separateWithSpaces
                 [ SOME (if mark then text "exception" else text "and")
-                , SOME (show_id id)
-                , Option.map (fn ty => text_syntax "of" +-+ show_ty ty) ty ]
+                , SOME (p_id id)
+                , Option.map (fn ty => text_syntax "of" +-+ p_ty ty) ty ]
           in
-            show_list_mk mk_exndesc exndescs
+            p_list_mk mk_exndesc exndescs
           end
       | SPmodule moddescs =>
           let
             fun mk_moddesc mark {id, signat} =
               separateWithSpaces
                 [ SOME (if mark then text "structure" else text "and")
-                , SOME (show_id id)
+                , SOME (p_id id)
                 , SOME (text_syntax ":")
-                , SOME (show_signat signat) ]
+                , SOME (p_signat signat) ]
           in
-            show_list_mk mk_moddesc moddescs
+            p_list_mk mk_moddesc moddescs
           end
       | SPinclude signat =>
-          text_syntax "include" +-+ show_signat signat
+          text_syntax "include" +-+ p_signat signat
       | SPinclude_ids ids =>
-          text_syntax "include" +-+ show_list show_id " " ids
+          text_syntax "include" +-+ p_list p_id " " ids
       | ( SPsharing {spec, tycons}
         | SPsharing_type {spec, tycons }
         ) =>
           group (
-            show_spec spec
+            p_spec spec
             $$
             spaces 2 ++ text_syntax "sharing type"
             $$
-            group (spaces 2 ++ show_list show_longid " = " tycons)
+            group (spaces 2 ++ p_list p_longid " = " tycons)
           )
       | SPseq specs =>
-          show_list show_spec " " specs
+          p_list p_spec " " specs
       end
-    and show_sigbinds sigbinds =
+    and p_sigbinds sigbinds =
       let
         val color = orange
         val text = text color
-        val show_id = show_id color
+        val p_id = p_id color
         fun mk mark {id, signat} =
           group (
             separateWithSpaces
               [ SOME (if mark then text_syntax "signature" else text "and")
-              , SOME (show_id id)
+              , SOME (p_id id)
               , SOME (text_syntax "=") ]
             $$
-            spaces 2 ++ show_signat signat
+            spaces 2 ++ p_signat signat
           )
       in
-        show_list_mk mk sigbinds
+        p_list_mk mk sigbinds
       end
 
-    and show_sigdec sigdec = show_sigbinds sigdec
+    and p_sigdec sigdec = p_sigbinds sigdec
   end
 
-  fun show_funbinds ctx binds =
+  fun p_funbinds ctx binds =
     let
       val color = orange
-      val show_id = show_id color
+      val p_id = p_id color
       val text = text white
 
       fun mk mark {id, funarg, seal, body} =
@@ -1559,49 +1592,49 @@ struct
           group (
             separateWithSpaces
               [ SOME (if mark then text "functor" else text "and")
-              , SOME (show_id id)
+              , SOME (p_id id)
               , SOME
                   ( parensAround
                     (case funarg of
                       Normal {id, signat} =>
-                        show_id id +-+ text_syntax ":" +-+ show_signat signat
+                        p_id id +-+ text_syntax ":" +-+ p_signat signat
                     | Sugar spec =>
-                        show_spec spec
+                        p_spec spec
                     )
                   )
               , Option.map (fn {signat, opacity} =>
                   case opacity of
-                    Transparent => text_syntax ":" +-+ show_signat signat
-                  | Opaque => text_syntax ":>" +-+ show_signat signat)
+                    Transparent => text_syntax ":" +-+ p_signat signat
+                  | Opaque => text_syntax ":>" +-+ p_signat signat)
                 seal
               , SOME (text_syntax "=") ]
             $$
-            show_module new_ctx body
+            p_module new_ctx body
           )
         end
     in
-      show_list_mk mk binds
+      p_list_mk mk binds
     end
 
-  fun show_fundec ctx node = show_funbinds ctx node
+  fun p_fundec ctx node = p_funbinds ctx node
 
   local
     open SMLSyntax
   in
-    fun show_topdec ctx topdec = #1 (show_topdec' ctx topdec)
+    fun p_topdec ctx topdec = #1 (p_topdec' ctx topdec)
 
-    and show_topdec' ctx topdec =
+    and p_topdec' ctx topdec =
       case topdec of
-        Strdec strdec => show_strdec' ctx strdec
-      | Sigdec sigdec => (show_sigdec sigdec, empty_set)
-      | Fundec fundec => (show_fundec ctx fundec, empty_set)
+        Strdec strdec => p_strdec' ctx strdec
+      | Sigdec sigdec => (p_sigdec sigdec, empty_set)
+      | Fundec fundec => (p_fundec ctx fundec, empty_set)
       | Thole => ( Context.get_hole_print_fn ctx (), empty_set )
 
-    fun show_ast ctx ast =
+    fun p_ast ctx ast =
       List.foldl
         (fn (topdec, (acc, ctx, acc_boundids)) =>
           let
-            val (topdec_doc, bound_ids) = show_topdec' ctx topdec
+            val (topdec_doc, bound_ids) = p_topdec' ctx topdec
           in
             ( acc $$ topdec_doc
             , Binding.remove_bound_ids ctx bound_ids
@@ -1613,6 +1646,11 @@ struct
         ast
       |> (fn (doc, _, boundids) => (doc, boundids))
   end
+
+(*****************************************************************************)
+(* Reporting *)
+(*****************************************************************************)
+
 
   local
     open Context
@@ -1644,6 +1682,10 @@ struct
          * will be killed when printing the surroundings of the hole.
          *)
 
+         (* THINK: This is probably unnecessarily complicated, and would be
+          * better if we did a proper naming set-up. 
+          *)
+
         (* This new ctx contains the print function for the current doc.
          *)
         val ctx = Context.add_hole_print_fn ctx (fn () => doc)
@@ -1663,7 +1705,7 @@ struct
                     report
                       ctx
                       empty_set
-                      (show_exp ctx exp)
+                      (p_exp ctx exp)
                       n (* eagerly go until you find a non-ehole *)
                       rest
                 | (false, 0) => doc
@@ -1671,7 +1713,7 @@ struct
                     report
                       ctx
                       empty_set
-                      (show_exp ctx exp)
+                      (p_exp ctx exp)
                       (n - 1)
                       rest
               )
@@ -1682,7 +1724,7 @@ struct
                 :: valbinds
 
               val (doc', bound_ids) =
-                show_dec' ctx (Dval { tyvars = tyvars, valbinds = valbinds })
+                p_dec' ctx (Dval { tyvars = tyvars, valbinds = valbinds })
             in
               case (!(#print_dec (Context.get_settings ctx)), n) of
                 (true, _) => doc'
@@ -1704,7 +1746,7 @@ struct
               report
                 ctx
                 empty_set
-                (show_exp new_ctx exp)
+                (p_exp new_ctx exp)
                 (n - 1)
                 rest
             end
@@ -1713,7 +1755,7 @@ struct
               val dec = Dlocal {left_dec = Dseq (Dhole :: decs), right_dec = dec}
 
               val (doc, bound_ids) =
-                show_dec' new_ctx dec
+                p_dec' new_ctx dec
             in
               report
                 ctx
@@ -1724,7 +1766,7 @@ struct
             end
         | (n, DSEQ decs :: rest) =>
             let
-              val (doc, bound_ids) = show_dec' new_ctx (Dseq (Dhole :: decs))
+              val (doc, bound_ids) = p_dec' new_ctx (Dseq (Dhole :: decs))
             in
               report
                 ctx
@@ -1738,7 +1780,7 @@ struct
               val strdec = DMlocal {left_dec = DMseq (DMhole :: strdecs), right_dec = strdec}
 
               val (doc, bound_ids) =
-                show_strdec' new_ctx strdec
+                p_strdec' new_ctx strdec
             in
               report
                 ctx
@@ -1750,7 +1792,7 @@ struct
         | (n, DMSEQ strdecs :: rest) =>
             let
               val (doc, bound_ids) =
-                show_strdec' new_ctx (DMseq (DMhole :: strdecs))
+                p_strdec' new_ctx (DMseq (DMhole :: strdecs))
             in
               report
                 ctx
@@ -1762,7 +1804,7 @@ struct
         | (n, MLET module :: rest) =>
             let
               val doc =
-                show_module new_ctx (Mlet {dec = DMhole, module = module})
+                p_module new_ctx (Mlet {dec = DMhole, module = module})
             in
               report
                 ctx
@@ -1774,14 +1816,14 @@ struct
         | (n, MSTRUCT :: rest) =>
             let
               val doc =
-                show_module ctx (Mstruct DMhole)
+                p_module ctx (Mstruct DMhole)
             in
               report ctx empty_set doc n rest
             end
         | (n, MSEAL {opacity, signat} :: rest) =>
             let
               val doc =
-                show_module
+                p_module
                   ctx
                   (Mseal {module = Mhole, opacity = opacity, signat = signat})
             in
@@ -1791,7 +1833,7 @@ struct
             let
               val doc =
                 group (
-                  show_id orange sym +-+ text_syntax "("
+                  p_id orange sym +-+ text_syntax "("
                   ++
                   doc
                   ++
@@ -1810,14 +1852,14 @@ struct
                     } :: modules
                   )
               val (doc, bound_ids) =
-                show_strdec' ctx strdec
+                p_strdec' ctx strdec
             in
               report new_ctx bound_ids doc (n - 1) rest
             end
         | (n, FBODY sym :: rest) => (* TODO? *) report ctx empty_set doc n rest
         | (n, [PROG topdecs]) =>
           let
-            val (doc, bound_ids) = show_ast ctx (Thole :: topdecs)
+            val (doc, bound_ids) = p_ast ctx (Thole :: topdecs)
           in
             report
               ctx
@@ -1832,14 +1874,14 @@ struct
     val report = fn ctx => fn exp => fn n => fn location =>
       PrettySimpleDoc.toString
         true
-        (report ctx empty_set (PrettySimpleDoc.bold (show_exp ctx exp)) n location)
+        (report ctx empty_set (PrettySimpleDoc.bold (p_exp ctx exp)) n location)
   end
 
-  fun pretty ctx ast b = PrettySimpleDoc.toString b (#1 (show_ast ctx ast))
+  fun pretty ctx ast b = PrettySimpleDoc.toString b (#1 (p_ast ctx ast))
 
-  fun ctx_toString (ctx as {scope, outer_scopes, ...} : SMLSyntax.context) =
+  fun show_ctx (ctx as {scope, outer_scopes, ...} : SMLSyntax.context) =
     let
-      fun dict_toString f d =
+      fun show_dict f d =
         "{" ^
         ( SymDict.toList d
           |> List.map (fn (id, x) => Symbol.toValue id ^ ": " ^ f x)
@@ -1847,12 +1889,12 @@ struct
         )
         ^ "}"
 
-      fun set_toString f s =
+      fun show_set f s =
         "{" ^ (String.concatWith ", " (List.map f (SymSet.toList s))) ^ "}"
 
       val show_doc = PrettySimpleDoc.toString true
 
-      fun scope_toString (Scope {identdict, moddict, infixdict, ...}) =
+      fun show_scope (Scope {identdict, moddict, infixdict, ...}) =
         "< valdict: " (*^ dict_toString (show_doc o show_value ctx) valdict*) ^ ">"
       (* ^ "  condict: " ^ set_toString Symbol.toValue condict ^ "\n"
       ^ "  exndict: " ^ set_toString Symbol.toValue exndict ^ "\n"
@@ -1860,13 +1902,13 @@ struct
       ^ "  infixdict:
        *)
     in
-      String.concatWith "\n" (List.map scope_toString (scope :: outer_scopes))
+      String.concatWith "\n" (List.map show_scope (scope :: outer_scopes))
     end
 
-  fun loc_toString ctx location =
+  fun show_loc_atom ctx location =
     case location of
     (* EXP hole *)
-      EHOLE exp => PrettySimpleDoc.toString true (show_exp ctx exp)
+      EHOLE exp => PrettySimpleDoc.toString true (p_exp ctx exp)
     | CLOSURE _ => "<CLOSURE>"
         (* When you enter a function application, your entire context changes
          * to the closure of the function.
@@ -1894,22 +1936,22 @@ struct
     (* TOPDEC hole *)
     | PROG _ => "PROG"
 
-  fun location_toString ctx location =
-    "[" ^ String.concatWith ", " (List.map (loc_toString ctx) location) ^ "]"
+  fun show_location ctx location =
+    "[" ^ String.concatWith ", " (List.map (show_loc_atom ctx) location) ^ "]"
 
-  fun print_value ctx value =
-    PrettySimpleDoc.toString true (show_value ctx value)
-  fun print_exp ctx exp =
-    PrettySimpleDoc.toString true (show_exp ctx exp)
-  fun print_pat ctx pat =
-    PrettySimpleDoc.toString true (show_pat ctx pat)
+  fun show_value ctx value =
+    PrettySimpleDoc.toString true (p_value ctx value)
+  fun show_exp ctx exp =
+    PrettySimpleDoc.toString true (p_exp ctx exp)
+  fun show_pat ctx pat =
+    PrettySimpleDoc.toString true (p_pat ctx pat)
 
-  fun print_tyval tyval =
-    PrettySimpleDoc.toString true (show_tyval (Context.norm_tyval Basis.initial tyval))
+  fun show_tyval tyval =
+    PrettySimpleDoc.toString true (p_tyval (Context.norm_tyval Basis.initial tyval))
 
-  fun print_tyscheme (arity, ty_fn) =
+  fun show_tyscheme (arity, ty_fn) =
     if arity = 0 then
-      print_tyval (ty_fn [])
+      show_tyval (ty_fn [])
     else if arity > 26 then
       raise Fail "TODO"
     else
@@ -1920,23 +1962,23 @@ struct
       |> List.map TVtyvar
       |> ty_fn
       |> Context.norm_tyval Basis.initial
-      |> print_tyval
+      |> show_tyval
 
-  fun print_longid' longid =
+  fun p_longid' longid =
     case longid of
       [] => raise Fail "empty longid"
     | [sing] => text white (Symbol.toValue sing)
     | hd::tl =>
-        text orange (Symbol.toValue hd) ++ text_syntax "." ++ print_longid' tl
-  fun print_longid longid = PrettySimpleDoc.toString true (print_longid' longid)
+        text orange (Symbol.toValue hd) ++ text_syntax "." ++ p_longid' tl
+  fun show_longid longid = PrettySimpleDoc.toString true (p_longid' longid)
 
   fun promote' f =
     fn ctx => fn x => f ctx x
 
-  val op ftv = fn z => newFormat (fn _ => fn x => print_tyval (Context.norm_tyval Basis.initial x)) z
-  val op fe = fn acc => newFormat (promote' print_exp) acc
-  val op fv = fn acc => newFormat (promote' print_value) acc
-  val op fp = fn acc => newFormat (promote' print_pat) acc
-  val op fl = fn acc => newFormat (fn _ => fn x => print_longid x) acc
+  val op ftv = fn z => newFormat (fn _ => fn x => show_tyval (Context.norm_tyval Basis.initial x)) z
+  val op fe = fn acc => newFormat (promote' show_exp) acc
+  val op fv = fn acc => newFormat (promote' show_value) acc
+  val op fp = fn acc => newFormat (promote' show_pat) acc
+  val op fl = fn acc => newFormat (fn _ => fn x => show_longid x) acc
 
 end

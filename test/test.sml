@@ -61,8 +61,8 @@ fun outcome_eq (outcome1, outcome2) =
 
 fun show_outcome outcome =
   case outcome of
-    RES v => "RES " ^ PrettyPrintAst.print_value Basis.initial v
-  | RAISE v => "RAISE " ^ PrettyPrintAst.print_value Basis.initial v
+    RES v => "RES " ^ PrettyPrintAst.show_value Basis.initial v
+  | RAISE v => "RAISE " ^ PrettyPrintAst.show_value Basis.initial v
   | ERR error => "ERR " ^ Error.show_error error
 
 (*****************************************************************************)

@@ -430,7 +430,7 @@ structure Run : RUN =
               | SOME (Directive.Print longid) =>
                   ( print <| spf (`"Printing value of identifier "fl"\n") longid
                   ; Context.get_val ctx longid
-                    |> PrettyPrintAst.print_value ctx
+                    |> PrettyPrintAst.show_value ctx
                     |> println
                   )
                   |> recur
@@ -461,8 +461,8 @@ structure Run : RUN =
               | SOME (Directive.Report s) =>
                   recur
                     ( case Symbol.toValue s of
-                      "ctx" => print (PrettyPrintAst.ctx_toString ctx ^ "\n")
-                    | "location" => print (PrettyPrintAst.location_toString ctx location ^ "\n")
+                      "ctx" => print (PrettyPrintAst.show_ctx ctx ^ "\n")
+                    | "location" => print (PrettyPrintAst.show_location ctx location ^ "\n")
                     | _ => print "Unrecognized report.\n"
                     )
               | SOME Directive.Help =>
@@ -470,7 +470,7 @@ structure Run : RUN =
               | SOME (Directive.TypeOf longid) =>
                   (case Context.get_ident_ty_opt ctx longid of
                     NONE => recur (print "Cannot find type of unbound identifier.\n")
-                  | SOME (_, tyscheme) => recur (println (PrettyPrintAst.print_tyscheme tyscheme))
+                  | SOME (_, tyscheme) => recur (println (PrettyPrintAst.show_tyscheme tyscheme))
                   )
               | NONE =>
                   recur (print "Unrecognized command.\n")
