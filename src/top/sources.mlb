@@ -1,12 +1,16 @@
 $(SML_LIB)/basis/basis.mlb
 
-../util/sources.mlb
-../directive_parser/sources.mlb
-../syntax/sources.mlb
-../context/sources.mlb
-../pretty-print/sources.mlb
-../debugger/sources.mlb
-../cm_parser/sources.mlb
-../run/sources.mlb
+local
+  ../util/sources.mlb
+  ../directive_parser/sources.mlb
+  ../syntax/sources.mlb
+  ../context/sources.mlb
+  ../pretty-print/sources.mlb
+  ../debugger/sources.mlb
+  ../cm_parser/sources.mlb
+  ../run/sources.mlb
 
-top.sml
+  top.sml
+in
+  structure Top
+end
