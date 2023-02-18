@@ -4,24 +4,51 @@
   * See the file LICENSE for details.
   *)
 
+open Directive
+structure S = Stream
+
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* A parser for "directives", which are commands that the debugger top-level
+   recognizes.
+ *)
+
+(*****************************************************************************)
+(* Types *)
+(*****************************************************************************)
+
 type result = Directive.t * DToken.t list
+
+(*****************************************************************************)
+(* Exceptions *)
+(*****************************************************************************)
+
+exception ParseFail of string
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
 signature PARSER =
   sig
-    val parse : char StreamStreamable.t -> (string list, result) Directive.either
+    val parse : char StreamStreamable.t -> (string list, result) either
 
-    val parse_string : string -> (string list, result) Directive.either
+    val parse_string : string -> (string list, result) either
 
-    val parse_file : string -> (string list, result) Directive.either
+    val parse_file : string -> (string list, result) either
 
     val parse_exn : string -> Directive.t
     val parse_opt : string -> Directive.t option
   end
 
-structure DirectiveParser :> PARSER =
-  struct
-    open Directive
+(*****************************************************************************)
+(* Parser actions *)
+(*****************************************************************************)
 
-    structure S = Stream
+structure Arg =
+  struct
+    open Directive 
 
     type symbol = Symbol.symbol
 
@@ -30,59 +57,59 @@ structure DirectiveParser :> PARSER =
     fun sing x = [x]
     fun pair (x, y) = [x, y]
 
-    exception ParseFail of string
+    datatype terminal = datatype DToken.t
 
-    structure Arg =
-      struct
-        open Directive
+    type int = int
+    type symbol = symbol
+    type longid = symbol list
+    type directive = Directive.t
 
-        datatype terminal = datatype DToken.t
+    val main = identity
 
-        type int = int
-        type symbol = symbol
-        type longid = symbol list
-        type directive = Directive.t
+    fun num_reveal i = Reveal (SOME i)
+    fun num_prev i = Prev (SOME i)
+    val bare_reveal = null (Reveal NONE)
+    val stop = null Stop
+    val step = null Step
+    val evaluate = null Evaluate
+    val run = null Run
+    val prev = null (Prev NONE)
+    fun break_fn s = BreakFn s
+    fun bare_clear () = Clear NONE
+    fun sym_clear s = Clear (SOME s)
+    fun sym_print s = Print s
+    fun break_bind s =
+      case s of
+        [s] => BreakBind s
+      | _ => raise ParseFail "Cannot break bind on longid."
+    fun value_ident longid =
+      case longid of
+        [s] => Directive.VALUE s
+      | _ => raise ParseFail "Value cannot be empty or long identifier."
+    fun value_num num = Directive.NUM num
+    fun change_setting (s, v) =
+      case s of
+        [s] => Set (s, v)
+      | _ => raise ParseFail "Setting cannot be empty or long identifier."
+    fun report s =
+      case s of
+        [s] => Report s
+      | _ => raise ParseFail "Cannot report on longid."
+    fun bare_last () = Last NONE
+    fun num_last i = Last (SOME i)
+    val do_help = null Help
+    val typeof_id = TypeOf
 
-        val main = identity
+      exception Error of DToken.t StreamStreamable.t
+      fun error x = Error x
+    end
 
-        fun num_reveal i = Reveal (SOME i)
-        fun num_prev i = Prev (SOME i)
-        val bare_reveal = null (Reveal NONE)
-        val stop = null Stop
-        val step = null Step
-        val evaluate = null Evaluate
-        val run = null Run
-        val prev = null (Prev NONE)
-        fun break_fn s = BreakFn s
-        fun bare_clear () = Clear NONE
-        fun sym_clear s = Clear (SOME s)
-        fun sym_print s = Print s
-        fun break_bind s =
-          case s of
-            [s] => BreakBind s
-          | _ => raise ParseFail "Cannot break bind on longid."
-        fun value_ident longid =
-          case longid of
-            [s] => Directive.VALUE s
-          | _ => raise ParseFail "Value cannot be empty or long identifier."
-        fun value_num num = Directive.NUM num
-        fun change_setting (s, v) =
-          case s of
-            [s] => Set (s, v)
-          | _ => raise ParseFail "Setting cannot be empty or long identifier."
-        fun report s =
-          case s of
-            [s] => Report s
-          | _ => raise ParseFail "Cannot report on longid."
-        fun bare_last () = Last NONE
-        fun num_last i = Last (SOME i)
-        val do_help = null Help
-        val typeof_id = TypeOf
+(*****************************************************************************)
+(* Entry point *)
+(*****************************************************************************)
 
-        exception Error of DToken.t StreamStreamable.t
-        fun error x = Error x
-      end
-
+structure DirectiveParser :> PARSER =
+  struct
     structure ParseMain =
       ParserFun (structure Streamable = StreamStreamable structure Arg = Arg)
 

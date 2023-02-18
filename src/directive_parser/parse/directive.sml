@@ -4,6 +4,16 @@
   * See the file LICENSE for details.
   *)
 
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* The type of debugger commands.
+ *)
+
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
+
 structure Directive =
   struct
     type longid = Symbol.symbol list
@@ -28,6 +38,4 @@ structure Directive =
       | Last of int option
       | Help
       | TypeOf of longid
-
-    datatype ('a, 'b) either = INL of 'a | INR of 'b
   end
