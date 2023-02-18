@@ -4,7 +4,30 @@
   * See the file LICENSE for details.
   *)
 
+open DToken
+open Error
+open Stream
 structure Table = SymbolHashTable
+
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* A lexer for debugger commands, or "directives".
+ *)
+
+(*****************************************************************************)
+(* Helpers *)
+(*****************************************************************************)
+
+fun revappend l1 l2 =
+  (case l1 of
+    x :: rest =>
+      revappend rest (x :: l2)
+  | [] => l2)
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
 
 signature LEXER =
   sig
@@ -13,154 +36,149 @@ signature LEXER =
     val lex_file : string -> DToken.t list
   end
 
-structure Lexer :> LEXER =
+(*****************************************************************************)
+(* Lexer actions *)
+(*****************************************************************************)
+
+structure Arg =
   struct
-    open DToken
-    open Error
+    structure Streamable = StreamStreamable
 
-    fun revappend l1 l2 =
-      (case l1 of
-        x :: rest =>
-          revappend rest (x :: l2)
-      | [] => l2)
+    type symbol = char
+    val ord = Char.ord
 
-    open Stream
+    datatype tlex = LEX of char stream -> t
+    withtype t = tlex -> int -> DToken.t front
 
-    structure Arg =
-      struct
-        structure Streamable = StreamStreamable
+    type self = { main : symbol Streamable.t -> t
+                , primary : symbol Streamable.t -> t
+                }
+    type info = { match : symbol list,
+                  len : int,
+                  start : symbol Streamable.t,
+                  follow : symbol Streamable.t,
+                  self : self }
 
-        type symbol = char
-        val ord = Char.ord
+    val keywords_list =
+      [ ("step", STEP)
+      , ("s", STEP)
+      , ("eval", EVALUATE)
+      , ("evaluate", EVALUATE)
+      , ("reveal", REVEAL)
+      , ("stop", STOP)
+      , ("set", SET)
+      , ("prev", PREV)
+      , ("breakbind", BREAKBIND)
+      , ("breakfn", BREAKFN)
+      , ("run", RUN)
+      , ("r", RUN)
+      , ("clear", CLEAR)
+      , ("print", PRINT)
+      , ("report", REPORT)
+      , ("last", LAST)
+      , ("help", HELP)
+      , ("typeof", TYPEOF)
+      ]
 
-        datatype tlex = LEX of char stream -> t
-        withtype t = tlex -> int -> DToken.t front
-
-        type self = { main : symbol Streamable.t -> t
-                    , primary : symbol Streamable.t -> t
-                    }
-        type info = { match : symbol list,
-                      len : int,
-                      start : symbol Streamable.t,
-                      follow : symbol Streamable.t,
-                      self : self }
-
-        val keywords_list =
-          [ ("step", STEP)
-          , ("s", STEP)
-          , ("eval", EVALUATE)
-          , ("evaluate", EVALUATE)
-          , ("reveal", REVEAL)
-          , ("stop", STOP)
-          , ("set", SET)
-          , ("prev", PREV)
-          , ("breakbind", BREAKBIND)
-          , ("breakfn", BREAKFN)
-          , ("run", RUN)
-          , ("r", RUN)
-          , ("clear", CLEAR)
-          , ("print", PRINT)
-          , ("report", REPORT)
-          , ("last", LAST)
-          , ("help", HELP)
-          , ("typeof", TYPEOF)
-          ]
-
-        val keywords : DToken.t Table.table = Table.table 60
-
+    val keywords : DToken.t Table.table = 
+      let
+        val table = Table.table 60
+      
         val () =
           List.app
-          (fn (str, token) => Table.insert keywords (Symbol.fromValue str) token)
+          (fn (str, token) => Table.insert table (Symbol.fromValue str) token)
           keywords_list
+      in
+        table
+      end
 
-        fun identify table str =
-          let
-            val sym = Symbol.fromValue str
-          in
-            (case Table.find table sym of
-              NONE => IDENT [sym]
-            | SOME tok => tok
+    fun identify table str =
+      let
+        val sym = Symbol.fromValue str
+      in
+        (case Table.find table sym of
+          NONE => IDENT [sym]
+        | SOME tok => tok
+        )
+      end
+
+    fun action f ({ match, len, follow, ...}: info) (k as LEX cont) pos =
+      Cons (f (match, len, follow, pos), lazy (fn () => cont follow k (pos + len)))
+
+    fun simple tok ({ follow, len, ...}: info) (k as LEX cont)
+      pos =
+      Cons (tok, lazy (fn () => cont follow k (pos + len)))
+
+    fun enter_main ({ match, len, follow, self, ...}: info) (k as LEX _) pos =
+      Cons (identify keywords (implode match), lazy (fn () => #main self follow k (pos + len)))
+
+    val lex_bindable =
+      action
+        (fn (match, _, _, _) => IDENT [Symbol.fromValue (implode match)])
+
+    fun longidentify curr store match =
+      let
+        fun process chars =
+          Symbol.fromValue (String.implode (List.rev chars))
+      in
+        case match of
+          [] =>
+            (case curr of
+              [] => IDENT (List.rev store)
+            | _ => IDENT (List.rev (process curr :: store))
             )
-          end
+        | #"." :: rest =>
+            longidentify [] (process curr :: store) rest
+        | ch :: rest =>
+            longidentify (ch :: curr) store rest
+      end
 
-        fun action f ({ match, len, follow, ...}: info) (k as LEX cont) pos =
-          Cons (f (match, len, follow, pos), lazy (fn () => cont follow k (pos + len)))
+    val lex_longident =
+      action
+        (fn (match, _, _, _) => longidentify [] [] match)
 
-        fun simple tok ({ follow, len, ...}: info) (k as LEX cont)
-          pos =
-          Cons (tok, lazy (fn () => cont follow k (pos + len)))
-
-        fun enter_main ({ match, len, follow, self, ...}: info) (k as LEX _) pos =
-          Cons (identify keywords (implode match), lazy (fn () => #main self follow k (pos + len)))
-
-        val lex_bindable =
-          action
-            (fn (match, _, _, _) => IDENT [Symbol.fromValue (implode match)])
-
-        fun longidentify curr store match =
-          let
-            fun process chars =
-              Symbol.fromValue (String.implode (List.rev chars))
-          in
-            case match of
-              [] =>
-                (case curr of
-                  [] => IDENT (List.rev store)
-                | _ => IDENT (List.rev (process curr :: store))
+    val lex_number =
+      action
+        (fn (match, _, follow, pos) =>
+          (case Int.fromString (implode match) of
+            SOME n => NUM n
+          | NONE =>
+              err
+                (LexError
+                  { reason = "failed to lex number"
+                  , pos = pos
+                  , rest = Stream.toList follow
+                  }
                 )
-            | #"." :: rest =>
-                longidentify [] (process curr :: store) rest
-            | ch :: rest =>
-                longidentify (ch :: curr) store rest
-          end
+          )
+        )
 
-        val lex_longident =
-          action
-            (fn (match, _, _, _) => longidentify [] [] match)
+    val equal = simple EQUAL
 
-        val lex_number =
-          action
-            (fn (match, _, follow, pos) =>
-              (case Int.fromString (implode match) of
-                SOME n => NUM n
-              | NONE =>
-                  err
-                    (LexError
-                      { reason = "failed to lex number"
-                      , pos = pos
-                      , rest = Stream.toList follow
-                      }
-                    )
-              )
-            )
+    fun skip ({ len, follow, self, ...} : info) (k as LEX _) pos =
+      #main self follow k (pos + len)
 
-        val equal = simple EQUAL
+      fun eof _ _ _ =
+        Cons (EOF, eager Nil)
 
-        fun skip ({ len, follow, self, ...} : info) (k as LEX _) pos =
-          #main self follow k (pos + len)
+      fun error ({follow, ...}: info) _ pos =
+        err
+          (LexError
+            { reason = "illegal lexeme"
+            , pos = pos
+            , rest = Stream.toList follow
+            }
+          )
+    end
 
-        fun eof _ _ _ =
-          Cons (EOF, eager Nil)
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
 
-        fun error ({follow, ...}: info) _ pos =
-          err
-            (LexError
-              { reason = "illegal lexeme"
-              , pos = pos
-              , rest = Stream.toList follow
-              }
-            )
-      end
-
-    structure Input =
-      struct
-
-       structure Streamable = StreamStreamable
-       structure Arg = Arg
-      end
-
+structure Lexer :> LEXER =
+  struct
     structure LexMain =
-      LexMainFun (Input)
+      LexMainFun (structure Streamable = StreamStreamable structure Arg = Arg)
 
     fun doLex f s = lazy (fn () => f s (Arg.LEX f) 0)
 
