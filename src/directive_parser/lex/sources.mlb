@@ -1,12 +1,15 @@
 ../../util/sources.mlb
 
 local
-  token.sml
+  local
+    token.sml
+  in
+    structure DToken = Token
+  end
+
+  lexer.fun
+  lexer.sml
 in
-  structure DToken = Token
+  structure DToken
+  structure Lexer
 end
-
-lexer.fun
-lexer.sml
-
-

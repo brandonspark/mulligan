@@ -1,2 +1,7 @@
 
-parse/sources.mlb
+local
+  parse/sources.mlb
+in
+  structure Directive
+  structure DirectiveParser
+end
