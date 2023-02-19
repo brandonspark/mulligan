@@ -8,6 +8,7 @@ open SMLSyntax
 open PrettySimpleDoc
 open Location
 open Printf
+structure PD = PrettySimpleDoc
 structure TC = TerminalColors
 
 (*****************************************************************************)
@@ -37,6 +38,25 @@ fun union_sets l =
 val union = MarkerSet.union
 
 fun curry f = fn x => fn y => f (x, y)
+
+fun bool_to_option b default =
+  if b then SOME default
+  else NONE
+
+fun map_nonfirst f l =
+  case l of
+    x::xs => x :: List.map f xs 
+  | [] => []
+
+fun map_nonlast f l =
+  List.rev (map_nonfirst f (List.rev l))
+
+fun combine f default l =
+  case l of
+    [] => default
+  | [x] => x 
+  | x::xs =>
+      f (x, combine f default xs)
 
 (*****************************************************************************)
 (* Colors! *)
@@ -94,6 +114,9 @@ val text_lab = text blue
 fun parensAround (x: doc) =
   group (text_syntax "(" +++ x // text_syntax ")")
 
+fun surround left middle right =
+  text_syntax left ++ middle ++ text_syntax right
+
 fun separateWithSpaces (items: doc option list) : doc =
   let
     val items: doc list = List.mapPartial (fn x => x) items
@@ -116,8 +139,12 @@ fun separateWithNewlines items =
 
 signature PRETTYPRINTAST =
   sig
+    (* Pretty-printing an entire AST! *)
     val pretty: Context.t -> SMLSyntax.ast -> bool -> string
 
+    (* Contextually pretty-printing an expression, which may be within
+     * some larger context.
+     *)
     val report :
       Context.t -> SMLSyntax.exp -> int -> Location.location list -> string
 
@@ -184,17 +211,15 @@ struct
 
   (* Delim is put after all but the last element, instead of before all but the
    * first. *)
-  fun p_list_after f delim l =
+  fun p_list_after (f : 'a -> PD.doc) delim (l : 'a list) =
     case l of
       [] => text_syntax ""
     | [elem] => f elem
     | _ =>
-      let
-        val prelude_mapped =
-          List.map (fn elem => f elem ++ text_syntax delim) (ListUtils.up_to_last l)
-      in
-        group (List.foldr op// (f (ListUtils.last l)) prelude_mapped)
-      end
+      l
+      |> List.map f
+      |> map_nonlast (fn elem => elem ++ text_syntax delim)
+      |> combine op// (text_syntax "")
 
   (* Suppose we have a nonempty list L : 'a list.
    * Suppose we also have a function mk : 'a -> bool -> doc.
@@ -236,22 +261,23 @@ struct
         (apply_list_base f delim false l))
 
   fun p_symbol color = text color o Symbol.toValue
-  fun p_symbol_node color = text color o Symbol.toValue
 
   fun p_char c = text_literal ("#\"" ^ Char.toString c ^ "\"")
 
-  fun p_id color identifier = (p_symbol_node color) identifier
+  fun p_id color identifier = (p_symbol color) identifier
 
   fun p_longid color longid =
     let
+      (* we want to display all but the last id in the longid as orange 
+       *)
       val mapped =
         List.tabulate
           ( List.length longid
           , fn i =>
               if i = List.length longid - 1 then
-                p_symbol_node color (List.nth (longid, i))
+                p_symbol color (List.nth (longid, i))
               else
-                p_symbol_node orange (List.nth (longid, i))
+                p_symbol orange (List.nth (longid, i))
           )
     in
       case mapped of
@@ -273,10 +299,6 @@ struct
     | p_tyvars_option [tyvar] = SOME (p_tyvar tyvar)
     | p_tyvars_option other =  SOME (p_tyvars other)
 
-  fun bool_to_option b default =
-    if b then SOME default
-    else NONE
-
   fun p_setting (name, value) =
     group (
       p_id blue name ++ text_syntax "="
@@ -284,7 +306,7 @@ struct
       p_id white value
     )
   fun p_settings settings =
-    text_syntax "{" ++ p_list p_setting ", " settings ++ text_syntax "}"
+    surround "{" (p_list p_setting ", " settings) "}"
 
   fun p_plugin (name, settings) =
     case settings of
@@ -304,52 +326,54 @@ struct
     and p_ty_ ty_ =
       case ty_ of
         Tident longid =>
-        p_longid longid
+          p_longid longid
       | Ttyvar id =>
-        p_tyvar id
+          p_tyvar id
       | Tapp (typarams, longid) =>
           (case typarams of
             [] => p_longid longid
           | [elem] => p_atty elem +-+ p_longid longid
           | _ =>
-            text_syntax "(" ++ p_list p_ty ", " typarams ++ text_syntax
-            ")" +-+ p_longid longid)
+            surround "(" (p_list p_ty ", " typarams) ")" 
+            +-+ p_longid longid)
       | Tprod tys =>
           p_list p_ty " * " tys
       | Tarrow (t1, t2) =>
-        group (
-            p_atty t1 +-+ text_syntax "->"
-            $$
-            p_atty t2
-        )
-      | Trecord fields =>
-        let
-          val fields_doc =
-            List.map
-              (fn {lab, ty} =>
-                group (
-                  p_symbol_node blue lab +-+ text_syntax ":"
-                  $$
-                  spaces 2 ++ p_ty ty
-                ))
-              fields
-        in
           group (
-            text_syntax "{"
-            ++
-            p_list_after (fn x => x) ", " fields_doc
-            ++
-            text_syntax "}"
+              p_atty t1 +-+ text_syntax "->"
+              $$
+              p_atty t2
           )
-        end
+      | Trecord fields =>
+          let
+            val fields_doc =
+              List.map
+                (fn {lab, ty} =>
+                  group (
+                    p_symbol blue lab +-+ text_syntax ":"
+                    $$
+                    spaces 2 ++ p_ty ty
+                  ))
+                fields
+          in
+            group (
+              surround "{" (p_list_after (fn x => x) ", " fields_doc) "}"
+            )
+          end
       | Tparens ty => p_atty ty
     and p_atty ty =
       case ty of
         ( Tident _
         | Ttyvar _
         | Tapp (([] | [_]), _)
-        | Trecord _ ) => p_ty ty
-      | _ => parensAround (p_ty ty)
+        | Trecord _ ) => 
+            p_ty ty
+      | ( Tprod _ (* int * int *) 
+        | Tarrow _ (* int -> int *) 
+        | Tparens _ (* handled by Tparens case above *) 
+        | Tapp _ (* THINK: (int, int) either *)
+        ) => 
+            parensAround (p_ty ty)
 
     and p_tyval tyval =
       case tyval of
@@ -360,15 +384,16 @@ struct
             [] => text color (TyId.show tyid)
           | [elem] => p_attyval elem +-+ text color (TyId.show tyid)
           | _ =>
-            text_syntax "("
-            ++ p_list p_tyval ", " tyvals
-            ++ text_syntax ")"
+            surround "(" (p_list p_tyval ", " tyvals) ")"
             +-+ text color (TyId.show tyid)
           )
       | TVprod tys =>
           p_list p_tyval " * " tys
       | TVarrow (left, right) =>
           let
+            (* i no longer remember what this does 
+             *)
+
             fun p_side tyval =
               case tyval of
                 TVprod _ => p_tyval tyval
@@ -400,18 +425,14 @@ struct
             List.map
               (fn {lab, tyval} =>
                 group (
-                  p_symbol_node blue lab +-+ text_syntax ":"
+                  p_symbol blue lab +-+ text_syntax ":"
                   $$
                   spaces 2 ++ p_tyval tyval
                 ))
               fields
         in
           group (
-            text_syntax "{"
-            ++
-            p_list_after (fn x => x) ", " fields_doc
-            ++
-            text_syntax "}"
+            surround "{" (p_list_after (fn x => x) ", " fields_doc) "}"
           )
         end
       | TVvar (r as (_, ref NONE)) =>
@@ -424,20 +445,20 @@ struct
             List.map
               (fn {lab, tyval} =>
                 group (
-                  p_symbol_node blue lab +-+ text_syntax ":"
+                  p_symbol blue lab +-+ text_syntax ":"
                   $$
                   spaces 2 ++ p_tyval tyval
                 ))
               fields
         in
           group (
-            text_syntax "{"
-            ++
-            p_list_after (fn x => x) ", " fields_doc
-            ++
-            text_syntax ", " +-+ text_syntax "..."
-            ++
-            text_syntax "}"
+            surround
+              "{"
+              (p_list_after (fn x => x) ", " fields_doc
+              ++
+              text_syntax ", " +-+ text_syntax "..."
+              )
+              "}"
           )
         end
       | TVabs (tyvals, absid) =>
@@ -445,9 +466,7 @@ struct
             [] => text color (AbsId.show absid)
           | [elem] => p_attyval elem +-+ text color (AbsId.show absid)
           | _ =>
-            text_syntax "("
-            ++ p_list p_tyval ", " tyvals
-            ++ text_syntax ")"
+            surround "(" (p_list p_tyval ", " tyvals) ")"
             +-+ text color (AbsId.show absid)
           )
 
@@ -488,15 +507,15 @@ struct
           else
             p_longid id
       | Precord patrows =>
-          text_syntax "{" ++ p_list_after (p_patrow ctx) ", " patrows ++ text_syntax "}"
+          surround "{" (p_list_after (p_patrow ctx) ", " patrows) "}"
       | Pparens pat => p_atpat ctx pat
       | Punit => text "()"
       | Ptuple pats =>
           parensAround (p_list_after (p_pat ctx) ", " pats)
       | Plist pats =>
-          text_syntax "[" ++ p_list (p_pat ctx) ", " pats ++ text_syntax "]"
+          surround "[" (p_list (p_pat ctx) ", " pats) "]"
       | Por pats =>
-          text_syntax "(" ++ p_list (p_pat ctx) " | " pats ++ text_syntax ")"
+          surround "(" (p_list (p_pat ctx) " | " pats) ")"
       | Papp {opp, id, atpat} =>
           if opp then
             text_syntax "op"
@@ -552,7 +571,7 @@ struct
         PRellipsis => text "..."
       | PRlab {lab, pat} =>
           group (
-            p_symbol_node blue lab +-+ text_syntax "="
+            p_symbol blue lab +-+ text_syntax "="
             $$
             p_pat ctx pat
           )
@@ -561,7 +580,6 @@ struct
             [ SOME (p_id id)
             , Option.map (fn ty => text_syntax ":" +-+ p_ty ty) ty
             , Option.map (fn pat => text_syntax "as" +-+ p_pat ctx pat) aspat ]
-
   end
 
   fun p_conbind {opp, id, ty} =
@@ -633,7 +651,7 @@ struct
           p_seq
             (fn {lab, exp} =>
               separateWithSpaces
-                [ SOME (p_symbol_node blue lab)
+                [ SOME (p_symbol blue lab)
                 , SOME (text_syntax "=")
                 , SOME (p_exp exp) ] )
             "{"
@@ -641,7 +659,7 @@ struct
             "}"
             fields
       | Eselect lab =>
-          text_syntax "#" ++ p_symbol_node blue lab
+          text_syntax "#" ++ p_symbol blue lab
       | Eunit => text "()"
       | Eident {opp, id} =>
           if not (Context.is_substitute ctx) then
@@ -885,13 +903,13 @@ struct
           p_seq
             (fn {lab, value} =>
               separateWithSpaces
-                [ SOME (p_symbol_node blue lab)
+                [ SOME (p_symbol blue lab)
                 , SOME (text_syntax "=")
                 , SOME (p_value value) ] )
             "{" "," "}"
             fields
       | Vselect lab =>
-          text_syntax "#" ++ p_symbol_node blue lab
+          text_syntax "#" ++ p_symbol blue lab
       | Vunit => text "()"
       | Vconstr {id, arg} =>
           ( case arg of
@@ -991,6 +1009,11 @@ struct
             p_exp ctx exp
           )
       end
+
+    (* Pretty-printing declarations might introduce bound identifiers,
+     * in which case we should know what identifiers after this declaration
+     * are no longer valid to pretty-print.
+     *)
     and p_dec ctx dec = #1 (p_dec' ctx dec)
     and p_dec' ctx dec_ =
       let
@@ -1336,6 +1359,7 @@ struct
           |> (fn (doc, _, bound_ids) => (Option.getOpt (doc, text_syntax ""), bound_ids))
       | DMhole => ( Context.get_hole_print_fn ctx (), empty_set )
       end
+
     and p_module ctx module = p_module_ ctx module
     and p_module_ ctx module_ =
       let
@@ -1386,6 +1410,7 @@ struct
           end
       | Mhole => Context.get_hole_print_fn ctx ()
       end
+
     and p_signat signat = p_signat_ signat
     and p_signat_ signat_ =
       let
@@ -1427,6 +1452,7 @@ struct
             )
           end
         end
+
     and p_spec spec = p_spec_ spec
     and p_spec_ spec_ =
       let
@@ -1557,6 +1583,7 @@ struct
       | SPseq specs =>
           p_list p_spec " " specs
       end
+
     and p_sigbinds sigbinds =
       let
         val color = orange
@@ -1651,11 +1678,9 @@ struct
 (* Reporting *)
 (*****************************************************************************)
 
-
   local
     open Context
   in
-
     fun report ctx acc_ids doc n location =
       let
         (* This hole may contain declarations, which may in turn affect where we
@@ -1872,12 +1897,12 @@ struct
       end
 
     val report = fn ctx => fn exp => fn n => fn location =>
-      PrettySimpleDoc.toString
+      PD.toString
         true
-        (report ctx empty_set (PrettySimpleDoc.bold (p_exp ctx exp)) n location)
+        (report ctx empty_set (PD.bold (p_exp ctx exp)) n location)
   end
 
-  fun pretty ctx ast b = PrettySimpleDoc.toString b (#1 (p_ast ctx ast))
+  fun pretty ctx ast b = PD.toString b (#1 (p_ast ctx ast))
 
   fun show_ctx (ctx as {scope, outer_scopes, ...} : SMLSyntax.context) =
     let
@@ -1892,7 +1917,7 @@ struct
       fun show_set f s =
         "{" ^ (String.concatWith ", " (List.map f (SymSet.toList s))) ^ "}"
 
-      val show_doc = PrettySimpleDoc.toString true
+      val show_doc = PD.toString true
 
       fun show_scope (Scope {identdict, moddict, infixdict, ...}) =
         "< valdict: " (*^ dict_toString (show_doc o show_value ctx) valdict*) ^ ">"
@@ -1908,7 +1933,7 @@ struct
   fun show_loc_atom ctx location =
     case location of
     (* EXP hole *)
-      EHOLE exp => PrettySimpleDoc.toString true (p_exp ctx exp)
+      EHOLE exp => PD.toString true (p_exp ctx exp)
     | CLOSURE _ => "<CLOSURE>"
         (* When you enter a function application, your entire context changes
          * to the closure of the function.
@@ -1939,17 +1964,21 @@ struct
   fun show_location ctx location =
     "[" ^ String.concatWith ", " (List.map (show_loc_atom ctx) location) ^ "]"
 
-  fun show_value ctx value =
-    PrettySimpleDoc.toString true (p_value ctx value)
-  fun show_exp ctx exp =
-    PrettySimpleDoc.toString true (p_exp ctx exp)
-  fun show_pat ctx pat =
-    PrettySimpleDoc.toString true (p_pat ctx pat)
+  fun show_value ctx value = PD.toString true (p_value ctx value)
+  fun show_exp ctx exp = PD.toString true (p_exp ctx exp)
+  fun show_pat ctx pat = PD.toString true (p_pat ctx pat)
 
   fun show_tyval tyval =
-    PrettySimpleDoc.toString true (p_tyval (Context.norm_tyval Basis.initial tyval))
+    PD.toString true (p_tyval (Context.norm_tyval Basis.initial tyval))
 
   fun show_tyscheme (arity, ty_fn) =
+    (* We have to generate some type variables for the arity of
+       this type scheme. It needs to be in alphabetical order,
+       though.
+ 
+       We just assume that practically there won't be a type scheme
+       of more than 26 type variables. If so, tough luck.
+      *)
     if arity = 0 then
       show_tyval (ty_fn [])
     else if arity > 26 then
@@ -1970,7 +1999,7 @@ struct
     | [sing] => text white (Symbol.toValue sing)
     | hd::tl =>
         text orange (Symbol.toValue hd) ++ text_syntax "." ++ p_longid' tl
-  fun show_longid longid = PrettySimpleDoc.toString true (p_longid' longid)
+  fun show_longid longid = PD.toString true (p_longid' longid)
 
   fun promote' f =
     fn ctx => fn x => f ctx x
