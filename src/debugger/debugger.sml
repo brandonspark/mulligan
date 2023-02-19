@@ -4,7 +4,82 @@
   * See the file LICENSE for details.
   *)
 
-structure Debugger :
+open SMLSyntax
+open Context
+open Location
+open Error
+open PrettyPrintAst
+open Printf
+
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* The main engine driving the debugger.
+
+   This file is responsible for doing big-step evaluation of SML expressions.
+   Using algebraic effects, we can side-effectively mimic small-step semantics
+   to the top-level interpreter, while writing code which looks very much like
+   a simple evaluator. This lets us write code which is significantly simpler
+   than writing an actual small-step evaluator.
+ *)
+
+(*****************************************************************************)
+(* Types *)
+(*****************************************************************************)
+
+type susp_value = unit -> Context.value
+
+(* A focus represents what the debugger is currently looking at.
+  *
+  * In the VAL and EXP cases, it also contains a first-class continuation to
+  * be used to jump back into the evaluation of the program.
+  *)
+datatype focus =
+    VAL of SMLSyntax.exp * unit Cont.t
+  | EXP of SMLSyntax.exp * susp_value Cont.t
+  | PROG of SMLSyntax.ast
+
+(* Using the idea of algebraic effects, the debugger performs certain
+  * actions, which allow it to briefly dip into the interactive loop, before
+  * resuming computation of the debugger again.
+  *)
+datatype perform =
+    Step of
+      { context : Context.t
+      , location : Location.location list
+      , focus : focus
+      , stop : bool
+      }
+  | Break of bool * unit Cont.t
+
+(*****************************************************************************)
+(* Helpers *)
+(*****************************************************************************)
+
+fun suspend x = fn () => x
+
+val sym_true = Symbol.fromValue "true"
+val sym_false = Symbol.fromValue "false"
+
+fun is_true exp =
+  case exp of
+    Vconstr {id = [x], arg = NONE} => Symbol.eq (x, sym_true)
+  | _ => false
+
+fun is_false exp =
+  case exp of
+    Vconstr {id = [x], arg = NONE} => Symbol.eq (x, sym_false)
+  | _ => false
+
+fun is_bool sym =
+  Symbol.eq (sym, sym_false) orelse
+    Symbol.eq (sym, sym_true)
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
+signature DEBUGGER =
   sig
     val eval_program : SMLSyntax.ast -> Context.t -> Context.t
 
@@ -17,82 +92,26 @@ structure Debugger :
       -> susp_value Cont.t
       -> 'a
 
-    val redex_value :
-         Location.location list
-      -> SMLSyntax.value
-      -> Context.t
-      -> susp_value Cont.t
-      -> 'a
+    datatype focus = datatype focus
 
-    datatype focus =
-       VAL of SMLSyntax.exp * unit Cont.t
-     | EXP of SMLSyntax.exp * susp_value Cont.t
-     | PROG of SMLSyntax.ast
-
-    datatype perform =
-        Step of
-          { context : Context.t
-          , location : Location.location list
-          , focus : focus
-          , stop : bool
-          }
-      | Break of bool * unit Cont.t
+    datatype perform = datatype perform
 
     exception Perform of perform
-  end =
+  end
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
+structure Debugger : DEBUGGER =
   struct
-    open SMLSyntax
-    open Context
-    open Location
-    open Error
-    open PrettyPrintAst
-    open Printf
-
-    fun suspend x = fn () => x
-
-    val sym_true = Symbol.fromValue "true"
-    val sym_false = Symbol.fromValue "false"
-
-    fun is_true exp =
-      case exp of
-        Vconstr {id = [x], arg = NONE} => Symbol.eq (x, sym_true)
-      | _ => false
-
-    fun is_false exp =
-      case exp of
-        Vconstr {id = [x], arg = NONE} => Symbol.eq (x, sym_false)
-      | _ => false
-
-    fun is_bool sym =
-      Symbol.eq (sym, sym_false) orelse
-      Symbol.eq (sym, sym_true)
-
     type susp_value = unit -> Context.value
 
-    (* A focus represents what the debugger is currently looking at.
-     *
-     * In the VAL and EXP cases, it also contains a first-class continuation to
-     * be used to jump back into the evaluation of the program.
-     *)
-    datatype focus =
-       VAL of SMLSyntax.exp * unit Cont.t
-     | EXP of SMLSyntax.exp * susp_value Cont.t
-     | PROG of SMLSyntax.ast
-
-    (* Using the idea of algebraic effects, the debugger performs certain
-     * actions, which allow it to briefly dip into the interactive loop, before
-     * resuming computation of the debugger again.
-     *)
-    datatype perform =
-        Step of
-          { context : Context.t
-          , location : Location.location list
-          , focus : focus
-          , stop : bool
-          }
-      | Break of bool * unit Cont.t
-
     exception Perform of perform
+
+    datatype focus = datatype focus
+
+    datatype perform = datatype perform
 
     (* Check if these bindings are supposed to be breakpoints when
      * bound to.
@@ -590,6 +609,26 @@ structure Debugger :
     and eval location exp ctx cont =
       (inner_eval location exp ctx cont)
       handle Basis.Cont value =>
+        (* This is a two-step process.
+           If evaluating an expression results in a Cont exception being thrown,
+           this is our way of signalling that we need to evaluate a continuation.
+           
+           The Vfn we get back is the lambda passed to the continuation itself.
+           We just choose to evaluate it by passing it a continuation, which in
+           our encoding, is just a Vbasis function whose behavior is to take an 
+           input and then evaluate it in the _same context where the continuation
+           was made_. 
+           
+           In other words, if we're evaluating Cont.callcc (fn k => 2), then we
+           handle the (fn k => 2), and apply it to a `k` we just made up, which
+           will take an input, and evaluate that value in the context of
+           Cont.callcc (fn k => 2). 
+           
+           Then, the second side of this is that `throw` is very simple, and just
+           takes a continuation Vbasis function and invokes it with whatever value
+           is being thrown. This will reset the debugger's state to precisely the
+           context that we were originally calling callcc in, as intended.
+         *)
         (case value of
           Vfn {matches, env, rec_env, abstys, break} =>
             let
@@ -660,7 +699,7 @@ structure Debugger :
       end
 
     (* After the statics are finished, we only have a couple things we need to
-     * do extra.
+     * do additionally.
      * The dec_status value will signal to us what we should do.
      * In particular, we either need to:
      * 1) add the value bindings from a val declaration to the ctx
