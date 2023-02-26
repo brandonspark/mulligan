@@ -4,59 +4,105 @@
   * See the file LICENSE for details.
   *)
 
-structure Value :
+open PrettyPrintContext
+open SMLSyntax
+open Context
+open Error
+
+structure S = SMLSyntax
+
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* Functionality related to values.
+ *)
+
+(*****************************************************************************)
+(* Helpers *)
+(*****************************************************************************)
+
+fun snoc l =
+  ( List.take (l, List.length l - 1)
+  , List.nth (l, List.length l - 1)
+  )
+
+fun append_type_scheme (n, ty_fn) tyval =
+  (n, fn tyvals => TVarrow (ty_fn tyvals, tyval))
+
+fun replace_tyspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) new =
+  Sigval
+    { valspecs = valspecs
+    , tyspecs = new
+    , dtyspecs = dtyspecs
+    , exnspecs = exnspecs
+    , modspecs = modspecs
+    }
+
+fun set_modspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) new =
+  Sigval
+    { valspecs = valspecs
+    , tyspecs = tyspecs
+    , dtyspecs = dtyspecs
+    , exnspecs = exnspecs
+    , modspecs = new
+    }
+
+(* Search through a sigval to map a module by a particular longid a.b.c . 
+ *)
+fun map_sigval_module (sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) longid f =
+  case longid of
+    [] => f sigval
+  | outer::rest =>
+      let
+        val (acc, new_sigval) =
+          map_sigval_module (SymDict.lookup modspecs outer) rest f
+      in
+        (acc, set_modspecs sigval (SymDict.insert modspecs outer new_sigval))
+      end
+
+(* Gross, but you use what you got.
+ *)
+fun get_sigval_module sigval longid =
+  let
+    exception Return of sigval
+  in
+    #2 (map_sigval_module sigval longid (fn sigval => raise Return sigval))
+    handle Return sigval => sigval
+  end
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
+signature VALUE =
   sig
-
     (* Value stuff. *)
+    type t = value
 
-    type t = SMLSyntax.context
-    type value = SMLSyntax.value
-    type scope = SMLSyntax.scope
-    type sigval = SMLSyntax.sigval
+    type scope = scope
+    type sigval = sigval
 
-    val value_to_exp : value -> SMLSyntax.exp
-    val exp_to_value : t -> SMLSyntax.exp -> value option
+    val value_to_exp : value -> exp
+    val exp_to_value : context -> exp -> value option
 
     val value_eq : value * value -> bool
 
+    val evaluate_signat : context -> signat -> sigval
+  end
 
-    (*
-    exception Mismatch of string
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
 
-    val apply_fn :
-           {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list * t * scope option
-        -> value
-        -> (SMLSyntax.symbol * value) list * t * SMLSyntax.exp
-
-
-    val match_against :
-         t
-      -> {pat : SMLSyntax.pat, exp: SMLSyntax.exp} list
-      -> value
-      -> (SMLSyntax.symbol * value) list * t * SMLSyntax.exp
-
-    val match_pat : t -> SMLSyntax.pat -> value -> (SMLSyntax.symbol * value) list
-     *)
-
-    val evaluate_signat : t -> SMLSyntax.signat -> sigval
-
-  end =
+structure Value : VALUE =
   struct
-    open PrettyPrintContext
     open SMLSyntax
-    open Context
-    open Error
 
-    infix |>
-    fun x |> f = f x
+    type t = value 
 
-    fun snoc l =
-      ( List.take (l, List.length l - 1)
-      , List.nth (l, List.length l - 1)
-      )
     (* VALUE STUFF *)
 
-    (* This is used purely so we acn have an exp for the surrounding context of
+    (* This is used purely so we can have an exp for the surrounding context of
      * the focused expression. These are for compatibility with the pretty
      * printer, not for any computational purpose.
      *)
@@ -100,15 +146,6 @@ structure Value :
       (* For basis values *)
       | Vbasis {name, function} => Eident {opp = false, id = [name]}
 
-    fun opt_all_list l =
-      List.foldr
-        (fn (elem, NONE) => NONE
-        | (NONE, _) => NONE
-        | (SOME elem, SOME acc) => SOME (elem::acc)
-        )
-        (SOME [])
-        l
-
     fun exp_to_value ctx exp =
       case exp of
         Enumber num => SOME (Vnumber num)
@@ -143,19 +180,19 @@ structure Value :
                 (exp_to_value ctx exp)
             )
             fields
-          |> opt_all_list
+          |> opt_all
           |> Option.map (fn fields => Vrecord fields)
       | Elist exps =>
           List.map
             (exp_to_value ctx)
             exps
-          |> opt_all_list
+          |> opt_all
           |> Option.map (fn fields => Vlist fields)
       | Etuple exps =>
           List.map
             (exp_to_value ctx)
             exps
-          |> opt_all_list
+          |> opt_all
           |> Option.map (fn fields => Vtuple fields)
 
       | Eparens exp => exp_to_value ctx exp
@@ -230,179 +267,6 @@ structure Value :
           Symbol.eq (name, name')
       | _ => false
 
-
-    (*
-    exception Mismatch of string
-
-    (* TODO: This only does values. Could it do types too, accounting for the
-     * type of the purported thing passed in?
-     * *)
-    fun match_pat ctx pat v tyval =
-      case (pat, v, norm_tyval tyval) of
-        (Pnumber i1, Vnumber (Int i2), _) =>
-          if i1 = i2 then
-            (unify tyval Basis.int_ty; [])
-          else
-            raise Mismatch "num pats did not match"
-      | (Pword s, Vnumber (Word s'), _) =>
-          if Symbol.toValue s = s' then
-            (* TODO: words *) []
-          else
-            raise Mismatch "word pats did not match"
-      | (Pstring s, Vstring s', _) =>
-          if Symbol.eq (s, s') then
-            (unify tyval Basis.string_ty; [])
-          else
-            raise Mismatch "string pats did not match"
-      | (Pchar c, Vchar c') =>
-          if c = c' then
-            (unify tyval Basis.char_ty; [])
-          else
-            raise Mismatch "char pats did not match"
-      | (Pwild, _, _) => []
-      | (Pident {opp, id}, Vconstr {id = id', arg = NONE}, _) =>
-          if Context.is_con ctx id then
-            if longid_eq (id, id') then
-              []
-            else
-              raise Mismatch "constructors did not match"
-          else
-            (case id of
-              [id] => [(id, v, tyval)]
-            | _ => raise Mismatch "pattern matching against nonexistent constr"
-            )
-      | (Pident {opp, id}, _) =>
-          if Context.is_con ctx id then
-            raise Mismatch "cannot match nullary constructor"
-          else
-            (case id of
-              [id] => [(id, v, tyval)]
-            | _ => raise Mismatch "pattern matching against nonexistent constr"
-            )
-      | (Precord patrows, Vrecord fields, _) =>
-          let
-            fun unite fields tyfields =
-              List.foldl
-                (fn ({lab, value}, acc) =>
-                  case List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab))
-                    tyfields
-                  of
-                    NONE => raise Fail "failed to find label in tyfield"
-                  | SOME {tyval, ...} =>
-                      { lab = lab, value = value, tyval = tyval }
-                )
-
-            val combined = unite fields (to_tyfields tyval)
-          in
-            List.foldl
-              (fn (patrow, acc) =>
-                case patrow of
-                  PRellipsis => acc
-                | PRlab {lab, pat} =>
-                    (case
-                      List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) combined
-                    of
-                      NONE => raise Mismatch "val did not match patrow"
-                    | SOME {lab, value, tyval} => match_pat ctx pat value tyval @ acc
-                    )
-                | PRas {id, ty, aspat} =>
-                    (case
-                      List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) combined
-                    of
-                      NONE => raise Mismatch "val did not match patrow"
-                    | SOME {lab, value, tyval} =>
-                        let
-                          val some_unify tyopt =
-                            case tyopt of
-                              NONE => tyval
-                            | SOME ty => unify tyval ty
-                        in
-                          case aspat of
-                            NONE => (id, value, some_unify ty) :: acc
-                          | SOME pat => (id, value, some_unify ty) :: match_pat
-                          ctx pat value (some_unify ty) @ acc
-                        end
-                    )
-              )
-              []
-              patrows
-          end
-      | (Pparens pat, v, _) => match_pat ctx pat v tyval
-      | (Punit, Vunit, _) =>
-          (unify tyval Basis.unit_ty, [])
-      | (Ptuple pats, Vtuple vals) =>
-          let
-            val tuple_ty = to_tuple tyval
-          in
-            ListPair.zipEq (ListPair.zipEq (pats, vals), tuple_ty)
-            |> (List.concat o List.map (fn ((pat, value), tyval) => match_pat ctx pat value tyval))
-          end
-      | (Plist pats, Vlist vals) =>
-          ListPair.zipEq (pats, vals)
-          |> (List.concat o List.map (fn (x, y) => match_pat ctx x y))
-      | (Por pats, _) =>
-          ( case
-              List.foldl
-                (fn (pat, NONE) =>
-                  ( SOME (match_pat ctx pat v)
-                    handle Mismatch _ => NONE
-                  )
-                | (_, SOME ans) => SOME ans
-                )
-                NONE
-                pats
-            of
-              NONE => raise Mismatch "failed to match any or cases"
-            | SOME res => res
-          )
-      | (Papp {opp, id, atpat}, Vconstr {id = id', arg = SOME v}) =>
-          if longid_eq (id, id') then
-            match_pat ctx atpat v
-          else
-            raise Mismatch "failed to match constructors with args"
-      | (Pinfix {left, id, right}, Vinfix {left = left', id = id', right = right'}) =>
-          (* TODO: constructors need more than just name equality *)
-          if Symbol.eq (id, id') then
-            match_pat ctx left left' @ match_pat ctx right right'
-          else
-            raise Mismatch "idents not equal"
-      | (Ptyped {pat, ty}, _) => match_pat ctx pat v
-      | (Playered {opp, id, ty, aspat}, _) =>
-          (id, v) :: match_pat ctx aspat v
-      | _ => raise Mismatch "pats don't match"
-
-    fun match_against ctx matches value =
-      let
-        val (bindings, exp) =
-          case
-            List.foldl
-              (fn ({exp, pat}, NONE) =>
-                ( SOME (match_pat ctx pat value, exp)
-                  handle Mismatch _ => NONE
-                )
-              | ({exp, pat}, SOME ans) => SOME ans
-              )
-              NONE
-              matches
-          of
-            NONE => raise Mismatch "failed to match"
-          | SOME ans => ans
-      in
-        (bindings, add_bindings ctx bindings, exp)
-      end
-
-    val match_pat = fn ctx => fn pat => fn value =>
-      match_pat ctx pat value
-
-    (* This function needs to be able to add ty bindings to the environment too.
-     *)
-    fun apply_fn (matches, env, VE) value =
-      match_against
-        (Context.merge_scope env (Context.ctx_rec (Option.getOpt (VE, scope_empty))))
-        matches
-        value
-    *)
-
     fun merge_sigvals (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs})
                       (Sigval { valspecs = valspecs'
                               , tyspecs = tyspecs'
@@ -454,46 +318,6 @@ structure Value :
             ty
             ctx
 
-        fun append_type_scheme (n, ty_fn) tyval =
-          (n, fn tyvals => TVarrow (ty_fn tyvals, tyval))
-
-        fun set_modspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) new =
-          Sigval
-            { valspecs = valspecs
-            , tyspecs = tyspecs
-            , dtyspecs = dtyspecs
-            , exnspecs = exnspecs
-            , modspecs = new
-            }
-
-        fun map_module (sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) longid f =
-          case longid of
-            [] => f sigval
-          | outer::rest =>
-              let
-                val (acc, new_sigval) =
-                  map_module (SymDict.lookup modspecs outer) rest f
-              in
-                (acc, set_modspecs sigval (SymDict.insert modspecs outer new_sigval))
-              end
-
-        fun get_module sigval longid =
-          let
-            exception Return of sigval
-          in
-            #2 (map_module sigval longid (fn sigval => raise Return sigval))
-            handle Return sigval => sigval
-          end
-
-        fun replace_tyspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) new =
-          Sigval
-            { valspecs = valspecs
-            , tyspecs = new
-            , dtyspecs = dtyspecs
-            , exnspecs = exnspecs
-            , modspecs = modspecs
-            }
-
         (* This code is kinda complicated because structure sharing allows
          * enclosed types to be concrete, but only if they do not overlap in
          * name with any types from the other structures.
@@ -534,7 +358,7 @@ structure Value :
                   let
                     val (xs, x) = snoc tycon
                   in
-                    map_module sigval xs (fn Sigval sigval =>
+                    map_sigval_module sigval xs (fn Sigval sigval =>
                       (#equality (SymDict.lookup (#tyspecs sigval) x), Sigval sigval)
                     )
                     |> (fn (b, _) => b orelse acc)
@@ -548,7 +372,7 @@ structure Value :
                 let
                   val (xs, x) = snoc tycon
                 in
-                  map_module (Sigval sigval) xs (fn Sigval sigval =>
+                  map_sigval_module (Sigval sigval) xs (fn Sigval sigval =>
                     let
                       val (absid, tyspecs) =
                         share_type allow_concrete equality_flag (#tyspecs sigval) x absid
@@ -798,7 +622,7 @@ structure Value :
                 List.foldl
                   (fn (longstrid, mod_tys) =>
                     let
-                      val Sigval sigval = get_module sigval longstrid
+                      val Sigval sigval = get_sigval_module sigval longstrid
                     in
                       SymDict.foldl (fn (tyname, tyscheme, mod_tys) =>
                         SymDict.insertMerge

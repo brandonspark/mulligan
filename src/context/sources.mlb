@@ -1,12 +1,24 @@
 $(SML_LIB)/basis/basis.mlb
-../util/sources.mlb
-../syntax/sources.mlb
 
-PrettyPrintContext.sml
+local
+  ../util/sources.mlb
+  ../syntax/sources.mlb
 
-context.sml
-basis.sml
-value.sml
-binding.sml
+  PrettyPrintContext.sml
 
-location.sml
+  context.sml
+  basis.sml
+  value.sml
+  binding.sml
+
+  location.sml
+in
+  structure PrettyPrintContext
+
+  structure Context
+  structure Basis
+  structure Value
+  structure Binding
+
+  structure Location
+end
