@@ -8,7 +8,7 @@ structure SH = SMLSyntaxHelpers
 
 structure Basis :
   sig
-    val initial : SMLSyntax.context
+    val initial : unit -> SMLSyntax.context
 
     val bool_ty : SMLSyntax.tyval
     val int_ty : SMLSyntax.tyval
@@ -536,11 +536,12 @@ structure Basis :
         , tynamedict = dict_from_list initial_tynames
         }
 
+    val initial_dtydict = tyid_dict_from_list initial_dtys 
 
-    val initial : SMLSyntax.context =
+    fun initial () : SMLSyntax.context =
       { scope = initial_scope
       , outer_scopes = []
-      , dtydict = ref (tyid_dict_from_list initial_dtys)
+      , dtydict = ref initial_dtydict 
       , sigdict = SymDict.empty
       , functordict = SymDict.empty
       , tyvars = SymSet.empty
@@ -548,10 +549,11 @@ structure Basis :
       , settings =
           { break_assigns = ref SymSet.empty
           , substitute = ref true
-          , step_app = ref true
-          , step_arithmetic = ref false
           , print_dec = ref true
           , print_depth = ref 1
+          , pause_currying = ref false 
+          , pause_app = ref true
+          , pause_arithmetic = ref false
           }
       , abstys = AbsIdDict.empty
       }

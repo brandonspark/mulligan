@@ -159,7 +159,7 @@ structure Top =
               (fn (filename, ctx) =>
                 handle_file config "" filename ctx
               )
-              Basis.initial
+              (Basis.initial ())
               args
           ; OS.Process.exit OS.Process.success
           )

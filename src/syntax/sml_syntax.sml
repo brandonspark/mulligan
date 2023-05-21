@@ -33,10 +33,24 @@ structure SymSet = SymbolRedBlackSet
 type settings =
   { break_assigns : SymSet.set ref
   , substitute : bool ref
-  , step_app : bool ref
-  , step_arithmetic : bool ref
   , print_dec : bool ref
+      (** Should we just print until the nearest val binding?
+        * Supersedes `print_depth` 
+        *)
   , print_depth : int ref
+      (** How many layers of the evaluation context should be reported by
+        * the evaluation trace during pretty printing? 
+        *)
+  , pause_currying : bool ref
+      (** Should we trigger an event on the intermediate steps of a
+        * curried function application? Such as:
+        * (fn x => fn y => 1) 2 3 
+        *)
+  , pause_app : bool ref
+  , pause_arithmetic : bool ref
+      (** Should ordinary arithmetic operators such as `+`, `-`, `div`, `*`
+        * be stepped immediately, rather than triggering an event?
+        *)
   }
 
 (*****************************************************************************)

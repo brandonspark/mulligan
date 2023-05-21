@@ -292,7 +292,7 @@ structure Debugger : DEBUGGER =
               val left =
                 eval' (Eapp {left = Ehole, right = right_exp}) left ctx
               val right =
-                eval' (Eapp {left = Value.value_to_exp left, right = Ehole}) right_exp ctx
+                eval' (Eapp {left = Value.value_to_exp left, right = Ehole}) right_exp ctx 
             in
               case (left, right) of
                 (Vconstr {id, arg = NONE}, v) =>
@@ -322,8 +322,31 @@ structure Debugger : DEBUGGER =
                         else
                           ()
                     in
-                      if !(#step_app (Context.get_settings ctx)) then
-                        redex (CLOSURE ctx :: location) new_exp new_ctx cont
+                      if !(#pause_app (Context.get_settings ctx)) then
+                        case left of
+                          Vfn { matches = [ {pat, exp = Efn (_, _)}], break, ... } =>
+                            (* We might be interested in an expression which looks like
+                            * v1 v2 
+                            * If `v1` is a curried function, then we might not be interested
+                            * in displaying to the debugger that we passed it a curried
+                            * argument. This produces traces like:
+                            *
+                            * foldr (op^) "" ["h", "i"]
+                            * => (fn t1 => fn t2 => case (^, t1, t2) of ...) "" ["h", "i"]
+                            * => (fn t2 => case (^, "", t2) of ...) ["h", "i"]
+                            *
+                            * We'd prefer to see:
+                            * foldr (op^) "" ["h", "i"]
+                            * => case (^, "", ["h", "i"]) of ...
+                            *
+                            * So let's avoid doing that.
+                            *)
+                            if !(#pause_currying (Context.get_settings ctx)) then
+                              redex (CLOSURE ctx :: location) new_exp new_ctx cont
+                            else
+                              eval (CLOSURE ctx :: location) new_exp new_ctx cont
+                        | _ =>
+                            redex (CLOSURE ctx :: location) new_exp new_ctx cont
                       else
                         eval (CLOSURE ctx :: location) new_exp new_ctx cont
                     end
@@ -402,7 +425,7 @@ structure Debugger : DEBUGGER =
                   let
                     val result = f (Vtuple [left, right])
                   in
-                    if !(#step_arithmetic (Context.get_settings ctx)) then
+                    if !(#pause_arithmetic (Context.get_settings ctx)) then
                       redex_value location result ctx cont
                     else
                       (case Symbol.toValue name of
@@ -658,7 +681,7 @@ structure Debugger : DEBUGGER =
                 else
                   ()
             in
-              if !(#step_app (Context.get_settings ctx)) then
+              if !(#pause_app (Context.get_settings ctx)) then
                 redex (CLOSURE ctx :: location) new_exp new_ctx cont
               else
                 eval (CLOSURE ctx :: location) new_exp new_ctx cont

@@ -108,6 +108,7 @@ signature VALUE =
 
     val value_to_exp : value -> exp
     val exp_to_value : context -> exp -> value option
+    val exp_is_value : context -> exp -> bool
 
     val value_eq : value * value -> bool
 
@@ -169,6 +170,62 @@ structure Value : VALUE =
       | Vfn {matches, env, rec_env, ...} => Efn (matches, SOME env)
       (* For basis values *)
       | Vbasis {name, function} => Eident {opp = false, id = [name]}
+
+    fun exp_is_value ctx exp =
+      case exp of
+        Enumber _ 
+      | Estring _ 
+      | Echar _ 
+      | Eselect _ 
+      | Eunit 
+      | Eident _ 
+      | Efn _ => true 
+      | Erecord fields =>
+          List.foldr
+            (fn ({exp, lab = _}, acc) =>
+              exp_is_value ctx exp andalso acc
+            )
+            true
+            fields
+      | Elist exps =>
+          List.foldr
+            (fn (exp, acc) =>
+              exp_is_value ctx exp andalso acc
+            )
+            true
+            exps
+      | Etuple exps =>
+          List.foldr
+            (fn (exp, acc) =>
+              exp_is_value ctx exp andalso acc
+            )
+            true
+            exps
+      | Eparens exp => exp_is_value ctx exp
+      | Eapp {left = Eident {opp, id}, right} =>
+          if Context.is_con ctx id (* THINK: or is exn? *) then
+            exp_is_value ctx right
+          else
+            false 
+      | Einfix {left, id, right} =>
+          if Context.is_con ctx [id] (* THINK: or is exn? *) then
+            exp_is_value ctx left andalso exp_is_value ctx right
+          else
+            false
+      | Etyped {exp, ...} => exp_is_value ctx exp 
+      | ( Eseq _ (* THINK: eseq singleton? *)
+        | Eapp _
+        | Elet _
+        | Eandalso _
+        | Eorelse _
+        | Ehandle _
+        | Eraise _
+        | Eif _
+        | Ewhile _
+        | Ecase _ ) => false 
+      | Ehole => raise Fail "shouldn't happen?"
+
+
 
     fun exp_to_value ctx exp =
       case exp of

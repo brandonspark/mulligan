@@ -128,9 +128,12 @@ structure Run : RUN =
       \  help               displays this message\n\n" ^
 
       "Settings:\n" ^
-      "  substitute = <b>   substitute values for identifiers in pretty printer\n\
-      \  print_dec = <b>    print context until nearest val binding when stepping\n\
-      \  print_depth = <i>  print evaluation context <i> layers deep when stepping\n"
+      "  substitute = <b>        substitute values for identifiers in pretty printer\n\
+      \  print_dec = <b>         print context until nearest val binding when stepping\n\
+      \  print_depth = <i>       print evaluation context <i> layers deep when stepping\n\
+      \  pause_currying = <b>    pause evaluation when stepping curried arguments\n\
+      \  pause_arithmetic = <b>  pause evaluation when stepping arithmetic operators \n\
+      \  pause_app = <b>         pause evaluation when stepping function application\n"
 
     (* TODO: ugly, try to think of a better way to separate this logic *)
     fun run {step_handler, running, print_flag, colored_output, commands} source ctx : Context.t =
@@ -436,26 +439,44 @@ structure Run : RUN =
                   |> recur
               | SOME (Directive.Set (setting, value)) =>
                   let
-                    fun sym_to_bool s =
-                      case Symbol.toValue s of
-                        "true" => SOME true
-                      | "false" => SOME false
-                      | _ => NONE
+                    datatype setting_value = 
+                        BOOL of bool 
+                      | STR of string 
+                      | NUMBER of int
+
+                    fun parse_value s =
+                      case s of
+                        Directive.VALUE s =>
+                          (case Symbol.toValue s of
+                            "true" => BOOL true
+                          | "false" => BOOL false
+                          | s => STR s
+                          )
+                      | Directive.NUM i => NUMBER i
                   in
                     recur
-                      ( case (Symbol.toValue setting, value) of
-                        (_, Directive.VALUE s) =>
-                          (case (Symbol.toValue setting, sym_to_bool s) of
-                            (_, NONE) => print "Expected a boolean value.\n"
-                          | ("substitute", SOME b) =>
-                              Context.set_substitute ctx b
-                          | ("print_dec", SOME b) =>
-                              #print_dec (Context.get_settings ctx) := b
-                          | _ => print "Unrecognized setting."
-                          )
-                      | ("print_depth", Directive.NUM i) =>
-                          #print_depth (Context.get_settings ctx) := i
-                      | _ => print "Unrecognized setting.\n"
+                      ( case (Symbol.toValue setting, parse_value value) of
+                          ("substitute", BOOL b) =>
+                            Context.set_substitute ctx b
+                        | ("print_dec", BOOL b) =>
+                            #print_dec (Context.get_settings ctx) := b
+                        | ("print_depth", NUMBER i) =>
+                            #print_depth (Context.get_settings ctx) := i
+                        | ("pause_currying", BOOL b) =>
+                            #pause_currying (Context.get_settings ctx) := b
+                        | ("pause_arithmetic", BOOL b) =>
+                            #pause_arithmetic (Context.get_settings ctx) := b
+                        | ("pause_app", BOOL b) =>
+                            #pause_app (Context.get_settings ctx) := b
+
+                        | ("substitute", _)
+                        | ("print_dec", _)
+                        | ("print_depth", _)
+                        | ("pause_currying", _)
+                        | ("pause_arithmetic", _) 
+                        | ("pause_app", _) =>
+                            print <| spf (`"Invalid input for setting "fi"\n") setting
+                        | _ => print "Unrecognized setting.\n"
                       )
                   end
               | SOME (Directive.Report s) =>

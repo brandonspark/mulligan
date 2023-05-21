@@ -110,7 +110,7 @@ structure Snapshots =
                   redirect_to_file trace_file (fn () => 
                     Run.run config
                       (Source.loadFromFile (FilePath.fromUnixPath prog_file))
-                      Basis.initial 
+                      (Basis.initial ())
                   )
 
                 val new_trace_contents = String.concat (IO.cat trace_file)

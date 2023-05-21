@@ -1,0 +1,23 @@
+==========================================================
+Evaluating file test/snapshots/no_pause_currying.sml...
+----------------------------------------------------------
+
+Loaded program:
+
+val _ = (fn x => fn y => 3) 2 4
+val _ = "done"
+
+- - ==> 
+val _ = (fn x => fn y => 3) 2 4
+
+- ==> 
+val _ = (fn y => 3) 4
+
+- ==> 
+val _ = 3
+
+- ==> 
+val _ = "done"
+
+- Program evaluation finished.
+

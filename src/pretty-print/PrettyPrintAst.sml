@@ -1979,7 +1979,7 @@ struct
     end
 
   fun show_tyval tyval =
-    PD.toString true (p_tyval (Context.norm_tyval Basis.initial tyval))
+    PD.toString true (p_tyval (Context.norm_tyval (Basis.initial ()) tyval))
 
   fun show_tyscheme (arity, ty_fn) =
     (* We have to generate some type variables for the arity of
@@ -2000,7 +2000,7 @@ struct
       |> List.map Symbol.fromValue
       |> List.map TVtyvar
       |> ty_fn
-      |> Context.norm_tyval Basis.initial
+      |> Context.norm_tyval (Basis.initial ())
       |> show_tyval
 
   fun show_longid longid = PD.toString true (p_longid' longid)
@@ -2008,7 +2008,7 @@ struct
   fun promote' f =
     fn ctx => fn x => f ctx x
 
-  val op ftv = fn z => newFormat (fn _ => fn x => show_tyval (Context.norm_tyval Basis.initial x)) z
+  val op ftv = fn z => newFormat (fn _ => fn x => show_tyval (Context.norm_tyval (Basis.initial ()) x)) z
   val op fe = fn acc => newFormat (promote' show_exp) acc
   val op fv = fn acc => newFormat (promote' show_value) acc
   val op fp = fn acc => newFormat (promote' show_pat) acc
