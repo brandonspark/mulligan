@@ -664,8 +664,6 @@ struct
       | Eident {opp, id} =>
           if not (Context.is_substitute ctx) then
             p_longid id
-          else if Context.is_con ctx id then
-            p_constr id
           else
             let
               fun p_val_ident id =
@@ -852,8 +850,6 @@ struct
       | Eident {opp = false, id} =>
           if not (Context.is_substitute ctx) then
             p_longid id
-          else if Context.is_con ctx id then
-            p_constr id
           else
             let
               fun p_val_ident id =
@@ -861,6 +857,8 @@ struct
                   NONE => p_longid id
                   (* If it's a recursive function, don't substitute its definition
                    * in.
+                   * TODO: we probably do want to be able to print this,
+                   * but only the "one-level unrolling"
                    *)
                 | SOME (Vfn {rec_env = SOME _, ...}) =>
                     p_longid id
@@ -1902,33 +1900,14 @@ struct
         (report ctx empty_set (PD.bold (p_exp ctx exp)) n location)
   end
 
+  fun p_longid' longid =
+    case longid of
+      [] => raise Fail "empty longid"
+    | [sing] => text white (Symbol.toValue sing)
+    | hd::tl =>
+        text orange (Symbol.toValue hd) ++ text_syntax "." ++ p_longid' tl
+
   fun pretty ctx ast b = PD.toString b (#1 (p_ast ctx ast))
-
-  fun show_ctx (ctx as {scope, outer_scopes, ...} : SMLSyntax.context) =
-    let
-      fun show_dict f d =
-        "{" ^
-        ( SymDict.toList d
-          |> List.map (fn (id, x) => Symbol.toValue id ^ ": " ^ f x)
-          |> String.concatWith ", "
-        )
-        ^ "}"
-
-      fun show_set f s =
-        "{" ^ (String.concatWith ", " (List.map f (SymSet.toList s))) ^ "}"
-
-      val show_doc = PD.toString true
-
-      fun show_scope (Scope {identdict, moddict, infixdict, ...}) =
-        "< valdict: " (*^ dict_toString (show_doc o show_value ctx) valdict*) ^ ">"
-      (* ^ "  condict: " ^ set_toString Symbol.toValue condict ^ "\n"
-      ^ "  exndict: " ^ set_toString Symbol.toValue exndict ^ "\n"
-      ^ "  moddict: " ^ dict_toString scope_toString moddict ^ "\n"
-      ^ "  infixdict:
-       *)
-    in
-      String.concatWith "\n" (List.map show_scope (scope :: outer_scopes))
-    end
 
   fun show_loc_atom ctx location =
     case location of
@@ -1968,6 +1947,37 @@ struct
   fun show_exp ctx exp = PD.toString true (p_exp ctx exp)
   fun show_pat ctx pat = PD.toString true (p_pat ctx pat)
 
+  fun show_id_info ctx = fn
+    V value => show_value ctx value
+  | C tyid => TyId.show tyid
+  | E exnid => ExnId.show exnid
+
+  fun show_ctx (ctx as {scope, outer_scopes, ...} : SMLSyntax.context) =
+    let
+      fun show_dict f d =
+        "{" ^
+        ( SymDict.toList d
+          |> List.map (fn (id, x) => Symbol.toValue id ^ ": " ^ f x)
+          |> String.concatWith ", "
+        )
+        ^ "}"
+
+      fun show_set f s =
+        "{" ^ (String.concatWith ", " (List.map f (SymSet.toList s))) ^ "}"
+
+      val show_doc = PD.toString true
+
+      fun show_scope (Scope {identdict, moddict, infixdict, ...}) =
+        "< valdict: " ^ show_dict (show_id_info ctx) identdict ^ ">"
+      (* ^ "  condict: " ^ set_toString Symbol.toValue condict ^ "\n"
+      ^ "  exndict: " ^ set_toString Symbol.toValue exndict ^ "\n"
+      ^ "  moddict: " ^ dict_toString scope_toString moddict ^ "\n"
+      ^ "  infixdict:
+       *)
+    in
+      String.concatWith "\n" (List.map show_scope (scope :: outer_scopes))
+    end
+
   fun show_tyval tyval =
     PD.toString true (p_tyval (Context.norm_tyval Basis.initial tyval))
 
@@ -1993,12 +2003,6 @@ struct
       |> Context.norm_tyval Basis.initial
       |> show_tyval
 
-  fun p_longid' longid =
-    case longid of
-      [] => raise Fail "empty longid"
-    | [sing] => text white (Symbol.toValue sing)
-    | hd::tl =>
-        text orange (Symbol.toValue hd) ++ text_syntax "." ++ p_longid' tl
   fun show_longid longid = PD.toString true (p_longid' longid)
 
   fun promote' f =

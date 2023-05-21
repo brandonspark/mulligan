@@ -29,6 +29,30 @@ fun snoc l =
 fun append_type_scheme (n, ty_fn) tyval =
   (n, fn tyvals => TVarrow (ty_fn tyvals, tyval))
 
+val empty_sigval =
+  Sigval
+    { valspecs = SymDict.empty
+    , tyspecs = SymDict.empty
+    , dtyspecs = SymDict.empty
+    , exnspecs = SymDict.empty
+    , modspecs = SymDict.empty
+    }
+
+fun merge_sigvals (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs})
+                  (Sigval { valspecs = valspecs'
+                          , tyspecs = tyspecs'
+                          , dtyspecs = dtyspecs'
+                          , exnspecs = exnspecs'
+                          , modspecs = modspecs'
+                          }) =
+  Sigval
+    { valspecs = SymDict.union valspecs valspecs' (fn (_, _, snd) => snd)
+    , tyspecs = SymDict.union tyspecs tyspecs' (fn (_, _, snd) => snd)
+    , dtyspecs = SymDict.union dtyspecs dtyspecs' (fn (_, _, snd) => snd)
+    , exnspecs = SymDict.union exnspecs exnspecs' (fn (_, _, snd) => snd)
+    , modspecs = SymDict.union modspecs modspecs' (fn (_, _, snd) => snd)
+    }
+
 fun replace_tyspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) new =
   Sigval
     { valspecs = valspecs
@@ -266,30 +290,6 @@ structure Value : VALUE =
       | (Vbasis {name, function}, Vbasis {name = name', ...}) =>
           Symbol.eq (name, name')
       | _ => false
-
-    fun merge_sigvals (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs})
-                      (Sigval { valspecs = valspecs'
-                              , tyspecs = tyspecs'
-                              , dtyspecs = dtyspecs'
-                              , exnspecs = exnspecs'
-                              , modspecs = modspecs'
-                              }) =
-      Sigval
-        { valspecs = SymDict.union valspecs valspecs' (fn (_, _, snd) => snd)
-        , tyspecs = SymDict.union tyspecs tyspecs' (fn (_, _, snd) => snd)
-        , dtyspecs = SymDict.union dtyspecs dtyspecs' (fn (_, _, snd) => snd)
-        , exnspecs = SymDict.union exnspecs exnspecs' (fn (_, _, snd) => snd)
-        , modspecs = SymDict.union modspecs modspecs' (fn (_, _, snd) => snd)
-        }
-
-    val empty_sigval =
-      Sigval
-        { valspecs = SymDict.empty
-        , tyspecs = SymDict.empty
-        , dtyspecs = SymDict.empty
-        , exnspecs = SymDict.empty
-        , modspecs = SymDict.empty
-        }
 
     fun evaluate_spec
           ctx

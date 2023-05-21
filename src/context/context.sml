@@ -483,19 +483,25 @@ structure Context :
           ^ TerminalColors.text TerminalColors.lightblue (SH.longid_to_str path)
           )
 
+    fun id_info_to_value id id_info =
+      case id_info of
+        V value => value
+      | C _ => Vconstr { id = id, arg = NONE }
+      | E exnid => Vexn { name = id, exnid = exnid, arg = NONE }
+
     fun get_val_opt ctx id =
       SOME ( case id of
           [x] =>
             iter_scopes
               (fn scope =>
                 case (SymDict.find (scope_identdict scope) x) of
-                  SOME (V value) => SOME value
+                  SOME (id_info) => SOME (id_info_to_value id id_info) 
                 | _ => NONE)
               (ctx_scopes ctx)
         | _ =>
             get_base (fn (id, scope) =>
                        case SymDict.find (scope_identdict scope) id of
-                         SOME (V value) => value
+                         SOME (id_info) => id_info_to_value [id] id_info
                        | _ => raise CouldNotFind) ctx id
       ) handle CouldNotFind => NONE
 
