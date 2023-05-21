@@ -283,6 +283,7 @@ structure Basis :
         | _ => eval_err "invalid args to ::"
         )
       , name = sym "::"
+      , is_infix = true
       } |> Vbasis
 
     (* TODO: word stuff *)
@@ -292,6 +293,7 @@ structure Basis :
           | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 + r2))
           | _ => eval_err "invalid args to +"
           )
+        , true
         , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "-"
@@ -299,6 +301,7 @@ structure Basis :
           | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 - r2))
           | _ => eval_err "invalid args to -"
           )
+        , true
         , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "*"
@@ -306,24 +309,28 @@ structure Basis :
           | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 * r2))
           | _ => eval_err "invalid args to *"
           )
+        , true
         , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "div"
         , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 div i2))
           | _ => eval_err "invalid args to div"
           )
+        , true
         , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "mod"
         , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 mod i2))
           | _ => eval_err "invalid args to div"
           )
+        , true
         , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "/"
         , (fn Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 / r2))
           | _ => eval_err "invalid args to /"
           )
+        , true
         , TVarrow (TVprod [real_ty, real_ty], real_ty)
         )
       , ( "not"
@@ -336,6 +343,7 @@ structure Basis :
               eval_err "invalid arg to `not`"
           | _ => eval_err "invalid arg to `not`"
           )
+        , false
         , TVarrow (bool_ty, bool_ty)
         )
       , ( "^"
@@ -343,54 +351,63 @@ structure Basis :
               Vstring (Symbol.fromValue (Symbol.toValue s1 ^ Symbol.toValue s2))
           | _ => eval_err "invalid args to ^"
           )
+        , true
         , TVarrow (TVprod [string_ty, string_ty], string_ty)
         )
       , ( "chr"
         , (fn Vnumber (Int i) => Vchar (Char.chr i)
           | _ => eval_err "invalid args to `chr`"
           )
+        , false 
         , TVarrow (int_ty, char_ty)
         )
       , ( "explode"
         , (fn Vstring s => Vlist (List.map Vchar (String.explode (Symbol.toValue s)))
           | _ => eval_err "invalid args to `explode`"
           )
+        , false 
         , TVarrow (string_ty, TVapp ([string_ty], list_tyid))
         )
       , ( "floor"
         , (fn Vnumber (Real r) => Vnumber (Int (Real.floor r))
           | _ => eval_err "invalid args to `floor`"
           )
+        , false 
         , TVarrow (real_ty, int_ty)
         )
       , ( "ord"
         , (fn Vchar c => Vnumber (Int (Char.ord c))
           | _ => eval_err "invalid arg to `ord`"
           )
+        , false 
         , TVarrow (char_ty, int_ty)
         )
       , ( "real"
         , (fn Vnumber (Int i) => Vnumber (Real (real i))
           | _ => eval_err "invalid arg to `real`"
           )
+        , false 
         , TVarrow (int_ty, real_ty)
         )
       , ( "size"
         , (fn Vstring s => Vnumber (Int (String.size (Symbol.toValue s)))
           | _ => eval_err "invalid arg to `size`"
           )
+        , false 
         , TVarrow (string_ty, int_ty)
         )
       , ( "str"
         , (fn Vchar c => Vstring (Symbol.fromValue (str c))
           | _ => eval_err "invalid arg to `str`"
           )
+        , false 
         , TVarrow (char_ty, string_ty)
         )
       , ( "round"
         , (fn Vnumber (Real r) => Vnumber (Int (round r))
           | _ => eval_err "invalid arg to `round`"
           )
+        , false 
         , TVarrow (real_ty, int_ty)
         )
       , ( "substring"
@@ -401,6 +418,7 @@ structure Basis :
             )
           | _ => eval_err "invalid args to `substring`"
           )
+        , false 
         , TVarrow (TVprod [string_ty, int_ty, int_ty], string_ty)
         )
       , ( "~"
@@ -408,12 +426,13 @@ structure Basis :
           | Vnumber (Real i) => Vnumber (Real (~i))
           | _ => eval_err "invalid arg to `~`"
           )
+        , false 
         , TVarrow (int_ty, int_ty)
         )
       ]
       |> List.map
-           (fn (name, value, tyval) =>
-             ( (sym name, V (Vbasis {name = sym name, function = value}))
+           (fn (name, value, is_infix, tyval) =>
+             ( (sym name, V (Vbasis {name = sym name, function = value, is_infix = is_infix}))
              , (sym name, (Vsign, forall_none_tyval tyval))
              )
            )
@@ -422,6 +441,7 @@ structure Basis :
               , (fn Vtuple [left, right] => poly_eq left right
                 | _ => eval_err "invalid arg to `=`"
                 )
+              , true
               , ( Vsign
                 , SH.guard_tyscheme
                   (1, fn [tyval] => TVarrow (TVprod [tyval, tyval], bool_ty)
@@ -429,8 +449,8 @@ structure Basis :
                 )
               ) (* TODO: equality types *)
             ] |> List.map
-                   (fn (name, value, tyinfo) =>
-                     ( (sym name, V (Vbasis {name = sym name, function = value}))
+                   (fn (name, value, is_infix, tyinfo) =>
+                     ( (sym name, V (Vbasis {name = sym name, function = value, is_infix = is_infix}))
                      , (sym name, tyinfo)
                      )
                    )
@@ -449,15 +469,18 @@ structure Basis :
         val (identdict, valtydict) =
           [ ( "callcc"
             , (fn value => raise Cont value)
+            , false
             , forall_single (fn x => TVarrow (TVarrow (cont_ty x, x), x))
             )
           , ( "throw"
-            , (fn Vbasis {function, name} =>
+            , (fn Vbasis {function, name, is_infix} =>
                 Vbasis { function = fn x => function x
                        , name = sym ("throw[" ^ Symbol.toValue name ^ "]")
+                       , is_infix = is_infix 
                        }
               | _ => raise Fail "should not happen, error in throw"
               )
+            , false
             , SH.guard_tyscheme
                 ( 2
                 , fn [a, b] => TVarrow (cont_ty a, TVarrow (a, b))
@@ -465,8 +488,8 @@ structure Basis :
                 )
             )
           ]
-          |> List.map (fn (x, y, z) =>
-              ( (sym x, V (Vbasis {name = sym x, function = y}))
+          |> List.map (fn (x, y, is_infix, z) =>
+              ( (sym x, V (Vbasis {name = sym x, function = y, is_infix = is_infix}))
               , (sym x, (Vsign, z))
               )
              )

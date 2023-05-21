@@ -169,7 +169,7 @@ structure Value : VALUE =
           )
       | Vfn {matches, env, rec_env, ...} => Efn (matches, SOME env)
       (* For basis values *)
-      | Vbasis {name, function} => Eident {opp = false, id = [name]}
+      | Vbasis {name, function, is_infix = _ } => Eident {opp = false, id = [name]}
 
     fun exp_is_value ctx exp =
       case exp of
@@ -344,7 +344,7 @@ structure Value : VALUE =
           value_eq (left, left') andalso Symbol.eq (id, id') andalso value_eq (right, right')
       | (Vfn _, Vfn _) => false
       (* For basis values *)
-      | (Vbasis {name, function}, Vbasis {name = name', ...}) =>
+      | (Vbasis {name, function, is_infix = _}, Vbasis {name = name', ...}) =>
           Symbol.eq (name, name')
       | _ => false
 

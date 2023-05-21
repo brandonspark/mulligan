@@ -421,7 +421,7 @@ structure Debugger : DEBUGGER =
                     (Vexn {exnid = exnid, name = name, arg = SOME (Vtuple [left, right])})
                     ctx
                     cont
-              | Vbasis {function = f, name} =>
+              | Vbasis {function = f, name, is_infix = _} =>
                   let
                     val result = f (Vtuple [left, right])
                   in
@@ -661,6 +661,7 @@ structure Debugger : DEBUGGER =
                 Statics.apply_fn (matches, env, rec_env)
                   (Vbasis { function = fn value => (redex_value location value ctx cont; raise Fail "cannot reach")
                           , name = Symbol.fromValue (ContId.show (ContId.new NONE))
+                          , is_infix = false
                           }
                   )
                   (Basis.cont_ty (TVvar (Ref.new NONE)))

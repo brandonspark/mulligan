@@ -596,6 +596,8 @@ struct
       MarkerSet.empty
       l
 
+  datatype xdoc = DOC of PD.doc | DUPLE of PD.doc * PD.doc
+
   local
     open SMLSyntax
   in
@@ -705,6 +707,13 @@ struct
           end
       | Eapp {left = left as Eapp _, right} =>
           p_exp left \\ p_atexp right
+      | Eapp {left = left as Eident {id, ...}, right = right as Etuple [e1, e2]} =>
+          (case Context.get_val_opt ctx id of 
+            SOME (Vbasis {is_infix = true, name, function = _}) =>
+              p_exp (Einfix {left = e1, id = name, right = e2})
+          | _ => 
+            p_exp left \\ p_atexp right
+          )
       | Eapp {left, right} =>
           p_atexp left \\ p_atexp right
       | Einfix {left, id, right} =>
@@ -882,6 +891,11 @@ struct
         | Ecase _
         | Ehole ) => parensAround (p_exp exp)
       end
+    
+    and p_exp_xdoc ctx exp =
+      case exp of
+        Etuple [e1, e2] => DUPLE (p_exp ctx e1, p_exp ctx e2)
+      | _ => DOC (p_exp ctx exp)
 
     and p_value ctx value =
       let
@@ -1678,8 +1692,15 @@ struct
 
   local
     open Context
-  in
-    fun report ctx acc_ids doc n location =
+  in 
+
+    fun flatten_doc doc =
+      case doc of
+        DOC doc => doc
+      | DUPLE (doc1, doc2) => 
+          p_seq (fn x => x) "(" "," ")" [doc1, doc2]
+
+    fun report ctx acc_ids (doc : xdoc) n location : PD.doc =
       let
         (* This hole may contain declarations, which may in turn affect where we
          * currently are. Consider the following example:
@@ -1711,35 +1732,72 @@ struct
 
         (* This new ctx contains the print function for the current doc.
          *)
-        val ctx = Context.add_hole_print_fn ctx (fn () => doc)
+        val ctx = Context.add_hole_print_fn ctx (fn () => flatten_doc doc)
         val new_ctx = Binding.remove_bound_ids ctx acc_ids
+
+        fun handle_exp n ctx exp_doc rest =
+          ( case (!(#print_dec (Context.get_settings ctx)), n) of
+            (true, _) =>
+              report
+                ctx
+                empty_set
+                exp_doc
+                n (* eagerly go until you find a non-ehole *)
+                rest
+          | (false, 0) => flatten_doc doc
+          | (false, n) =>
+              report
+                ctx
+                empty_set
+                exp_doc
+                (n - 1)
+                rest
+          )
       in
          case (n, location) of
           (_, CLOSURE ctx :: rest) =>
             report
-              (Context.add_hole_print_fn ctx (fn () => doc))
+              ctx
               empty_set
               doc
               n
               rest
+         | (_, EHOLE (e_app as Eapp {left = Eident {opp = false, id = [sym]}, right = Ehole}) :: rest) =>
+            (case doc of
+              DUPLE (d1, d2) =>
+                (* This logic exists so that the pretty printer can know whether
+                 * it should print out an infix operator as an infix expression.
+                 * 
+                 * This is hard to deal with, because our hole structure usually
+                 * assumes that you can just "fill in the blank".
+                 
+                 * If one of our locations was, for instance,
+                 * ^ <*>
+                 * then we have an issue, because we really want to rewrite this
+                 * in a way where we have finer grained control over what the 
+                 * hole prints as.
+                 *
+                 * So we introduce this DUPLE notion of an xdoc, and we consume
+                 * that information here. But we only print if we are printing
+                 * out that far, and if the operator is actually infix.
+                 *
+                 * This won't work properly for functions which are not infix
+                 * in the basis, but that's OK.
+                 *)
+                if (n >= 1 orelse !(#print_dec (Context.get_settings ctx))) andalso
+                  ( case Context.get_val_opt ctx [sym] of
+                      SOME (Vbasis {is_infix, ...}) => is_infix
+                    | _ => false
+                  )
+                then
+                  handle_exp n ctx (DOC (group (d1 +-+ p_id white sym +-+ d2))) rest
+                else
+                  handle_exp n ctx (p_exp_xdoc ctx e_app) rest
+            | _ => 
+                handle_exp n ctx (p_exp_xdoc ctx e_app) rest
+            )
          | (_, EHOLE exp :: rest) =>
-              ( case (!(#print_dec (Context.get_settings ctx)), n) of
-                  (true, _) =>
-                    report
-                      ctx
-                      empty_set
-                      (p_exp ctx exp)
-                      n (* eagerly go until you find a non-ehole *)
-                      rest
-                | (false, 0) => doc
-                | (false, n) =>
-                    report
-                      ctx
-                      empty_set
-                      (p_exp ctx exp)
-                      (n - 1)
-                      rest
-              )
+            handle_exp n ctx (p_exp_xdoc ctx exp) rest
          | (_, DVALBINDS (recc, tyvars, pat, valbinds) :: rest) =>
             let
               val valbinds =
@@ -1751,17 +1809,17 @@ struct
             in
               case (!(#print_dec (Context.get_settings ctx)), n) of
                 (true, _) => doc'
-              | (false, 0) => doc
+              | (false, 0) => flatten_doc doc
               | _ =>
                 report
                   ctx
                   bound_ids
-                  doc'
+                  (DOC doc')
                   (n - 1)
                   rest
             end
-         | (0, _) => doc
-         | (_, []) => doc
+         | (0, _) => flatten_doc doc
+         | (_, []) => flatten_doc doc
          | (n, ELET exps :: rest) =>
             let
               val exp = Elet {dec = Dhole, exps = exps}
@@ -1769,7 +1827,7 @@ struct
               report
                 ctx
                 empty_set
-                (p_exp new_ctx exp)
+                (p_exp_xdoc new_ctx exp)
                 (n - 1)
                 rest
             end
@@ -1783,7 +1841,7 @@ struct
               report
                 ctx
                 bound_ids
-                doc
+                (DOC doc)
                 (n - 1)
                 rest
             end
@@ -1794,7 +1852,7 @@ struct
               report
                 ctx
                 (union acc_ids bound_ids)
-                doc
+                (DOC doc)
                 (n - 1)
                 rest
             end
@@ -1808,7 +1866,7 @@ struct
               report
                 ctx
                 bound_ids
-                doc
+                (DOC doc)
                 (n - 1)
                 rest
             end
@@ -1820,7 +1878,7 @@ struct
               report
                 ctx
                 (union acc_ids bound_ids)
-                doc
+                (DOC doc)
                 (n - 1)
                 rest
             end
@@ -1832,7 +1890,7 @@ struct
               report
                 ctx
                 empty_set
-                doc
+                (DOC doc)
                 (n - 1)
                 rest
             end
@@ -1841,7 +1899,7 @@ struct
               val doc =
                 p_module ctx (Mstruct DMhole)
             in
-              report ctx empty_set doc n rest
+              report ctx empty_set (DOC doc) n rest
             end
         | (n, MSEAL {opacity, signat} :: rest) =>
             let
@@ -1850,7 +1908,7 @@ struct
                   ctx
                   (Mseal {module = Mhole, opacity = opacity, signat = signat})
             in
-              report ctx empty_set doc n rest
+              report ctx empty_set (DOC doc) n rest
             end
         | (n, MAPP sym :: rest) =>
             let
@@ -1858,12 +1916,12 @@ struct
                 group (
                   p_id orange sym +-+ text_syntax "("
                   ++
-                  doc
+                  flatten_doc doc
                   ++
                   text_syntax ")"
                 )
             in
-              report ctx empty_set doc (n - 1) rest
+              report ctx empty_set (DOC doc) (n - 1) rest
             end
         | (n, STRUCTS (id, seal, modules) :: rest) =>
             let
@@ -1877,7 +1935,7 @@ struct
               val (doc, bound_ids) =
                 p_strdec' ctx strdec
             in
-              report new_ctx bound_ids doc (n - 1) rest
+              report new_ctx bound_ids (DOC doc) (n - 1) rest
             end
         | (n, FBODY sym :: rest) => (* TODO? *) report ctx empty_set doc n rest
         | (n, [PROG topdecs]) =>
@@ -1887,7 +1945,7 @@ struct
             report
               ctx
               bound_ids
-              doc
+              (DOC doc)
               (n - 1)
               []
           end
@@ -1895,9 +1953,16 @@ struct
       end
 
     val report = fn ctx => fn exp => fn n => fn location =>
-      PD.toString
-        true
-        (report ctx empty_set (PD.bold (p_exp ctx exp)) n location)
+      let
+        val xdoc =
+          case (p_exp_xdoc ctx exp) of
+            DOC doc => DOC (PD.bold doc)
+          | DUPLE (d1, d2) => DUPLE (PD.bold d1, PD.bold d2)
+      in
+        PD.toString
+          true
+          (report ctx empty_set xdoc n location)
+      end
   end
 
   fun p_longid' longid =

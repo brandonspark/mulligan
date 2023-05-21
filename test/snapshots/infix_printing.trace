@@ -1,0 +1,89 @@
+==========================================================
+Evaluating file test/snapshots/infix_printing.sml...
+----------------------------------------------------------
+
+Loaded program:
+
+fun foldr f z [] = z
+  | foldr f z (x :: xs) = f (x, foldr f z xs)
+val _ = foldr (op ^) "" ["H", "E", "L", "L", "O"]
+
+- ==> 
+val _ = foldr (op ^) "" ["H", "E", "L", "L", "O"]
+
+- ==> 
+val _ =
+    case (^, "", ["H", "E", "L", "L", "O"]) of
+      (f, z, []) => z
+    | (f, z, (x :: xs)) =>
+      f (x, foldr f z xs)
+
+- ==> 
+val _ = "H" ^ foldr ^ "" ["E", "L", "L", "O"]
+
+- ==> 
+val _ =
+    "H" ^ case (^, "", ["E", "L", "L", "O"]) of
+            (f, z, []) => z
+          | (f, z, (x :: xs)) =>
+            f (x, foldr f z xs)
+
+- ==> 
+val _ = "H" ^ "E" ^ foldr ^ "" ["L", "L", "O"]
+
+- ==> 
+val _ =
+    "H" ^ "E" ^ case (^, "", ["L", "L", "O"]) of
+                  (f, z, []) => z
+                | (f, z, (x :: xs)) =>
+                  f (x, foldr f z xs)
+
+- ==> 
+val _ = "H" ^ "E" ^ "L" ^ foldr ^ "" ["L", "O"]
+
+- ==> 
+val _ =
+    "H" ^ "E" ^ "L" ^ case (^, "", ["L", "O"]) of
+                        (f, z, []) => z
+                      | (f, z, (x :: xs)) =>
+                        f (x, foldr f z xs)
+
+- ==> 
+val _ = "H" ^ "E" ^ "L" ^ "L" ^ foldr ^ "" ["O"]
+
+- ==> 
+val _ =
+    "H" ^ "E" ^ "L" ^ "L" ^ case (^, "", ["O"]) of
+                              (f, z, []) => z
+                            | (f, z, (x :: xs)) =>
+                              f (x, foldr f z xs)
+
+- ==> 
+val _ = "H" ^ "E" ^ "L" ^ "L" ^ "O" ^ foldr ^ "" []
+
+- Revealing:
+"O" ^ foldr ^ "" []
+
+- Revealing:
+("L", "O" ^ foldr ^ "" [])
+
+- Revealing:
+"L" ^ "O" ^ foldr ^ "" []
+
+- Revealing:
+("L", "L" ^ "O" ^ foldr ^ "" [])
+
+- Revealing:
+"L" ^ "L" ^ "O" ^ foldr ^ "" []
+
+- Revealing:
+("E", "L" ^ "L" ^ "O" ^ foldr ^ "" [])
+
+- Revealing:
+"E" ^ "L" ^ "L" ^ "O" ^ foldr ^ "" []
+
+- Revealing:
+("H", "E" ^ "L" ^ "L" ^ "O" ^ foldr ^ "" [])
+
+- Program evaluation finished.
+

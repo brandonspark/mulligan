@@ -480,7 +480,7 @@ structure SMLSyntax =
           , rec_env : scope option
           , break : symbol option ref
           }
-      | Vbasis of { name : symbol, function : value -> value }
+      | Vbasis of { name : symbol, function : value -> value, is_infix : bool }
 
     (* We also have a notion of values for signatures. 
      * 
