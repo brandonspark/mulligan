@@ -1281,7 +1281,7 @@ struct
             )
             (NONE, ctx, empty_set)
             decs
-          |> (fn (doc, _, boundids) => (text_syntax "dseq" ++ Option.getOpt (doc, text_syntax ""), boundids))
+          |> (fn (doc, _, boundids) => (Option.getOpt (doc, text_syntax ""), boundids))
       | Dinfix {precedence, ids} =>
           separateWithSpaces
             [ SOME (text_syntax "infix")
