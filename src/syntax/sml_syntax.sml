@@ -33,6 +33,10 @@ structure SymSet = SymbolRedBlackSet
 type settings =
   { break_assigns : SymSet.set ref
   , substitute : bool ref
+  , print_all : bool ref
+      (** Should we just print the entire program? 
+        * Supersedes `print_dec` 
+        *)
   , print_dec : bool ref
       (** Should we just print until the nearest val binding?
         * Supersedes `print_depth` 
