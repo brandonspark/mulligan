@@ -1736,7 +1736,8 @@ struct
         val new_ctx = Binding.remove_bound_ids ctx acc_ids
 
         fun handle_exp n ctx exp_doc rest =
-          ( case (!(#print_dec (Context.get_settings ctx)), n) of
+          ( case ((!(#print_dec (Context.get_settings ctx)))
+            orelse (!(#print_all (Context.get_settings ctx))), n) of
             (true, _) =>
               report
                 ctx
@@ -1807,9 +1808,16 @@ struct
               val (doc', bound_ids) =
                 p_dec' ctx (Dval { tyvars = tyvars, valbinds = valbinds })
             in
-              case (!(#print_dec (Context.get_settings ctx)), n) of
-                (true, _) => doc'
-              | (false, 0) => flatten_doc doc
+              case (Context.get_settings ctx, n) of
+                ({ print_all = ref true, ... }, _ ) =>
+                  report
+                    ctx
+                    bound_ids
+                    (DOC doc')
+                    n
+                    rest
+              | ({ print_dec = ref true, ... }, _) => doc'
+              | ({ print_dec = ref false, ... }, 0) => flatten_doc doc
               | _ =>
                 report
                   ctx
@@ -1818,7 +1826,16 @@ struct
                   (n - 1)
                   rest
             end
-         | (0, _) => flatten_doc doc
+         | (0, _) => 
+            if !(#print_all (Context.get_settings ctx)) then
+              (* terrible, horrible hack here which simulates
+                 an endless printing.
+                 
+                 in reality, it should be a sum type...
+               *)
+              report ctx acc_ids doc 1 location
+            else
+              flatten_doc doc
          | (_, []) => flatten_doc doc
          | (n, ELET exps :: rest) =>
             let

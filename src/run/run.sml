@@ -129,6 +129,7 @@ structure Run : RUN =
 
       "Settings:\n" ^
       "  substitute = <b>        substitute values for identifiers in pretty printer\n\
+      \  print_all = <b>         print entire context of program when stepping\n\
       \  print_dec = <b>         print context until nearest val binding when stepping\n\
       \  print_depth = <i>       print evaluation context <i> layers deep when stepping\n\
       \  pause_currying = <b>    pause evaluation when stepping curried arguments\n\
@@ -458,6 +459,8 @@ structure Run : RUN =
                       ( case (Symbol.toValue setting, parse_value value) of
                           ("substitute", BOOL b) =>
                             Context.set_substitute ctx b
+                        | ("print_all", BOOL b) =>
+                            #print_all (Context.get_settings ctx) := b
                         | ("print_dec", BOOL b) =>
                             #print_dec (Context.get_settings ctx) := b
                         | ("print_depth", NUMBER i) =>
@@ -470,6 +473,7 @@ structure Run : RUN =
                             #pause_app (Context.get_settings ctx) := b
 
                         | ("substitute", _)
+                        | ("print_all", _)
                         | ("print_dec", _)
                         | ("print_depth", _)
                         | ("pause_currying", _)

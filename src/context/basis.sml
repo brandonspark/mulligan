@@ -572,6 +572,7 @@ structure Basis :
       , settings =
           { break_assigns = ref SymSet.empty
           , substitute = ref true
+          , print_all = ref true
           , print_dec = ref true
           , print_depth = ref 1
           , pause_currying = ref false 
