@@ -41,6 +41,10 @@ structure Basis :
     val sym_true = sym "true"
     val sym_false = sym "false"
 
+    val true_val = Vconstr { id = [sym_true], arg = NONE }
+    val false_val = Vconstr { id = [sym_false], arg = NONE }
+    fun lift_v f x = if f x then true_val else false_val
+
     val alpha = TVtyvar (sym "'a")
     val beta = TVtyvar (sym "'b")
 
@@ -133,6 +137,7 @@ structure Basis :
       | (_, Vbasis _) => prog_err "= called on basis function value"
       | _ => false
 
+    val not_poly_eq = fn v1 => fn v2 => convert (not (poly_eq v1 v2))
     val poly_eq = fn v1 => fn v2 => convert (poly_eq v1 v2)
 
     (* Types *)
@@ -319,6 +324,34 @@ structure Basis :
         , true
         , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
+      , ( ">="
+        , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => lift_v (op>=) (i1, i2)
+          | _ => eval_err "invalid args to >="
+          )
+        , true
+        , TVarrow (TVprod [int_ty, int_ty], bool_ty)
+        )
+      , ( "<="
+        , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => lift_v (op<=) (i1, i2)
+          | _ => eval_err "invalid args to <="
+          )
+        , true
+        , TVarrow (TVprod [int_ty, int_ty], bool_ty)
+        )
+      , ( "<"
+        , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => lift_v (op<) (i1, i2)
+          | _ => eval_err "invalid args to <"
+          )
+        , true
+        , TVarrow (TVprod [int_ty, int_ty], bool_ty)
+        )
+      , ( ">"
+        , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => lift_v (op>) (i1, i2)
+          | _ => eval_err "invalid args to >"
+          )
+        , true
+        , TVarrow (TVprod [int_ty, int_ty], bool_ty)
+        )
       , ( "mod"
         , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 mod i2))
           | _ => eval_err "invalid args to div"
@@ -447,7 +480,19 @@ structure Basis :
                   (1, fn [tyval] => TVarrow (TVprod [tyval, tyval], bool_ty)
                      | _ => raise Fail "impossible")
                 )
-              ) (* TODO: equality types *)
+              ),
+              ( "<>"
+              , (fn Vtuple [left, right] => not_poly_eq left right 
+                | _ => eval_err "invalid arg to `=`"
+                )
+              , true
+              , ( Vsign
+                , SH.guard_tyscheme
+                  (1, fn [tyval] => TVarrow (TVprod [tyval, tyval], bool_ty)
+                     | _ => raise Fail "impossible")
+                )
+              )
+               (* TODO: equality types *)
             ] |> List.map
                    (fn (name, value, is_infix, tyinfo) =>
                      ( (sym name, V (Vbasis {name = sym name, function = value, is_infix = is_infix}))
