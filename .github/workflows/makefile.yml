@@ -1,0 +1,30 @@
+name: build-osx
+
+on:
+  #push:
+  #  branches: [ "master" ]
+  #pull_request:
+  #  branches: [ "master" ]
+  workflow_dispatch:
+  workflow_call:
+
+jobs:
+  build:
+    runs-on: macos-latest
+    steps:
+    - uses: actions/checkout@v3
+      with:
+        submodules: recursive
+    - name: Install dependencies
+      run: |
+        eval $(/opt/homebrew/bin/brew shellenv)
+        brew install mlton
+    - name: Try to compile
+      run: |
+        eval $(/opt/homebrew/bin/brew shellenv)
+        make
+    - name: Update binary
+      uses: actions/upload-artifact@v3
+      with:
+        name: mulligan-osx
+        path: ./mulligan
