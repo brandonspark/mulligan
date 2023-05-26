@@ -1,4 +1,4 @@
-name: build-linix
+name: build-linux
 
 on:
   #push:
