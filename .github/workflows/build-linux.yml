@@ -20,5 +20,6 @@ jobs:
         brew install mlton
         echo $PATH
         brew info mlton
+        /home/linuxbrew/.linuxbrew/bin/mlton
     - name: Try to compile
       run: make
