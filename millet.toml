@@ -1,0 +1,12 @@
+version = 1
+[workspace]
+root = "src/top/sources.mlb"
+[workspace.path-vars]
+COMPAT = { value = "mlton" }
+[language]
+fixity-across-files = true
+[diagnostics]
+4014.severity = "ignore"
+4030.severity = "ignore"
+5029.severity = "ignore"
+5034.severity = "ignore"

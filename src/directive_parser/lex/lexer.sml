@@ -82,7 +82,7 @@ structure Arg =
 
     val keywords : DToken.t Table.table = 
       let
-        val table = Table.table 60
+        val table : DToken.t Table.table = Table.table 60
       
         val () =
           List.app
