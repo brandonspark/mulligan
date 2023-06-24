@@ -2054,7 +2054,7 @@ structure Statics : STATICS =
                                   \ type schemes for equality in signature matching.")
                                 id
                               |> prog_err
-                          | SOME {tyscheme = tyscheme', ...} =>
+                          | SOME {tyscheme = tyscheme', id = _} =>
                               ( eq_tyschemes tyscheme tyscheme'
                               ; ()
                               )

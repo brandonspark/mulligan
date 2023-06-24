@@ -203,15 +203,12 @@ structure Value : VALUE =
             exps
       | Eparens exp => exp_is_value ctx exp
       | Eapp {left = Eident {opp, id}, right} =>
-          if Context.is_con ctx id (* THINK: or is exn? *) then
-            exp_is_value ctx right
-          else
-            false 
+          Context.is_con ctx id (* THINK: or is exn? *)
+          andalso exp_is_value ctx right
       | Einfix {left, id, right} =>
-          if Context.is_con ctx [id] (* THINK: or is exn? *) then
-            exp_is_value ctx left andalso exp_is_value ctx right
-          else
-            false
+           Context.is_con ctx [id] (* THINK: or is exn? *)
+           andalso exp_is_value ctx left
+           andalso exp_is_value ctx right
       | Etyped {exp, ...} => exp_is_value ctx exp 
       | ( Eseq _ (* THINK: eseq singleton? *)
         | Eapp _
@@ -321,7 +318,7 @@ structure Value : VALUE =
                 (fn ({lab, value}, acc) =>
                   case List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields2 of
                     NONE => false
-                  | SOME {value = value', ...} =>
+                  | SOME {value = value', lab = _} =>
                       value_eq (value, value') andalso acc
                 )
                 true

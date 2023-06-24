@@ -108,7 +108,7 @@ structure Basis :
                   acc andalso
                   (case List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields2 of
                     NONE => false
-                  | SOME {value = value', ...} => poly_eq value value'
+                  | SOME {value = value', lab = _} => poly_eq value value'
                   )
                 )
                 true

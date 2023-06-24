@@ -56,7 +56,7 @@ fun push x r = r := x :: (!r)
 fun files_of_directory path =
   let 
     val stream = OS.FileSys.openDir path
-    val files = ref [] 
+    val files : string list ref = ref []
 
     fun aux () =
       case OS.FileSys.readDir stream of 

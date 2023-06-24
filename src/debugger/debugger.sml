@@ -238,7 +238,7 @@ structure Debugger : DEBUGGER =
               exps
               |> eval_list (fn (left, right) =>
                   ( labs
-                  , left @ [Ehole] @ right
+                  , left @ Ehole :: right
                   )
                   |> ListPair.mapEq (fn (lab, exp) => {lab = lab, exp = exp})
                   |> Erecord
@@ -253,13 +253,13 @@ structure Debugger : DEBUGGER =
             end
         | Etuple exps =>
             eval_list
-              (fn (left, right) => Etuple (left @ [Ehole] @ right))
+              (fn (left, right) => Etuple (left @ Ehole :: right))
               exps
             |> Vtuple
             |> throw
         | Elist exps =>
             eval_list
-              (fn (left, right) => Elist (left @ [Ehole] @ right))
+              (fn (left, right) => Elist (left @ Ehole :: right))
               exps
             |> Vlist
             |> throw
@@ -575,11 +575,9 @@ structure Debugger : DEBUGGER =
               ( while
                   (case value of
                     Vconstr {id = [x], arg = NONE} =>
-                      if Symbol.eq (x, sym_true) then
-                        true
-                      else if Symbol.eq (x, sym_false) then
-                        false
-                      else
+                      Symbol.eq (x, sym_true)
+                      orelse not (Symbol.eq (x, sym_false))
+                      orelse
                         Printf.cprintf ctx (`"While condition given non-bool value "fv"") value
                         |> eval_err
                   | _ =>

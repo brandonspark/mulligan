@@ -147,7 +147,7 @@ structure Top =
           , running = false
           , print_flag = true 
           , colored_output = not no_color 
-          , commands = []
+          , commands = [] : Directive.t list
           }
       in
         if doHelp orelse List.null args then
