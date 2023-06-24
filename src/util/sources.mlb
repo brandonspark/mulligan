@@ -4,9 +4,9 @@ end
 $(SML_LIB)/basis/basis.mlb
 $(SML_LIB)/basis/mlton.mlb
 
-(* This has to be up here first cause `printf` needs it. 
+(* This has to be up here first cause `printf` needs it.
  *)
-local 
+local
   TerminalColors.sml
 in
   structure TerminalColors
@@ -19,7 +19,7 @@ either.sml
 printf.sml
 pervasive.sml
 
-local 
+local
   ListUtils.sml
   TerminalColors.sml
   PrettySimpleDoc.sml
@@ -33,7 +33,7 @@ local
 in
   structure ListUtils
   structure PrettySimpleDoc
-  structure FreshSym 
+  structure FreshSym
   structure Cont
   structure Either
   structure IO
@@ -52,4 +52,3 @@ in
   structure TestFramework
   structure Error
 end
-

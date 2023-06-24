@@ -45,7 +45,7 @@ fun bool_to_option b default =
 
 fun map_nonfirst f l =
   case l of
-    x::xs => x :: List.map f xs 
+    x::xs => x :: List.map f xs
   | [] => []
 
 fun map_nonlast f l =
@@ -54,7 +54,7 @@ fun map_nonlast f l =
 fun combine f default l =
   case l of
     [] => default
-  | [x] => x 
+  | [x] => x
   | x::xs =>
       f (x, combine f default xs)
 
@@ -86,10 +86,10 @@ infix 2 +++ ++ +-+ $$ // $$< //< ^^ \\
 (* Juxtaposition *)
 fun x ++ y = beside (x, y)
 
-(* Space-separated juxtaposition *) 
+(* Space-separated juxtaposition *)
 fun x +-+ y = x ++ space ++ y
 
-(* Optionally space-separated juxtaposition *) 
+(* Optionally space-separated juxtaposition *)
 fun x +++ y = x ++ softspace ++ y
 
 (* Newline or space-separated *)
@@ -165,7 +165,7 @@ signature PRETTYPRINTAST =
     val fe : (SMLSyntax.exp -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
     val fv : (SMLSyntax.value -> 'a, 'b, Context.t) Printf.t * string -> ('a, 'b, Context.t) Printf.t
     val fl : (SMLSyntax.longid -> 'a, 'b, 'state) Printf.t * string -> ('a, 'b, 'state) Printf.t
-  end 
+  end
 
 (*****************************************************************************)
 (* Implementation *)
@@ -268,7 +268,7 @@ struct
 
   fun p_longid color longid =
     let
-      (* we want to display all but the last id in the longid as orange 
+      (* we want to display all but the last id in the longid as orange
        *)
       val mapped =
         List.tabulate
@@ -334,7 +334,7 @@ struct
             [] => p_longid longid
           | [elem] => p_atty elem +-+ p_longid longid
           | _ =>
-            surround "(" (p_list p_ty ", " typarams) ")" 
+            surround "(" (p_list p_ty ", " typarams) ")"
             +-+ p_longid longid)
       | Tprod tys =>
           p_list p_ty " * " tys
@@ -366,13 +366,13 @@ struct
         ( Tident _
         | Ttyvar _
         | Tapp (([] | [_]), _)
-        | Trecord _ ) => 
+        | Trecord _ ) =>
             p_ty ty
-      | ( Tprod _ (* int * int *) 
-        | Tarrow _ (* int -> int *) 
-        | Tparens _ (* handled by Tparens case above *) 
+      | ( Tprod _ (* int * int *)
+        | Tarrow _ (* int -> int *)
+        | Tparens _ (* handled by Tparens case above *)
         | Tapp _ (* THINK: (int, int) either *)
-        ) => 
+        ) =>
             parensAround (p_ty ty)
 
     and p_tyval tyval =
@@ -391,7 +391,7 @@ struct
           p_list p_tyval " * " tys
       | TVarrow (left, right) =>
           let
-            (* i no longer remember what this does 
+            (* i no longer remember what this does
              *)
 
             fun p_side tyval =
@@ -708,10 +708,10 @@ struct
       | Eapp {left = left as Eapp _, right} =>
           p_exp left \\ p_atexp right
       | Eapp {left = left as Eident {id, ...}, right = right as Etuple [e1, e2]} =>
-          (case Context.get_val_opt ctx id of 
+          (case Context.get_val_opt ctx id of
             SOME (Vbasis {is_infix = true, name, function = _}) =>
               p_exp (Einfix {left = e1, id = name, right = e2})
-          | _ => 
+          | _ =>
             p_exp left \\ p_atexp right
           )
       | Eapp {left, right} =>
@@ -891,7 +891,7 @@ struct
         | Ecase _
         | Ehole ) => parensAround (p_exp exp)
       end
-    
+
     and p_exp_xdoc ctx exp =
       case exp of
         Etuple [e1, e2] => DUPLE (p_exp ctx e1, p_exp ctx e2)
@@ -1692,12 +1692,12 @@ struct
 
   local
     open Context
-  in 
+  in
 
     fun flatten_doc doc =
       case doc of
         DOC doc => doc
-      | DUPLE (doc1, doc2) => 
+      | DUPLE (doc1, doc2) =>
           p_seq (fn x => x) "(" "," ")" [doc1, doc2]
 
     fun report ctx acc_ids (doc : xdoc) n location : PD.doc =
@@ -1727,7 +1727,7 @@ struct
          *)
 
          (* THINK: This is probably unnecessarily complicated, and would be
-          * better if we did a proper naming set-up. 
+          * better if we did a proper naming set-up.
           *)
 
         (* This new ctx contains the print function for the current doc.
@@ -1768,14 +1768,14 @@ struct
               DUPLE (d1, d2) =>
                 (* This logic exists so that the pretty printer can know whether
                  * it should print out an infix operator as an infix expression.
-                 * 
+                 *
                  * This is hard to deal with, because our hole structure usually
                  * assumes that you can just "fill in the blank".
-                 
+
                  * If one of our locations was, for instance,
                  * ^ <*>
                  * then we have an issue, because we really want to rewrite this
-                 * in a way where we have finer grained control over what the 
+                 * in a way where we have finer grained control over what the
                  * hole prints as.
                  *
                  * So we introduce this DUPLE notion of an xdoc, and we consume
@@ -1794,7 +1794,7 @@ struct
                   handle_exp n ctx (DOC (group (d1 +-+ p_id white sym +-+ d2))) rest
                 else
                   handle_exp n ctx (p_exp_xdoc ctx e_app) rest
-            | _ => 
+            | _ =>
                 handle_exp n ctx (p_exp_xdoc ctx e_app) rest
             )
          | (_, EHOLE exp :: rest) =>
@@ -1826,11 +1826,11 @@ struct
                   (n - 1)
                   rest
             end
-         | (0, _) => 
+         | (0, _) =>
             if !(#print_all (Context.get_settings ctx)) then
               (* terrible, horrible hack here which simulates
                  an endless printing.
-                 
+
                  in reality, it should be a sum type...
                *)
               report ctx acc_ids doc 1 location
@@ -2067,7 +2067,7 @@ struct
     (* We have to generate some type variables for the arity of
        this type scheme. It needs to be in alphabetical order,
        though.
- 
+
        We just assume that practically there won't be a type scheme
        of more than 26 type variables. If so, tough luck.
       *)

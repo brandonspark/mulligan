@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -8,8 +8,8 @@
 (* Prelude *)
 (*****************************************************************************)
 (* The point of this is to elaborate the austere AST to the simpler AST.
- * 
- * We don't need all the syntactic information from the austere AST, we just 
+ *
+ * We don't need all the syntactic information from the austere AST, we just
  * need a subset of it. So we roll our own AST and elaborate to it during a
  * secondary parsing step.
  *)

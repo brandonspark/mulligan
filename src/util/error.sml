@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -10,11 +10,11 @@ structure TC = TerminalColors
 (* Prelude *)
 (*****************************************************************************)
 (* Errors that may arise during execution.
- * 
+ *
  * These include errors which occur during the static analyzing of the given
  * program, structural errors like invalid file targeting, and errors which
  * may arise due to invalid states of the dynamics.
- * 
+ *
  * These are collected here, and should be handled gracefully by the top-level
  * runner.
  *)
@@ -115,8 +115,8 @@ structure Error :> ERROR =
     exception Signal of signal
 
     fun source (filename, pos) =
-      let 
-        val (line_num, offset) = relative_pos_of_charpos filename pos 
+      let
+        val (line_num, offset) = relative_pos_of_charpos filename pos
       in
         spf (`""fs":"fs":"fs"")
           (lightblue filename)
@@ -127,7 +127,7 @@ structure Error :> ERROR =
     fun surround color s = TC.text color border ^ s ^ TC.text color border2
 
     fun warn x warning =
-      let 
+      let
         val warning_msg =
           case warning of
             ParseWarning (filename, rest) =>
@@ -181,8 +181,8 @@ structure Error :> ERROR =
           (rest, rest')
       | (TypeError {reason}, TypeError {reason = reason'}) =>
           reason = reason'
-      | (EvalError s, EvalError s') 
-      | (UserError s, UserError s') 
+      | (EvalError s, EvalError s')
+      | (UserError s, UserError s')
       | (InvalidProgramError s, InvalidProgramError s') =>
           s = s'
       | _ => false
@@ -192,8 +192,8 @@ structure Error :> ERROR =
         LexError {reason, pos, ...} => lightblue (Int.toString pos) ^ ": " ^ reason
       | TypeError {reason, ...} => reason
       | ParseError (s, _) => s
-      | EvalError s 
-      | UserError s 
+      | EvalError s
+      | UserError s
       | InvalidProgramError s => s
 
 

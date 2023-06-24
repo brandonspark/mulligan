@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -13,7 +13,7 @@ structure TC = TerminalColors
 (* Prelude *)
 (*****************************************************************************)
 (* Configuration and logic for how to run the debugger.
- * 
+ *
  * We may, for instance, be interested in running the debugger strictly for
  * testing purposes. In which case, we need different logic than what the
  * debugger typically does.
@@ -78,14 +78,14 @@ fun suspend x = fn () => x
 
 signature RUN =
   sig
-    val help_message : string 
-    
-    (* run the given trace with some pre-set commands 
+    val help_message : string
+
+    (* run the given trace with some pre-set commands
      *)
     val run : runner_env -> Source.t -> Context.t -> Context.t
 
-    val interactive_handler : handler 
-    val test_handler : handler 
+    val interactive_handler : handler
+    val test_handler : handler
   end
 
 (*****************************************************************************)
@@ -141,10 +141,10 @@ structure Run : RUN =
       let
         val print =
           if print_flag then
-            if colored_output then 
+            if colored_output then
               print
             else
-              fn s => print (TC.decolorify s) 
+              fn s => print (TC.decolorify s)
           else
             (fn _ => ())
 
@@ -211,11 +211,11 @@ structure Run : RUN =
           end
 
           (* The step function is responsible for doing the stepping.
-           * There are only two actions `step` can take -- either it: 
-           * - chooses to recurse and evaluate a sub-expression, or 
+           * There are only two actions `step` can take -- either it:
+           * - chooses to recurse and evaluate a sub-expression, or
            * - it is finished evaluating an exp, and throws to a cont
-           * 
-           * If the evaluation of that expression ever signals that it 
+           *
+           * If the evaluation of that expression ever signals that it
            * is at a "significant redex", it raises Perform, and we enter
            * back into `start_loop` immediately.
            *)
@@ -224,7 +224,7 @@ structure Run : RUN =
               val _ = push (Frame (ctx, location, focus)) store
 
               (* if we finish evaluating the currently focused expression with
-               * `evaluate`, we need to set the run flag back to stepping  
+               * `evaluate`, we need to set the run flag back to stepping
                *)
               fun set () =
                 if evaluate then run := Running else ()
@@ -244,7 +244,7 @@ structure Run : RUN =
                         val _ = set ()
 
                         (* This ensures that once we throw back to this
-                          * continuation, we continue stepping. 
+                          * continuation, we continue stepping.
                           *)
                         val new_cont =
                           Cont.do_after cont
@@ -339,10 +339,10 @@ structure Run : RUN =
               fun parse_command () =
                 case !commands of
                   cmd::rest =>
-                    ( commands := rest 
+                    ( commands := rest
                     ; SOME cmd
                     )
-                | [] => 
+                | [] =>
                     let
                       val input = TextIO.input TextIO.stdIn
                     in
@@ -356,7 +356,7 @@ structure Run : RUN =
                         | SOME cmd =>
                             ( last_command := SOME cmd
                             ; SOME cmd
-                            )  
+                            )
                     end
             in
             ( TextIO.output (TextIO.stdOut, "- ")
@@ -403,7 +403,7 @@ structure Run : RUN =
                   ( spf (`"Breakpoint set on function value bound to "fl"\n") longid |> print
                   ; let
                       val (_, broken) = Context.break_fn ctx longid true
-                      val _ = push broken breaks 
+                      val _ = push broken breaks
                     in
                       start_loop info
                     end
@@ -440,9 +440,9 @@ structure Run : RUN =
                   |> recur
               | SOME (Directive.Set (setting, value)) =>
                   let
-                    datatype setting_value = 
-                        BOOL of bool 
-                      | STR of string 
+                    datatype setting_value =
+                        BOOL of bool
+                      | STR of string
                       | NUMBER of int
 
                     fun parse_value s =
@@ -477,7 +477,7 @@ structure Run : RUN =
                         | ("print_dec", _)
                         | ("print_depth", _)
                         | ("pause_currying", _)
-                        | ("pause_arithmetic", _) 
+                        | ("pause_arithmetic", _)
                         | ("pause_app", _) =>
                             print <| spf (`"Invalid input for setting "fi"\n") setting
                         | _ => print "Unrecognized setting.\n"

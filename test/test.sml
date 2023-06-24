@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -12,7 +12,7 @@ structure TF = TestFramework
 (* Prelude *)
 (*****************************************************************************)
 (* Integration testing for `mulligan`.
- * These tests allow us to verify that the extensional behavior of the 
+ * These tests allow us to verify that the extensional behavior of the
  * debugger is behaving as expected.
  *)
 
@@ -34,10 +34,10 @@ fun mk_record fields =
 
 (* Set up the runner with our precise testing configuration.
   *)
-val run_test = 
-  Run.run 
+val run_test =
+  Run.run
     { step_handler = Run.test_handler
-    , running = true 
+    , running = true
     , print_flag = false
     , colored_output = false
     , commands = []
@@ -97,9 +97,9 @@ fun evaluate test_name text =
         }
   in
     ( case Context.get_val_opt (run_test source (Basis.initial ())) [Symbol.fromValue "res"] of
-        (* If we didn't bind `res`, say that it's some random unlikely value. 
+        (* If we didn't bind `res`, say that it's some random unlikely value.
          *)
-        NONE => RES (Vselect (sym "terminated but res unbound")) 
+        NONE => RES (Vselect (sym "terminated but res unbound"))
       | SOME value => RES value
     )
     handle exn =>
@@ -695,7 +695,7 @@ structure Test :
   end
 
 (* let's go! *)
-val _ = 
+val _ =
   ( Test.run_tests ()
   ; Snapshots.run ()
   )

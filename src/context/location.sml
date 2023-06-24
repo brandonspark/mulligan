@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -166,5 +166,3 @@ structure Location =
       | (CLOSURE _ :: rest) => is_val_dec rest
       | _ => false
   end
-
-

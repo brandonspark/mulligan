@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -7,7 +7,7 @@
 (*****************************************************************************)
 (* Prelude *)
 (*****************************************************************************)
-(* The representation for SML syntax, along with some other types which 
+(* The representation for SML syntax, along with some other types which
  * must be manipulated over the debugger's runtime.
  *)
 
@@ -34,21 +34,21 @@ type settings =
   { break_assigns : SymSet.set ref
   , substitute : bool ref
   , print_all : bool ref
-      (** Should we just print the entire program? 
-        * Supersedes `print_dec` 
+      (** Should we just print the entire program?
+        * Supersedes `print_dec`
         *)
   , print_dec : bool ref
       (** Should we just print until the nearest val binding?
-        * Supersedes `print_depth` 
+        * Supersedes `print_depth`
         *)
   , print_depth : int ref
       (** How many layers of the evaluation context should be reported by
-        * the evaluation trace during pretty printing? 
+        * the evaluation trace during pretty printing?
         *)
   , pause_currying : bool ref
       (** Should we trigger an event on the intermediate steps of a
         * curried function application? Such as:
-        * (fn x => fn y => 1) 2 3 
+        * (fn x => fn y => 1) 2 3
         *)
   , pause_app : bool ref
   , pause_arithmetic : bool ref
@@ -389,7 +389,7 @@ structure SMLSyntax =
           id : symbol,
           ty : ty
         } list
-      | SPtype of 
+      | SPtype of
           { tyvars : symbol list,
             tycon : symbol,
             ty : ty option
@@ -398,7 +398,7 @@ structure SMLSyntax =
       | SPdatdec of {
           tyvars : symbol list,
           tycon : symbol,
-          condescs : 
+          condescs :
             { id : symbol,
               ty : ty option
             } list
@@ -443,13 +443,13 @@ structure SMLSyntax =
     (*          VALUES          *)
     (****************************)
 
-    (* While we have a representation for expressions already, the debugger 
-     * is interested in trying to step expressions to values. In this case, 
+    (* While we have a representation for expressions already, the debugger
+     * is interested in trying to step expressions to values. In this case,
      * it is sometimes useful to have a first-class notion of values.
-     * 
+     *
      * This type is that representation. It represents a step away from the
      * literal concrete text of the manipulated program, and goes towards
-     * something more abstract that can be used. 
+     * something more abstract that can be used.
      *)
     and value =
         Vnumber of number
@@ -486,13 +486,13 @@ structure SMLSyntax =
           }
       | Vbasis of { name : symbol, function : value -> value, is_infix : bool }
 
-    (* We also have a notion of values for signatures. 
-     * 
+    (* We also have a notion of values for signatures.
+     *
      * A signature is parsed into a `SMLSyntax.signat`, which does not
      * do anything like resolving abstract types, minting new TyIds for
      * datatypes, or otherwise processing the textual data into something
      * that can be used. This datatype can be more nicely manipulated
-     * when we do things like signature ascription in the statics. 
+     * when we do things like signature ascription in the statics.
      *)
     and sigval =
       Sigval of
@@ -524,9 +524,9 @@ structure SMLSyntax =
     (*          SCOPE          *)
     (****************************)
 
-    (* Scopes are a reified notion of the bindings which exist at a 
+    (* Scopes are a reified notion of the bindings which exist at a
      * particular lexical scope.
-     * 
+     *
      * In particular, we need to keep track of things like value bindings,
      * type bindings, and module bindings, which all have separate
      * namespaces. There are also infixities.
@@ -581,7 +581,7 @@ structure SMLSyntax =
     (****************************)
 
     (* The context we carry around throughout evaluation of the debugger.
-     * 
+     *
      * There's a few things in here that are useful:
      * - scope and outer_scopes, which detail the various scopes we are in
      * - sigdict and functordict, which are top-level module information

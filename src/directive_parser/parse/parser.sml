@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -48,7 +48,7 @@ signature PARSER =
 
 structure Arg =
   struct
-    open Directive 
+    open Directive
 
     type symbol = Symbol.symbol
 

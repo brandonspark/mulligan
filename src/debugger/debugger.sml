@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -292,7 +292,7 @@ structure Debugger : DEBUGGER =
               val left =
                 eval' (Eapp {left = Ehole, right = right_exp}) left ctx
               val right =
-                eval' (Eapp {left = Value.value_to_exp left, right = Ehole}) right_exp ctx 
+                eval' (Eapp {left = Value.value_to_exp left, right = Ehole}) right_exp ctx
             in
               case (left, right) of
                 (Vconstr {id, arg = NONE}, v) =>
@@ -326,7 +326,7 @@ structure Debugger : DEBUGGER =
                         case left of
                           Vfn { matches = [ {pat, exp = Efn (_, _)}], break, ... } =>
                             (* We might be interested in an expression which looks like
-                            * v1 v2 
+                            * v1 v2
                             * If `v1` is a curried function, then we might not be interested
                             * in displaying to the debugger that we passed it a curried
                             * argument. This produces traces like:
@@ -635,18 +635,18 @@ structure Debugger : DEBUGGER =
         (* This is a two-step process.
            If evaluating an expression results in a Cont exception being thrown,
            this is our way of signalling that we need to evaluate a continuation.
-           
+
            The Vfn we get back is the lambda passed to the continuation itself.
            We just choose to evaluate it by passing it a continuation, which in
-           our encoding, is just a Vbasis function whose behavior is to take an 
+           our encoding, is just a Vbasis function whose behavior is to take an
            input and then evaluate it in the _same context where the continuation
-           was made_. 
-           
+           was made_.
+
            In other words, if we're evaluating Cont.callcc (fn k => 2), then we
            handle the (fn k => 2), and apply it to a `k` we just made up, which
            will take an input, and evaluate that value in the context of
-           Cont.callcc (fn k => 2). 
-           
+           Cont.callcc (fn k => 2).
+
            Then, the second side of this is that `throw` is very simple, and just
            takes a continuation Vbasis function and invokes it with whatever value
            is being thrown. This will reset the debugger's state to precisely the
@@ -939,7 +939,7 @@ structure Debugger : DEBUGGER =
         let
           fun apply_functor
             eval_module
-            ctx 
+            ctx
             functor_id
             scope =
               let

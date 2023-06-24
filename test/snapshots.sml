@@ -1,11 +1,11 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
   *)
 
 open Printf
-structure TF = TestFramework 
+structure TF = TestFramework
 structure TC = TerminalColors
 
 (*****************************************************************************)
@@ -37,12 +37,12 @@ fun redirect_to_file file f =
     (* these duplicate stdout and stderr's file descriptors, so that we
       * can set back to them once we change the real stdout and stderr
       *)
-    val stdout_fd = Posix.IO.dup Posix.FileSys.stdout 
+    val stdout_fd = Posix.IO.dup Posix.FileSys.stdout
     val stderr_fd = Posix.IO.dup Posix.FileSys.stderr
 
 
-    val file_fd = 
-      Posix.FileSys.createf 
+    val file_fd =
+      Posix.FileSys.createf
         ( file
         , Posix.FileSys.O_WRONLY
         , Posix.FileSys.O.flags [Posix.FileSys.O.trunc]
@@ -51,12 +51,12 @@ fun redirect_to_file file f =
   in
     ( Posix.IO.dup2 { old = file_fd, new = Posix.FileSys.stdout }
     ; Posix.IO.dup2 { old = file_fd, new = Posix.FileSys.stderr }
-    ; f () 
-    ; Posix.IO.dup2 { old = stdout_fd, new = Posix.FileSys.stdout } 
-    ; Posix.IO.dup2 { old = stderr_fd, new = Posix.FileSys.stderr } 
+    ; f ()
+    ; Posix.IO.dup2 { old = stdout_fd, new = Posix.FileSys.stdout }
+    ; Posix.IO.dup2 { old = stderr_fd, new = Posix.FileSys.stderr }
     )
   end
-    
+
 fun parse_commands_file cmd_file =
   IO.cat cmd_file
   |> List.map DirectiveParser.parse_opt
@@ -69,12 +69,12 @@ fun parse_commands_file cmd_file =
 structure Snapshots =
   struct
 
-    fun test_of_file cmd_file = 
-      let 
-        val trace_file = OS.Path.base cmd_file ^ "." ^ trace_ext   
-        val prog_file = OS.Path.base cmd_file ^ "." ^ sml_ext   
+    fun test_of_file cmd_file =
+      let
+        val trace_file = OS.Path.base cmd_file ^ "." ^ trace_ext
+        val prog_file = OS.Path.base cmd_file ^ "." ^ sml_ext
 
-        val commands = parse_commands_file cmd_file  
+        val commands = parse_commands_file cmd_file
 
         val trace_contents =
           if file_exists trace_file then
@@ -84,20 +84,20 @@ structure Snapshots =
 
         fun test_fn _ =
           case commands of
-            NONE => 
+            NONE =>
               TF.assert_failure
               <| spf (`"Failed to parse command file "fs"") (OS.Path.file cmd_file)
           | SOME commands =>
-              let 
-                val config = 
+              let
+                val config =
                   { step_handler = Run.interactive_handler
                   , running = false
-                  , print_flag = true 
+                  , print_flag = true
                   (* Snapshot output should be uncolored, so that the trace
                   * files are actually human-readable.
                   *)
                   , colored_output = false
-                  , commands = commands 
+                  , commands = commands
                   }
 
                 (* This will overwrite the existing trace file.
@@ -106,8 +106,8 @@ structure Snapshots =
                  * I usually just use version control to reset the files anyways.
                  * It's more convenient to me to just alter by default.
                  *)
-                val () = 
-                  redirect_to_file trace_file (fn () => 
+                val () =
+                  redirect_to_file trace_file (fn () =>
                     Run.run config
                       (Source.loadFromFile (FilePath.fromUnixPath prog_file))
                       (Basis.initial ())
@@ -118,8 +118,8 @@ structure Snapshots =
                 if trace_contents = new_trace_contents then
                   ()
                 else
-                  TF.assert_failure 
-                  <| spf (`"Trace contents have changed -- was:\n"fs"\nnow:\n"fs"") 
+                  TF.assert_failure
+                  <| spf (`"Trace contents have changed -- was:\n"fs"\nnow:\n"fs"")
                     trace_contents
                     new_trace_contents
               end
@@ -127,12 +127,12 @@ structure Snapshots =
         TF.mk_test (OS.Path.file cmd_file, test_fn)
       end
 
-    (* Runs from the `mulligan` directory. 
+    (* Runs from the `mulligan` directory.
      *)
     fun run () =
-      let 
-        val cmd_files = 
-          files_of_directory snapshot_dir 
+      let
+        val cmd_files =
+          files_of_directory snapshot_dir
           |> List.filter (fn path => OS.Path.ext path = SOME cmd_ext)
       in
         cmd_files
