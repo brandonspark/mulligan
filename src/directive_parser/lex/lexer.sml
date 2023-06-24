@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -80,10 +80,10 @@ structure Arg =
       , ("typeof", TYPEOF)
       ]
 
-    val keywords : DToken.t Table.table = 
+    val keywords : DToken.t Table.table =
       let
         val table : DToken.t Table.table = Table.table 60
-      
+
         val () =
           List.app
           (fn (str, token) => Table.insert table (Symbol.fromValue str) token)

@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -391,56 +391,56 @@ structure Basis :
         , (fn Vnumber (Int i) => Vchar (Char.chr i)
           | _ => eval_err "invalid args to `chr`"
           )
-        , false 
+        , false
         , TVarrow (int_ty, char_ty)
         )
       , ( "explode"
         , (fn Vstring s => Vlist (List.map Vchar (String.explode (Symbol.toValue s)))
           | _ => eval_err "invalid args to `explode`"
           )
-        , false 
+        , false
         , TVarrow (string_ty, TVapp ([string_ty], list_tyid))
         )
       , ( "floor"
         , (fn Vnumber (Real r) => Vnumber (Int (Real.floor r))
           | _ => eval_err "invalid args to `floor`"
           )
-        , false 
+        , false
         , TVarrow (real_ty, int_ty)
         )
       , ( "ord"
         , (fn Vchar c => Vnumber (Int (Char.ord c))
           | _ => eval_err "invalid arg to `ord`"
           )
-        , false 
+        , false
         , TVarrow (char_ty, int_ty)
         )
       , ( "real"
         , (fn Vnumber (Int i) => Vnumber (Real (real i))
           | _ => eval_err "invalid arg to `real`"
           )
-        , false 
+        , false
         , TVarrow (int_ty, real_ty)
         )
       , ( "size"
         , (fn Vstring s => Vnumber (Int (String.size (Symbol.toValue s)))
           | _ => eval_err "invalid arg to `size`"
           )
-        , false 
+        , false
         , TVarrow (string_ty, int_ty)
         )
       , ( "str"
         , (fn Vchar c => Vstring (Symbol.fromValue (str c))
           | _ => eval_err "invalid arg to `str`"
           )
-        , false 
+        , false
         , TVarrow (char_ty, string_ty)
         )
       , ( "round"
         , (fn Vnumber (Real r) => Vnumber (Int (round r))
           | _ => eval_err "invalid arg to `round`"
           )
-        , false 
+        , false
         , TVarrow (real_ty, int_ty)
         )
       , ( "substring"
@@ -451,7 +451,7 @@ structure Basis :
             )
           | _ => eval_err "invalid args to `substring`"
           )
-        , false 
+        , false
         , TVarrow (TVprod [string_ty, int_ty, int_ty], string_ty)
         )
       , ( "~"
@@ -459,7 +459,7 @@ structure Basis :
           | Vnumber (Real i) => Vnumber (Real (~i))
           | _ => eval_err "invalid arg to `~`"
           )
-        , false 
+        , false
         , TVarrow (int_ty, int_ty)
         )
       ]
@@ -482,7 +482,7 @@ structure Basis :
                 )
               ),
               ( "<>"
-              , (fn Vtuple [left, right] => not_poly_eq left right 
+              , (fn Vtuple [left, right] => not_poly_eq left right
                 | _ => eval_err "invalid arg to `=`"
                 )
               , true
@@ -521,7 +521,7 @@ structure Basis :
             , (fn Vbasis {function, name, is_infix} =>
                 Vbasis { function = fn x => function x
                        , name = sym ("throw[" ^ Symbol.toValue name ^ "]")
-                       , is_infix = is_infix 
+                       , is_infix = is_infix
                        }
               | _ => raise Fail "should not happen, error in throw"
               )
@@ -604,12 +604,12 @@ structure Basis :
         , tynamedict = dict_from_list initial_tynames
         }
 
-    val initial_dtydict = tyid_dict_from_list initial_dtys 
+    val initial_dtydict = tyid_dict_from_list initial_dtys
 
     fun initial () : SMLSyntax.context =
       { scope = initial_scope
       , outer_scopes = []
-      , dtydict = ref initial_dtydict 
+      , dtydict = ref initial_dtydict
       , sigdict = SymDict.empty
       , functordict = SymDict.empty
       , tyvars = SymSet.empty
@@ -620,9 +620,9 @@ structure Basis :
           , print_all = ref true
           , print_dec = ref true
           , print_depth = ref 1
-          , pause_currying = ref false 
+          , pause_currying = ref false
           , pause_app = ref true
-          , pause_arithmetic = ref true 
+          , pause_arithmetic = ref true
           }
       , abstys = AbsIdDict.empty
       }

@@ -107,20 +107,20 @@ struct
 
   fun text color s = foreground color ^ s ^ reset
 
-  fun decolorify s = 
-    let 
+  fun decolorify s =
+    let
       fun remove_code cs =
         case cs of
           [] => raise Fail "pretty sure this shouldn't happen"
         | #"m" :: rest => rest
         | _ :: rest => remove_code rest
-      
+
       fun aux cs =
         case cs of
           [] => []
         | #"\027" :: _ =>
-            aux (remove_code cs) 
-        | x :: rest => 
+            aux (remove_code cs)
+        | x :: rest =>
             x :: aux rest
     in
       String.implode (aux (String.explode s))

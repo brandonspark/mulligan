@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -17,21 +17,21 @@ structure TC = TerminalColors
 (*****************************************************************************)
 
 (* This context type is meant to include anything that should be visible from
- * within the relevant tests. 
+ * within the relevant tests.
  *)
 type context =
   { path : string
   , test_name : string
   }
 
-type test_modifier = 
+type test_modifier =
   (* A function to be called after the test, depending on failure or success.
    *)
-  { after_fn : bool -> unit 
+  { after_fn : bool -> unit
   }
 
 datatype test =
-    Test of string * (context -> unit) * test_modifier option 
+    Test of string * (context -> unit) * test_modifier option
   | Suite of string * test list
 
 (*****************************************************************************)
@@ -107,7 +107,7 @@ structure TestFramework : TESTFRAMEWORK =
      * to side-effectively update the snapshots on failure.
      *)
     fun modify_test modifier test =
-      case test of 
+      case test of
         Test (s, test, _) => Test (s, test, SOME modifier)
       | Suite (s, tests) => Suite (s, List.map (fn test => modify_test modifier test) tests)
 
@@ -137,23 +137,23 @@ structure TestFramework : TESTFRAMEWORK =
         fun handle_test ctx (test_name, test_fn, modifier) =
           let
             val ctx = set_test_name ctx test_name
-            val passed = 
+            val passed =
               ( test_fn ctx
               ; true
               )
-              handle TestFail s => 
+              handle TestFail s =>
                 ( print (border ^ "\n")
                 ; print (red "Failure: " ^ lightblue test_name ^ "\n\n")
                 ; print (s ^ "\n")
                 ; false
                 )
           in
-            ( case modifier of 
+            ( case modifier of
                 NONE => ()
-              | SOME { after_fn } => after_fn passed 
-            ; if passed then 
+              | SOME { after_fn } => after_fn passed
+            ; if passed then
                 (1, 0)
-              else 
+              else
                 (0, 1)
             )
           end
@@ -180,7 +180,7 @@ structure TestFramework : TESTFRAMEWORK =
                     tests
                 )
 
-        (* !! here we run the tests !! 
+        (* !! here we run the tests !!
          *)
         val ((passed, failed), time) =
           with_time_str (fn () => run' base_context test)

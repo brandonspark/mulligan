@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -15,15 +15,15 @@ open PrettyPrintAst
 (* Prelude *)
 (*****************************************************************************)
 (* Type-checking and everything type-related.
- * 
+ *
  * While the debugger generally assumes a compiling program, and a debugger
- * need only be able to display the dynamic behavior of a program, we'd like 
+ * need only be able to display the dynamic behavior of a program, we'd like
  * it such that the debugger could also support commands that printed out the
  * types of bound variables.
  *
  * This is impossible without implementing the statics of ML, so here we are.
  *
- * In reality, I'm pretty sure that this entire file is a waste of time, but 
+ * In reality, I'm pretty sure that this entire file is a waste of time, but
  * hey, features.
  *)
 
@@ -59,7 +59,7 @@ signature STATICS =
   sig
     (* This file is best separated from the rest of the debugger, and there are
      * four output formats that the statics can return useful information in,
-     * when running the statics on a declaration. 
+     * when running the statics on a declaration.
      *
      * These are in declaring a value, declaring a function, returning just
      * a new context, and returning a continuation.
@@ -85,7 +85,7 @@ signature STATICS =
 
     exception Mismatch of string
 
-    (* i no longer understand this absty nonsense 
+    (* i no longer understand this absty nonsense
      *)
     (* !!can raise Mismatch!!
      *)
@@ -106,7 +106,7 @@ signature STATICS =
       -> (SMLSyntax.symbol * Context.value * SMLSyntax.tyval) list * Context.t * SMLSyntax.exp
 
     (* match_pat ctx pat v ty
-     * returns the bindings produced by matching value `v` of type `ty` 
+     * returns the bindings produced by matching value `v` of type `ty`
      * against pattern `pat`
      * !!can raise Mismatch!!
      *)
@@ -116,7 +116,7 @@ signature STATICS =
       -> Context.value
       -> SMLSyntax.tyval
       -> (SMLSyntax.symbol * Context.value * SMLSyntax.tyval) list
-  end 
+  end
 
 (*****************************************************************************)
 (* Helpers *)
@@ -178,9 +178,9 @@ fun get_fname_args_info synth_pat fname_args ctx =
   let
     fun bindings_and_tys_of_pats ctx pats =
       let
-        val (bindings_list, pat_tys) = 
+        val (bindings_list, pat_tys) =
           pats
-          |> List.map (fn pat => synth_pat ctx pat) 
+          |> List.map (fn pat => synth_pat ctx pat)
           |> ListPair.unzip
       in
         (List.concat bindings_list, pat_tys)
@@ -214,7 +214,7 @@ fun get_fname_args_info synth_pat fname_args ctx =
           )
         end
   end
-  
+
 (*****************************************************************************)
 (* Tyvars and quantification *)
 (*****************************************************************************)
@@ -728,7 +728,7 @@ structure Statics : STATICS =
             )
             (synth ctx exp, new ())
             matches
-          |> snd 
+          |> snd
       | Efn (matches, _) =>
           List.foldl
             (fn ({pat, exp}, (pat_ty, body_ty)) =>
@@ -769,15 +769,15 @@ structure Statics : STATICS =
            * through the context, as a unification var might be spawned at any
            * time by relying on a value which has already been bound in the
            * context.
-           * 
+           *
            * For instance, take the following program:
-           * val x = 
+           * val x =
                fn (x : 'a) =>
-                 let 
+                 let
                    val f = fn (y : 'b) => if true then x else y
-                 in 
+                 in
                    f 2
-                 end 
+                 end
            *
            * The question: Can the binding of `f` be polymorphically generalized?
            * The answer is that it can't. This is because, even though it purports
@@ -839,7 +839,7 @@ structure Statics : STATICS =
               val search_fn =
                 fn tyvar =>
                   List.find (fn (tyvar', _) => SH.tyvar_eq (tyvar, tyvar')) paired_tys
-                  |> Option.map snd 
+                  |> Option.map snd
             in
               quantify_tyval search_fn ctx tyval
             end
@@ -922,8 +922,8 @@ structure Statics : STATICS =
          *)
         val _ =
           ListPair.zipEq (valbinds, pat_tys)
-          |> List.map (fn ({exp, ...}, pat_ty) => 
-              unify ctx (synth exp_ctx exp) pat_ty 
+          |> List.map (fn ({exp, ...}, pat_ty) =>
+              unify ctx (synth exp_ctx exp) pat_ty
           )
 
         (* These are the final, polymorphically generalized bindings.
@@ -1011,14 +1011,14 @@ structure Statics : STATICS =
                   let
                     val (id, bindings, pat_tys) = get_fname_args_info synth_pat fname_args ctx
                   in
-                    (* Unify with this given return type 
+                    (* Unify with this given return type
                      *)
                     ( unify_opt ty
                     ; (id, pat_tys, (bindings, exp))
                     )
                   end
                 )
-                |> List.foldr (fn ((new_id, new_pat_tys, new_clause_info), acc) => 
+                |> List.foldr (fn ((new_id, new_pat_tys, new_clause_info), acc) =>
                   case acc of
                     NONE => SOME (new_id, new_pat_tys, [new_clause_info])
                   | SOME (id, pat_tys, clause_info) =>
@@ -1029,25 +1029,25 @@ structure Statics : STATICS =
                         (`"Function clauses have different names "fi" and "fi"")
                                                                   id      new_id
                     else
-                      (* Unify the argument pat types 
+                      (* Unify the argument pat types
                        *)
-                      ( ListPair.zipEq (pat_tys, new_pat_tys) 
+                      ( ListPair.zipEq (pat_tys, new_pat_tys)
                         |> List.map (fn (pat_ty1, pat_ty2) => unify ctx pat_ty1 pat_ty2)
-                      ; SOME (id, pat_tys, new_clause_info :: clause_info)  
+                      ; SOME (id, pat_tys, new_clause_info :: clause_info)
                       )
                 )
                 NONE
                 |> (fn NONE => raise Fail "shouldn't happen"
                    | SOME (id, pat_tys, info_by_clause) =>
                      let
-                       val fn_type = 
+                       val fn_type =
                           List.foldr
                             (fn (pat_ty, acc) =>
                               TVarrow (pat_ty, acc)
                             )
                             out_ty
                             pat_tys
-                       val fn_binding = (id, fn_type) 
+                       val fn_binding = (id, fn_type)
                      in
                        (* Here, we want to keep
                         * 1) the binding of each function
@@ -1069,10 +1069,10 @@ structure Statics : STATICS =
          * type (in the context of its argument bindings) unifies with every
          * other clause's type.
          *)
-        val () = 
+        val () =
           info_per_fn
           |> List.app (fn (clause_infos, out_ty) =>
-            (* THINK: Verify the `id` and `pat_tys` are not needed here. 
+            (* THINK: Verify the `id` and `pat_tys` are not needed here.
              *)
             clause_infos
             |> List.app (fn (clause_bindings, clause_exp) =>
@@ -1095,7 +1095,7 @@ structure Statics : STATICS =
          *)
         val quantified_bindings =
           bindings_per_fn
-          (* Functions are non-expansive. 
+          (* Functions are non-expansive.
            *)
           |> List.map (fn binding => (binding, true))
           |> List.map (fn binding => quantify_binding binding orig_ctx)
@@ -1451,7 +1451,7 @@ structure Statics : STATICS =
                     ( id
                     , case ty of
                         NONE =>
-                          SH.concrete_tyscheme Basis.exn_ty 
+                          SH.concrete_tyscheme Basis.exn_ty
                       | SOME ty =>
                           SH.concrete_tyscheme (TVarrow (Context.synth_ty' ctx ty, Basis.exn_ty))
                     )
@@ -1601,7 +1601,7 @@ structure Statics : STATICS =
               fun to_tyfields tyval =
                 case Context.norm_tyval ctx tyval of
                   TVprod tyvals =>
-                    ListUtils.mapi 
+                    ListUtils.mapi
                       (fn (tyval, i) => { lab = Symbol.fromValue (Int.toString i)
                                         , tyval = tyval
                                         }
@@ -1863,7 +1863,7 @@ structure Statics : STATICS =
             (* First, add all the abstract types.
              *)
             val abstydict =
-              (* TODO: Deal with equality types? 
+              (* TODO: Deal with equality types?
                *)
               SymDict.foldl
                 (fn (tyname, {equality = _, status}, abstydict) =>
@@ -2032,7 +2032,7 @@ structure Statics : STATICS =
              *)
             val cons =
               SymDict.foldl
-                (fn ( _ 
+                (fn ( _
                   , {arity = sig_arity, tyid = sig_tyid, cons = sig_cons}
                   , cons
                   ) =>

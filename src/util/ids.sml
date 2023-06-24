@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -8,8 +8,8 @@
 (* Prelude *)
 (*****************************************************************************)
 (* Unique identifiers which can be freshly generated to not clash with any
- * previously existing values. 
- * 
+ * previously existing values.
+ *
  * Because of generative functors, these can be freshly minted to create brand
  * new types which are statically distinct.
  *)

@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -9,14 +9,14 @@
 (*****************************************************************************)
 (* This library includes a wrapper over an abstract type which represents a
  * first-class continuation.
- * 
+ *
  * First-class continuations are used liberally throughout mulligan to be able
  * to facilitate a smooth interaction between the interactive top-level and the
- * code running the debugger. 
- * 
- * First-class continuations are notoriously tricky to work with, however, so 
+ * code running the debugger.
+ *
+ * First-class continuations are notoriously tricky to work with, however, so
  * we wrap it in an abstract type so that we can allow easy refactoring if we
- * want to augment these continuations with any other additional metadata.  
+ * want to augment these continuations with any other additional metadata.
  *)
 
 (*****************************************************************************)
@@ -34,7 +34,7 @@ signature CONT =
     val do_after : 'a t -> ('a -> 'a) -> 'a t
 
     val get_id : 'a t -> int
-  end 
+  end
 
 (*****************************************************************************)
 (* Implementation *)

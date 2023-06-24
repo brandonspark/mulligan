@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -11,9 +11,9 @@ structure TC = TerminalColors
 (* Prelude *)
 (*****************************************************************************)
 (* The top-level entry point for the `mulligan` program.
- * 
+ *
  * This is where everything starts.
- * 
+ *
  * Here, we first handle all the command-line arguments before dispatching to
  * the actual interactive loop.
  *)
@@ -30,7 +30,7 @@ fun handle_file config cur_path filename ctx =
     val filename =
       if OS.Path.isAbsolute filename then
         filename
-      else 
+      else
         OS.Path.mkCanonical (OS.Path.concat (cur_path, filename))
 
     val dir = OS.Path.dir filename
@@ -39,7 +39,7 @@ fun handle_file config cur_path filename ctx =
         (_, NONE) =>
           warn ctx (InvalidExt filename)
       | (#"$", _) =>
-          warn ctx (GeneralWarning { filename = filename 
+          warn ctx (GeneralWarning { filename = filename
                                    , reason = "Anchors not yet supported."
                                    , span = NONE
                                    }
@@ -50,8 +50,8 @@ fun handle_file config cur_path filename ctx =
           Run.run config
             (Source.loadFromFile (FilePath.fromUnixPath filename))
             ctx
-      (* On a `cm` file, we transitively parse the dependencies, and handle 
-       * the files described within. 
+      (* On a `cm` file, we transitively parse the dependencies, and handle
+       * the files described within.
        *)
       | (_, SOME "cm") =>
           (case CM_Parser.parse_file filename of
@@ -61,7 +61,7 @@ fun handle_file config cur_path filename ctx =
                 val ctx' =
                   List.foldl
                     (fn (source, ctx) =>
-                      handle_file config dir 
+                      handle_file config dir
                         ( case source of
                           CM_Token.PATH sym => Symbol.toValue sym
                         | CM_Token.STRING s => s
@@ -85,7 +85,7 @@ fun handle_file config cur_path filename ctx =
 and file_error_handler path exn =
   case exn of
     Signal (SigError error) =>
-      let 
+      let
         val error_msg =
           surround TC.softred <|
             (case error of
@@ -142,11 +142,11 @@ structure Top =
         val doHelp = CommandLineArgs.parseFlag "help"
         val no_color = CommandLineArgs.parseBool "no-color" false
 
-        val config = 
+        val config =
           { step_handler = Run.interactive_handler
           , running = false
-          , print_flag = true 
-          , colored_output = not no_color 
+          , print_flag = true
+          , colored_output = not no_color
           , commands = [] : Directive.t list
           }
       in

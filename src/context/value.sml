@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -71,7 +71,7 @@ fun set_modspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) new 
     , modspecs = new
     }
 
-(* Search through a sigval to map a module by a particular longid a.b.c . 
+(* Search through a sigval to map a module by a particular longid a.b.c .
  *)
 fun map_sigval_module (sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) longid f =
   case longid of
@@ -123,7 +123,7 @@ structure Value : VALUE =
   struct
     open SMLSyntax
 
-    type t = value 
+    type t = value
 
     (* VALUE STUFF *)
 
@@ -173,13 +173,13 @@ structure Value : VALUE =
 
     fun exp_is_value ctx exp =
       case exp of
-        Enumber _ 
-      | Estring _ 
-      | Echar _ 
-      | Eselect _ 
-      | Eunit 
-      | Eident _ 
-      | Efn _ => true 
+        Enumber _
+      | Estring _
+      | Echar _
+      | Eselect _
+      | Eunit
+      | Eident _
+      | Efn _ => true
       | Erecord fields =>
           List.foldr
             (fn ({exp, lab = _}, acc) =>
@@ -209,7 +209,7 @@ structure Value : VALUE =
            Context.is_con ctx [id] (* THINK: or is exn? *)
            andalso exp_is_value ctx left
            andalso exp_is_value ctx right
-      | Etyped {exp, ...} => exp_is_value ctx exp 
+      | Etyped {exp, ...} => exp_is_value ctx exp
       | ( Eseq _ (* THINK: eseq singleton? *)
         | Eapp _
         | Elet _
@@ -219,7 +219,7 @@ structure Value : VALUE =
         | Eraise _
         | Eif _
         | Ewhile _
-        | Ecase _ ) => false 
+        | Ecase _ ) => false
       | Ehole => raise Fail "shouldn't happen?"
 
 

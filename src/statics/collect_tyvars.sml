@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -10,7 +10,7 @@
 (* Collecting information about both formal type variables in the concrete
  * syntax of the program, as well as unification variables spawned over the
  * course of the program's execution.
- * 
+ *
  * This information is useful for the statics, where we may need to occasionally
  * figure out which type variables are in scope.
  *)

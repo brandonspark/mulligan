@@ -1,4 +1,4 @@
-(** Brandon Wu 
+(** Brandon Wu
   *
   * Copyright (c) 2022-2023
   * See the file LICENSE for details.
@@ -70,7 +70,7 @@ structure Context :
     val add_abstys : t -> S.type_scheme AbsIdDict.dict -> t
     val add_scoped_tyvars : t -> SymSet.set -> t
 
-    (* cm_export path init_ctx after_ctx exports =>* restricted_ctx 
+    (* cm_export path init_ctx after_ctx exports =>* restricted_ctx
      * where `restricted_ctx` is the result of adding just the
      * described `exports` from `after_ctx` to `init_ctx`.
      *)
@@ -495,7 +495,7 @@ structure Context :
             iter_scopes
               (fn scope =>
                 case (SymDict.find (scope_identdict scope) x) of
-                  SOME (id_info) => SOME (id_info_to_value id id_info) 
+                  SOME (id_info) => SOME (id_info_to_value id id_info)
                 | _ => NONE)
               (ctx_scopes ctx)
         | _ =>
@@ -937,7 +937,7 @@ structure Context :
             bindings
             |> List.foldl (fn ((id, value), identdict) =>
                  SymDict.insert identdict id (V value)
-               ) 
+               )
                SymDict.empty
             |> scope_set_identdict scope
             |> ctx_rec
