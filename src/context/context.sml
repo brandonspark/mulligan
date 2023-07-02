@@ -495,13 +495,13 @@ structure Context :
             iter_scopes
               (fn scope =>
                 case (SymDict.find (scope_identdict scope) x) of
-                  SOME (id_info) => SOME (id_info_to_value id id_info)
+                  SOME id_info => SOME (id_info_to_value id id_info)
                 | _ => NONE)
               (ctx_scopes ctx)
         | _ =>
             get_base (fn (id, scope) =>
                        case SymDict.find (scope_identdict scope) id of
-                         SOME (id_info) => id_info_to_value [id] id_info
+                         SOME id_info => id_info_to_value [id] id_info
                        | _ => raise CouldNotFind) ctx id
       ) handle CouldNotFind => NONE
 

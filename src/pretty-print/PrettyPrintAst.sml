@@ -192,7 +192,7 @@ struct
       l
 
   (* Put the list of documents together in the right order. *)
-  fun combine_list space smush [] = text_syntax ""
+  fun combine_list _ _ [] = text_syntax ""
     | combine_list space smush (first::rest) =
     let
       val result = List.foldl (if space then op$$< else op//<) first rest
@@ -640,7 +640,6 @@ struct
         val p_atexp = p_atexp ctx
         val color = white
         val p_id = p_id color
-        val p_constr = p_longid heavyblue
         val p_longid = p_longid color
         val text = text color
       in
@@ -841,7 +840,6 @@ struct
       let
         val p_exp = p_exp_ ctx
         val color = white
-        val p_constr = p_longid heavyblue
         val p_longid = p_longid color
       in
       case exp of
@@ -1119,7 +1117,7 @@ struct
                 )
               end
           )
-      | Dfun {tyvars, fvalbinds} =>
+      | Dfun {tyvars = _, fvalbinds} =>
           (* TODO: pretty print tyvars *)
           let
             fun get_fname_args_id fname_args =
@@ -1954,7 +1952,7 @@ struct
             in
               report new_ctx bound_ids (DOC doc) (n - 1) rest
             end
-        | (n, FBODY sym :: rest) => (* TODO? *) report ctx empty_set doc n rest
+        | (n, FBODY _ :: rest) => (* TODO? *) report ctx empty_set doc n rest
         | (n, [PROG topdecs]) =>
           let
             val (doc, bound_ids) = p_ast ctx (Thole :: topdecs)
@@ -2044,12 +2042,7 @@ struct
         )
         ^ "}"
 
-      fun show_set f s =
-        "{" ^ (String.concatWith ", " (List.map f (SymSet.toList s))) ^ "}"
-
-      val show_doc = PD.toString true
-
-      fun show_scope (Scope {identdict, moddict, infixdict, ...}) =
+      fun show_scope (Scope {identdict, ...}) =
         "< valdict: " ^ show_dict (show_id_info ctx) identdict ^ ">"
       (* ^ "  condict: " ^ set_toString Symbol.toValue condict ^ "\n"
       ^ "  exndict: " ^ set_toString Symbol.toValue exndict ^ "\n"

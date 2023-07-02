@@ -94,7 +94,7 @@ and file_error_handler path exn =
                 ^ lightblue filename ^ ": Cannot parse evaluated file\n"
                 ^ "Remaining tokens: " ^ lightblue (String.concatWith " " (List.take (rest, 20))) ^ "\n"
             (* TODO: why do I not use the reason here? *)
-            | LexError {reason, pos, rest} =>
+            | LexError {reason = _, pos = _, rest} =>
                 "Lex failure\n"
                 ^ lightblue path ^ ": Cannot lex evaluated file\n"
                 ^ "Remaining tokens: "

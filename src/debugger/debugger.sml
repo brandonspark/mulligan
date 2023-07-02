@@ -324,7 +324,7 @@ structure Debugger : DEBUGGER =
                     in
                       if !(#pause_app (Context.get_settings ctx)) then
                         case left of
-                          Vfn { matches = [ {pat, exp = Efn (_, _)}], break, ... } =>
+                          Vfn { matches = [ {pat = _, exp = Efn (_, _)}], ... } =>
                             (* We might be interested in an expression which looks like
                             * v1 v2
                             * If `v1` is a curried function, then we might not be interested
@@ -744,7 +744,7 @@ structure Debugger : DEBUGGER =
           in
             ListUtils.fold_with_tail
               (* THINK: should i use `recc`? *)
-              (fn ({recc, pat, exp}, rest, pairs) =>
+              (fn ({recc = _, pat, exp}, rest, pairs) =>
                 let
                   val break_assigns = !(Context.get_break_assigns ctx)
 

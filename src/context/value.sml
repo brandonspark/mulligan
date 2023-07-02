@@ -53,7 +53,7 @@ fun merge_sigvals (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs})
     , modspecs = SymDict.union modspecs modspecs' (fn (_, _, snd) => snd)
     }
 
-fun replace_tyspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) new =
+fun replace_tyspecs (Sigval {valspecs, tyspecs = _, dtyspecs, exnspecs, modspecs}) new =
   Sigval
     { valspecs = valspecs
     , tyspecs = new
@@ -62,7 +62,7 @@ fun replace_tyspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) n
     , modspecs = modspecs
     }
 
-fun set_modspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) new =
+fun set_modspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs = _}) new =
   Sigval
     { valspecs = valspecs
     , tyspecs = tyspecs
@@ -73,7 +73,7 @@ fun set_modspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) new 
 
 (* Search through a sigval to map a module by a particular longid a.b.c .
  *)
-fun map_sigval_module (sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) longid f =
+fun map_sigval_module (sigval as Sigval {modspecs, ...}) longid f =
   case longid of
     [] => f sigval
   | outer::rest =>
@@ -160,16 +160,16 @@ structure Value : VALUE =
                  , id = id
                  , right = value_to_exp right
                  }
-      | Vexn {name, exnid, arg} =>
+      | Vexn {name, exnid = _, arg} =>
           (case arg of
             NONE => Eident {opp = false, id = name}
           | SOME arg => Eapp { left = Eident {opp = false, id = name}
                              , right = value_to_exp arg
                              }
           )
-      | Vfn {matches, env, rec_env, ...} => Efn (matches, SOME env)
+      | Vfn {matches, env, ...} => Efn (matches, SOME env)
       (* For basis values *)
-      | Vbasis {name, function, is_infix = _ } => Eident {opp = false, id = [name]}
+      | Vbasis {name, ...} => Eident {opp = false, id = [name]}
 
     fun exp_is_value ctx exp =
       case exp of
@@ -202,7 +202,7 @@ structure Value : VALUE =
             true
             exps
       | Eparens exp => exp_is_value ctx exp
-      | Eapp {left = Eident {opp, id}, right} =>
+      | Eapp {left = Eident {id, ...}, right} =>
           Context.is_con ctx id (* THINK: or is exn? *)
           andalso exp_is_value ctx right
       | Einfix {left, id, right} =>
@@ -236,7 +236,7 @@ structure Value : VALUE =
             SOME (Vconstr {id = id, arg = NONE})
           else
             SOME (Context.get_val ctx id)
-      | Efn (matches, SOME env) => raise Fail "should probably not happen"
+      | Efn (_, SOME _) => raise Fail "should probably not happen"
       | Efn (matches, NONE) =>
           (* The only reason to do an exp to value on a verbatim Efn is if it
            * was a bona fide literal lambda expression, ergo non-recursive.
@@ -274,7 +274,7 @@ structure Value : VALUE =
           |> Option.map (fn fields => Vtuple fields)
 
       | Eparens exp => exp_to_value ctx exp
-      | Eapp {left = Eident {opp, id}, right} =>
+      | Eapp {left = Eident {id, ...}, right} =>
           if Context.is_con ctx id then
             Option.map
               (fn exp => Vconstr {id = id, arg = SOME exp})
@@ -341,7 +341,7 @@ structure Value : VALUE =
           value_eq (left, left') andalso Symbol.eq (id, id') andalso value_eq (right, right')
       | (Vfn _, Vfn _) => false
       (* For basis values *)
-      | (Vbasis {name, function, is_infix = _}, Vbasis {name = name', ...}) =>
+      | (Vbasis {name, ...}, Vbasis {name = name', ...}) =>
           Symbol.eq (name, name')
       | _ => false
 
@@ -358,7 +358,7 @@ structure Value : VALUE =
             (SOME _, SOME _) => prog_err "should be impossible"
           | (SOME { status = Abstract (_, id), ... }, _) => SOME (TVabs (tyvals, id))
           | (SOME { status = Concrete (_, ty_fn), ... }, _) => SOME (ty_fn tyvals)
-          | (_, SOME {arity, tyid, cons}) => SOME (TVapp (tyvals, tyid))
+          | (_, SOME {tyid, ...}) => SOME (TVapp (tyvals, tyid))
           | (NONE, NONE) => NONE
 
         (* This function is supposed to allow us to get the type scheme which
@@ -380,7 +380,7 @@ structure Value : VALUE =
          *)
         fun share_type allow_concrete equality_flag tyspecs tycon absid =
           case SymDict.find tyspecs tycon of
-            SOME {equality, status = Abstract (n, absid')} =>
+            SOME {equality = _, status = Abstract (n, absid')} =>
               (case absid of
                 NONE => (SOME (Abstract (n, absid')), tyspecs)
               | SOME (Abstract (n', new_absid)) =>
@@ -397,7 +397,7 @@ structure Value : VALUE =
                     )
               | SOME (Concrete _) => prog_err "sharing type on non-abstract type"
               )
-          | SOME {equality, status = Concrete res} =>
+          | SOME {equality = _, status = Concrete res} =>
               if allow_concrete then
                 (SOME (Concrete res), tyspecs)
               else
@@ -450,7 +450,7 @@ structure Value : VALUE =
          *)
         val absids =
           SymDict.foldl
-            (fn (_, {equality, status}, acc) =>
+            (fn (_, {equality = _, status}, acc) =>
               case status of
                 Abstract (_, id) => id :: acc
               | _ => acc
@@ -617,7 +617,7 @@ structure Value : VALUE =
                   (fn ({id, ty, ...}, exnspecs) =>
                     SymDict.insert exnspecs id
                       (case ty of
-                        NONE => (0, fn tyvals => Basis.exn_ty)
+                        NONE => (0, fn _ => Basis.exn_ty)
                       | SOME ty =>
                           append_type_scheme
                             (get_type_scheme [] ty)
@@ -658,7 +658,7 @@ structure Value : VALUE =
         (* TODO: type stuff *)
         | SPsharing_type {spec, tycons} =>
             let
-              val sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs} =
+              val sigval =
                 evaluate_spec ctx spec sigval
 
             in
@@ -666,7 +666,7 @@ structure Value : VALUE =
             end
         | SPsharing {spec, tycons} =>
             let
-              val sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs} =
+              val sigval =
                 evaluate_spec ctx spec sigval
 
               val mod_tys =
@@ -678,7 +678,7 @@ structure Value : VALUE =
                     let
                       val Sigval sigval = get_sigval_module sigval longstrid
                     in
-                      SymDict.foldl (fn (tyname, tyscheme, mod_tys) =>
+                      SymDict.foldl (fn (tyname, _, mod_tys) =>
                         SymDict.insertMerge
                           mod_tys
                           tyname
@@ -714,7 +714,7 @@ structure Value : VALUE =
         Sident sym =>
           get_sig ctx sym
       | Sspec spec => evaluate_spec ctx spec empty_sigval
-      | Swhere {signat, wheretypee} =>
+      | Swhere {signat, wheretypee = _} =>
           (* TODO: type stuff *)
           evaluate_signat ctx signat
 

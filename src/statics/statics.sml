@@ -625,7 +625,7 @@ structure Statics : STATICS =
                     Printf.cprintf ctx (`"Selecting nonexistent field "fi" in record type "ftv"")
                                                                       sym            (TVrecord fields)
                     |> type_err
-                | SOME {lab, tyval} => tyval
+                | SOME {lab = _, tyval} => tyval
                 )
             | right_ty =>
                 Printf.cprintf ctx (`"Selecting field "fi" from incompatible type "ftv"")
@@ -1664,7 +1664,7 @@ structure Statics : STATICS =
             let
               fun to_tuple tyval =
                 case Context.norm_tyval ctx tyval of
-                  TVrecord fields =>
+                  TVrecord _ =>
                     raise Fail "TODO: change record to tuple"
                 | TVprod tyvals => tyvals
                 | _ => raise Fail "TODO"
@@ -1783,7 +1783,7 @@ structure Statics : STATICS =
               | _ => raise Fail "TODO"
             else
               raise Mismatch "idents not equal"
-        | (Ptyped {pat, ty}, _, _) =>
+        | (Ptyped {pat, ty = _}, _, _) =>
             (* TODO: maybe don't ignore this
              * The reason why this doesn't actually check is because this will
              * cause something like:
@@ -1855,7 +1855,7 @@ structure Statics : STATICS =
     fun ascribe ctx (scope as Scope {identdict, valtydict, moddict, infixdict = _, tynamedict}) seal =
       case seal of
         NONE => scope
-      | SOME {opacity, sigval = Sigval { valspecs, tyspecs, dtyspecs, exnspecs, modspecs }} =>
+      | SOME {opacity = _, sigval = Sigval { valspecs, tyspecs, dtyspecs, exnspecs, modspecs }} =>
           (* THINK: Should I use the opacity here? *)
           let
             val dtydict = Context.get_dtydict ctx
@@ -2085,7 +2085,7 @@ structure Statics : STATICS =
             val (new_valtydict, new_identdict) =
               SymDict.foldl
                 (* TODO: these absids should be used at some point *)
-                (fn (id, (sig_tyscheme, absids), (acc_valtydict, acc_identdict)) =>
+                (fn (id, (sig_tyscheme, _), (acc_valtydict, acc_identdict)) =>
                   let
                     val (_, mod_tyscheme) = SymDict.lookup valtydict id
                   in
@@ -2103,7 +2103,7 @@ structure Statics : STATICS =
                           (Vsign, sig_tyscheme)
                       , case SymDict.find identdict id of
                           (* TODO: these abstys should be used at some point *)
-                          SOME (V (Vfn {matches, env, abstys, rec_env, break})) =>
+                          SOME (V (Vfn {matches, env, abstys = _, rec_env, break})) =>
                             SymDict.insert
                               acc_identdict
                               id

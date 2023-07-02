@@ -8,5 +8,4 @@ fixity-across-files = true
 [diagnostics]
 4014.severity = "ignore"
 4030.severity = "ignore"
-5029.severity = "ignore"
 5034.severity = "ignore"
