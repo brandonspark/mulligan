@@ -675,7 +675,7 @@ struct
                    *)
                 | SOME (Vfn {rec_env = SOME _, ...}) =>
                     p_longid id
-                | SOME value => p_value ctx value
+                | SOME value => p_atvalue ctx value
                 )
             in
               if opp then
