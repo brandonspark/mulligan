@@ -138,11 +138,14 @@ structure TestFramework : TESTFRAMEWORK =
           let
             val ctx = set_test_name ctx test_name
             val passed =
-              ( test_fn ctx
+              ( print ("Running test (" ^ lightblue test_name ^ ") ... ")
+              ; test_fn ctx
+              ; print (green "[PASS]\n")
               ; true
               )
               handle TestFail s =>
-                ( print (border ^ "\n")
+                ( print (red "[FAIL]\n") 
+                ; print (border ^ "\n")
                 ; print (red "Failure: " ^ lightblue test_name ^ "\n\n")
                 ; print (s ^ "\n")
                 ; false
@@ -199,7 +202,9 @@ structure TestFramework : TESTFRAMEWORK =
         ; if failed = 0 then
             print (green "All tests passed.\n")
           else
-            print <| spf (`""fs": "fs" test cases.\n") (red "FAILED") (Int.toString failed)
+            ( print <| spf (`""fs": "fs" test cases.\n") (red "FAILED") (Int.toString failed)
+            ; OS.Process.exit OS.Process.failure 
+            )
         )
       end
   end

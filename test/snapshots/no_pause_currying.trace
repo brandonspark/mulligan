@@ -3,7 +3,6 @@ Evaluating file test/snapshots/no_pause_currying.sml...
 ----------------------------------------------------------
 
 Loaded program:
-
 val _ = (fn x => fn y => 3) 2 4
 val _ = "done"
 

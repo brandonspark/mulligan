@@ -3,7 +3,6 @@ Evaluating file test/snapshots/test.sml...
 ----------------------------------------------------------
 
 Loaded program:
-
 val x = 2
 
 - ==> 
