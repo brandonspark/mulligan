@@ -324,7 +324,7 @@ structure Debugger : DEBUGGER =
                     in
                       if !(#pause_app (Context.get_settings ctx)) then
                         case left of
-                          Vfn { matches = [ {pat = _, exp = Efn (_, _)}], ... } =>
+                          Vfn { matches = [ {pat = _, exp = Efn (_, _)}], break = _, rec_env = _, abstys = _, env = _ } =>
                             (* We might be interested in an expression which looks like
                             * v1 v2
                             * If `v1` is a curried function, then we might not be interested

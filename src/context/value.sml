@@ -73,7 +73,7 @@ fun set_modspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs = _}) 
 
 (* Search through a sigval to map a module by a particular longid a.b.c .
  *)
-fun map_sigval_module (sigval as Sigval {modspecs, ...}) longid f =
+fun map_sigval_module (sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) longid f =
   case longid of
     [] => f sigval
   | outer::rest =>
@@ -169,7 +169,7 @@ structure Value : VALUE =
           )
       | Vfn {matches, env, ...} => Efn (matches, SOME env)
       (* For basis values *)
-      | Vbasis {name, ...} => Eident {opp = false, id = [name]}
+      | Vbasis {name, function, is_infix = _} => Eident {opp = false, id = [name]}
 
     fun exp_is_value ctx exp =
       case exp of
@@ -341,7 +341,7 @@ structure Value : VALUE =
           value_eq (left, left') andalso Symbol.eq (id, id') andalso value_eq (right, right')
       | (Vfn _, Vfn _) => false
       (* For basis values *)
-      | (Vbasis {name, ...}, Vbasis {name = name', ...}) =>
+      | (Vbasis {name, function = _, is_infix = _}, Vbasis {name = name', ...}) =>
           Symbol.eq (name, name')
       | _ => false
 
