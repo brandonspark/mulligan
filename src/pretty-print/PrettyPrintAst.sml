@@ -1673,15 +1673,20 @@ struct
           let
             val (topdec_doc, bound_ids) = p_topdec' ctx topdec
           in
-            ( acc $$ topdec_doc
+            ( case acc of 
+                NONE => SOME (topdec_doc)
+              | SOME acc => SOME (acc $$ topdec_doc)
             , Binding.remove_bound_ids ctx bound_ids
             , MarkerSet.union acc_boundids bound_ids
             )
           end
         )
-        (text_syntax "", ctx, empty_set)
+        (NONE, ctx, empty_set)
         ast
-      |> (fn (doc, _, boundids) => (doc, boundids))
+      |> (fn (doc, _, boundids) => 
+            case doc of
+              NONE => (text_syntax "", boundids)
+            | SOME doc => (doc, boundids))
   end
 
 (*****************************************************************************)

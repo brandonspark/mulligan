@@ -3,7 +3,6 @@ Evaluating file test/snapshots/lem.sml...
 ----------------------------------------------------------
 
 Loaded program:
-
 datatype ('a, 'b) either = INL of 'a | INR of 'b
 type 'a lem = ('a, 'a Cont.cont) either
 val lem_proof : unit -> 'a lem =
