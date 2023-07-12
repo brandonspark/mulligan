@@ -188,7 +188,7 @@ structure Basis :
         ( self_tyid
         , 1
         , [ ("::", forall_single (fn var => TVarrow (TVprod [var, listof var], listof var)))
-          , ("nil", forall_single (fn var => listof var))
+          , ("nil", forall_single listof)
           ]
         )
       end
@@ -319,9 +319,9 @@ structure Basis :
         , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "div"
-        , (fn Vtuple [Vnumber (Int _), Vnumber (Int 0)] => 
+        , (fn Vtuple [Vnumber (Int _), Vnumber (Int 0)] =>
               raise Context.Raise ([sym div_name], div_exnid, NONE)
-          | Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 div i2)) 
+          | Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 div i2))
           | _ => eval_err "invalid args to div"
           )
         , true
@@ -356,7 +356,7 @@ structure Basis :
         , TVarrow (TVprod [int_ty, int_ty], bool_ty)
         )
       , ( "mod"
-        , (fn Vtuple [Vnumber (Int _), Vnumber (Int 0)] => 
+        , (fn Vtuple [Vnumber (Int _), Vnumber (Int 0)] =>
               raise Context.Raise ([sym div_name], div_exnid, NONE)
           | Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 mod i2))
           | _ => eval_err "invalid args to div"
@@ -499,10 +499,10 @@ structure Basis :
               )
               (* TODO: equality types *)
               , ( "@"
-                , (fn Vtuple [Vlist l1, Vlist l2] => Vlist (l1 @ l2)  
+                , (fn Vtuple [Vlist l1, Vlist l2] => Vlist (l1 @ l2)
                   | _ => eval_err "invalid arg to `@`"
                   )
-                , true 
+                , true
                 , ( Vsign
                   , SH.guard_tyscheme
                     (1, fn [tyval] => TVarrow (TVprod [mk_list_ty tyval, mk_list_ty tyval], mk_list_ty tyval)
@@ -535,7 +535,7 @@ structure Basis :
             )
           , ( "throw"
             , (fn Vbasis {function, name, is_infix} =>
-                Vbasis { function = fn x => function x
+                Vbasis { function = function
                        , name = sym ("throw[" ^ Symbol.toValue name ^ "]")
                        , is_infix = is_infix
                        }
@@ -633,7 +633,7 @@ structure Basis :
       , settings =
           { break_assigns = ref SymSet.empty
           , substitute = ref true
-          , print_all = ref false 
+          , print_all = ref false
           , print_dec = ref true
           , print_depth = ref 1
           , pause_currying = ref false

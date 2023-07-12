@@ -180,7 +180,7 @@ fun get_fname_args_info synth_pat fname_args ctx =
       let
         val (bindings_list, pat_tys) =
           pats
-          |> List.map (fn pat => synth_pat ctx pat)
+          |> List.map (synth_pat ctx)
           |> ListPair.unzip
       in
         (List.concat bindings_list, pat_tys)
@@ -325,7 +325,7 @@ structure Statics : STATICS =
      *)
     fun quantify_tyval tyvar_fn ctx ty =
       let
-        val quantify_tyval = fn ctx => fn ty => quantify_tyval tyvar_fn ctx ty
+        val quantify_tyval = quantify_tyval tyvar_fn
       in
         case (Context.norm_tyval ctx ty) of
           TVtyvar sym =>
@@ -414,7 +414,7 @@ structure Statics : STATICS =
             val res =
               List.foldl
                 (fn ({lab, tyval}, acc) =>
-                  SymDict.insertMerge acc lab tyval (fn tyval' => unify ctx tyval tyval')
+                  SymDict.insertMerge acc lab tyval (unify ctx tyval)
                 )
                 SymDict.empty
                 (fields1 @ fields2)
@@ -1495,7 +1495,7 @@ structure Statics : STATICS =
                       (Context.enter_scope ctx)
                       decs
                     |> Context.enter_scope
-                    |> (fn ctx' => f (Location.CLOSURE ctx :: location) right_dec ctx')
+                    |> (f (Location.CLOSURE ctx :: location) right_dec)
                     |> Context.exit_local
                 | _ =>
                     f
@@ -1503,7 +1503,7 @@ structure Statics : STATICS =
                       left_dec
                       (Context.enter_scope ctx)
                     |> Context.enter_scope
-                    |> (fn ctx' => f (Location.CLOSURE ctx :: location) right_dec ctx')
+                    |> (f (Location.CLOSURE ctx :: location) right_dec)
                     |> Context.exit_local
               )
             )

@@ -109,7 +109,7 @@ structure TestFramework : TESTFRAMEWORK =
     fun modify_test modifier test =
       case test of
         Test (s, test, _) => Test (s, test, SOME modifier)
-      | Suite (s, tests) => Suite (s, List.map (fn test => modify_test modifier test) tests)
+      | Suite (s, tests) => Suite (s, List.map (modify_test modifier) tests)
 
     fun get_test_name (ctx : context) = #test_name ctx
 
@@ -144,7 +144,7 @@ structure TestFramework : TESTFRAMEWORK =
               ; true
               )
               handle TestFail s =>
-                ( print (red "[FAIL]\n") 
+                ( print (red "[FAIL]\n")
                 ; print (border ^ "\n")
                 ; print (red "Failure: " ^ lightblue test_name ^ "\n\n")
                 ; print (s ^ "\n")
@@ -203,7 +203,7 @@ structure TestFramework : TESTFRAMEWORK =
             print (green "All tests passed.\n")
           else
             ( print <| spf (`""fs": "fs" test cases.\n") (red "FAILED") (Int.toString failed)
-            ; OS.Process.exit OS.Process.failure 
+            ; OS.Process.exit OS.Process.failure
             )
         )
       end

@@ -1673,7 +1673,7 @@ struct
           let
             val (topdec_doc, bound_ids) = p_topdec' ctx topdec
           in
-            ( case acc of 
+            ( case acc of
                 NONE => SOME (topdec_doc)
               | SOME acc => SOME (acc $$ topdec_doc)
             , Binding.remove_bound_ids ctx bound_ids
@@ -1683,7 +1683,7 @@ struct
         )
         (NONE, ctx, empty_set)
         ast
-      |> (fn (doc, _, boundids) => 
+      |> (fn (doc, _, boundids) =>
             case doc of
               NONE => (text_syntax "", boundids)
             | SOME doc => (doc, boundids))
@@ -2085,13 +2085,12 @@ struct
 
   fun show_longid longid = PD.toString true (p_longid' longid)
 
-  fun promote' f =
-    fn ctx => fn x => f ctx x
+  fun promote' f = f
 
   val op ftv = fn z => newFormat (fn _ => fn x => show_tyval (Context.norm_tyval (Basis.initial ()) x)) z
   val op fe = fn acc => newFormat (promote' show_exp) acc
   val op fv = fn acc => newFormat (promote' show_value) acc
   val op fp = fn acc => newFormat (promote' show_pat) acc
-  val op fl = fn acc => newFormat (fn _ => fn x => show_longid x) acc
+  val op fl = fn acc => newFormat (fn _ => show_longid) acc
 
 end

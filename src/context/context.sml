@@ -1051,7 +1051,7 @@ structure Context :
 
     fun synth_ty datatype_fn tyvar_fn ctx ty =
       let
-        val synth_ty = fn ctx => fn ty => synth_ty datatype_fn tyvar_fn ctx ty
+        val synth_ty = synth_ty datatype_fn tyvar_fn
 
         fun handle_type_synonym tyvals id =
           case get_type_synonym ctx id of

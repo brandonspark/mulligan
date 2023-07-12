@@ -73,7 +73,7 @@ fun set_modspecs (Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs = _}) 
 
 (* Search through a sigval to map a module by a particular longid a.b.c .
  *)
-fun map_sigval_module (sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) longid f =
+fun map_sigval_module (sigval as Sigval {modspecs, ...}) longid f =
   case longid of
     [] => f sigval
   | outer::rest =>
@@ -169,7 +169,7 @@ structure Value : VALUE =
           )
       | Vfn {matches, env, ...} => Efn (matches, SOME env)
       (* For basis values *)
-      | Vbasis {name, function, is_infix = _} => Eident {opp = false, id = [name]}
+      | Vbasis {name, function = _, is_infix = _} => Eident {opp = false, id = [name]}
 
     fun exp_is_value ctx exp =
       case exp of
@@ -259,19 +259,19 @@ structure Value : VALUE =
             )
             fields
           |> opt_all
-          |> Option.map (fn fields => Vrecord fields)
+          |> Option.map Vrecord
       | Elist exps =>
           List.map
             (exp_to_value ctx)
             exps
           |> opt_all
-          |> Option.map (fn fields => Vlist fields)
+          |> Option.map Vlist
       | Etuple exps =>
           List.map
             (exp_to_value ctx)
             exps
           |> opt_all
-          |> Option.map (fn fields => Vtuple fields)
+          |> Option.map Vtuple
 
       | Eparens exp => exp_to_value ctx exp
       | Eapp {left = Eident {id, ...}, right} =>
@@ -649,7 +649,7 @@ structure Value : VALUE =
         | SPinclude signat =>
             merge_sigvals sigval (evaluate_signat ctx signat)
         | SPinclude_ids ids =>
-            List.map (fn id => get_sig ctx id) ids
+            List.map (get_sig ctx) ids
             |> List.foldl
                  (fn (sigval, acc_sigval) =>
                    merge_sigvals acc_sigval sigval

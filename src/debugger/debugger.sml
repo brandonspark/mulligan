@@ -1055,7 +1055,7 @@ structure Debugger : DEBUGGER =
                   (Context.enter_scope ctx)
                   strdecs
                 |> Context.enter_scope
-                |> (fn ctx' => eval_strdec (CLOSURE ctx :: location) right_dec ctx')
+                |> (eval_strdec (CLOSURE ctx :: location) right_dec)
                 |> Context.exit_local
             | _ =>
                 eval_strdec
@@ -1063,7 +1063,7 @@ structure Debugger : DEBUGGER =
                   left_dec
                   (Context.enter_scope ctx)
                 |> Context.enter_scope
-                |> (fn ctx' => eval_strdec (CLOSURE ctx :: location) right_dec ctx')
+                |> (eval_strdec (CLOSURE ctx :: location) right_dec)
                 |> Context.exit_local
           )
       | DMhole => raise Fail "shouldn't eval dmhole"
