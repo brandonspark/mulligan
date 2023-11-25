@@ -56,23 +56,6 @@ type runner_env = {
 }
 
 (*****************************************************************************)
-(* Helpers *)
-(*****************************************************************************)
-
-fun show_focus ctx location focus numopt =
-  case focus of
-    (Debugger.VAL (exp, _) | Debugger.EXP (exp, _)) =>
-      PrettyPrintAst.report
-        ctx
-        exp
-        (Option.getOpt (numopt, Context.get_print_depth ctx))
-        location
-      ^ "\n"
-  | Debugger.PROG ast => PrettyPrintAst.pretty ctx ast true ^ "\n"
-
-fun suspend x = fn () => x
-
-(*****************************************************************************)
 (* Signature *)
 (*****************************************************************************)
 
@@ -89,6 +72,64 @@ signature RUN =
   end
 
 (*****************************************************************************)
+(* Constants *)
+(*****************************************************************************)
+
+val help_message =
+  "usage: mulligan [ARGS] FILE ... FILE\n" ^
+  "Command-line arguments:\n" ^
+  "  --help             displays this message\n\n\
+  \  --no-color         disables colored output\n" ^
+
+  "Debugger commands:\n" ^
+  "  step               steps evaluation forward by one\n\
+  \  step <i>           steps evaluation forward by <i>\n\
+  \  evaluate           evaluates the currently focused subexpression to a value\n\
+  \  prev               steps evaluation backward by one\n\
+  \  prev <i>           steps evaluation backward by <i>\n\
+  \  stop               exits program\n\
+  \  reveal             reveals evaluation context by <print_depth> layers\n\
+  \  reveal <i>         reveals evaluation context by <i> layers\n\
+  \  breakfn <id>       sets a breakpoint for when the function value bound to <id>\
+                        \is invoked\n\
+  \  breakbind <id>     sets a breakpoint when the identifier <id> is bound to\n\
+  \  clear              clears all breakpoints\n\
+  \  clear <id>         clears breakpoint on function value bound to <id>\n\
+  \  run                runs program until breakpoint or end of evaluation\n\
+  \  last               rewinds evaluation until the last breakpoint\n\
+  \  print <id>         prints value bound to identifier <id>\n\
+  \  set <name> = <v>   sets the setting <name> to value <v>\n\
+  \  help               displays this message\n\n" ^
+
+  "Settings:\n" ^
+  "  substitute = <b>        substitute values for identifiers in pretty printer\n\
+  \  print_all = <b>         print entire context of program when stepping\n\
+  \  print_dec = <b>         print context until nearest val binding when stepping\n\
+  \  print_depth = <i>       print evaluation context <i> layers deep when stepping\n\
+  \  pause_currying = <b>    pause evaluation when stepping curried arguments\n\
+  \  pause_arithmetic = <b>  pause evaluation when stepping arithmetic operators \n\
+  \  pause_app = <b>         pause evaluation when stepping function application\n"
+
+(*****************************************************************************)
+(* Helpers *)
+(*****************************************************************************)
+
+fun show_focus ctx location focus numopt =
+  case focus of
+    (Debugger.VAL (exp, _) | Debugger.EXP (exp, _)) =>
+      PrettyPrintAst.report
+        ctx
+        exp
+        (Option.getOpt (numopt, Context.get_print_depth ctx))
+        location
+      ^ "\n"
+  | Debugger.PROG ast => PrettyPrintAst.pretty ctx ast true ^ "\n"
+
+fun suspend x = fn () => x
+
+fun println s = print (s ^ "\n")
+
+(*****************************************************************************)
 (* Implementation *)
 (*****************************************************************************)
 
@@ -101,40 +142,7 @@ signature RUN =
  *)
 structure Run : RUN =
   struct
-    val help_message =
-      "usage: mulligan [ARGS] FILE ... FILE\n" ^
-      "Command-line arguments:\n" ^
-      "  --help             displays this message\n\n\
-      \  --no-color         disables colored output\n" ^
-
-      "Debugger commands:\n" ^
-      "  step               steps evaluation forward by one\n\
-      \  step <i>           steps evaluation forward by <i>\n\
-      \  evaluate           evaluates the currently focused subexpression to a value\n\
-      \  prev               steps evaluation backward by one\n\
-      \  prev <i>           steps evaluation backward by <i>\n\
-      \  stop               exits program\n\
-      \  reveal             reveals evaluation context by <print_depth> layers\n\
-      \  reveal <i>         reveals evaluation context by <i> layers\n\
-      \  breakfn <id>       sets a breakpoint for when the function value bound to <id>\
-                            \is invoked\n\
-      \  breakbind <id>     sets a breakpoint when the identifier <id> is bound to\n\
-      \  clear              clears all breakpoints\n\
-      \  clear <id>         clears breakpoint on function value bound to <id>\n\
-      \  run                runs program until breakpoint or end of evaluation\n\
-      \  last               rewinds evaluation until the last breakpoint\n\
-      \  print <id>         prints value bound to identifier <id>\n\
-      \  set <name> = <v>   sets the setting <name> to value <v>\n\
-      \  help               displays this message\n\n" ^
-
-      "Settings:\n" ^
-      "  substitute = <b>        substitute values for identifiers in pretty printer\n\
-      \  print_all = <b>         print entire context of program when stepping\n\
-      \  print_dec = <b>         print context until nearest val binding when stepping\n\
-      \  print_depth = <i>       print evaluation context <i> layers deep when stepping\n\
-      \  pause_currying = <b>    pause evaluation when stepping curried arguments\n\
-      \  pause_arithmetic = <b>  pause evaluation when stepping arithmetic operators \n\
-      \  pause_app = <b>         pause evaluation when stepping function application\n"
+    val help_message = help_message
 
     (* TODO: ugly, try to think of a better way to separate this logic *)
     fun run {step_handler, running, print_flag, colored_output, commands} source ctx : Context.t =
@@ -147,8 +155,6 @@ structure Run : RUN =
               fn s => print (TC.decolorify s)
           else
             (fn _ => ())
-
-        fun println s = print (s ^ "\n")
 
         (* A store of all of the "frames" of the debugger we have
          * stepped through, since the beginning of execution.
@@ -163,7 +169,7 @@ structure Run : RUN =
         val run : run_status ref =
           ref (if running then Running else Stepping)
 
-        (* All of the identifiers that we should break up, if we bind
+        (* All of the identifiers that we should break on, if we bind
          * to them.
          *)
         val breaks : SMLSyntax.symbol option ref list ref = ref []
