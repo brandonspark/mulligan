@@ -75,7 +75,7 @@ fun file_exists path = Posix.FileSys.access (path, [])
 
 datatype either = datatype Either.t
 
-infix fs fi fli ftv fe fv fp fl
+infix fd fs fi fli ftv fe fv fp fl
 open Printf
 
 (* TODO: a thought of "modifiers"?

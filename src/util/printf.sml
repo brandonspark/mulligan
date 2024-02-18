@@ -21,6 +21,8 @@ signature PRINTF =
     val spf: (string, 'a, unit) t -> 'a
     val cprintf: 'state -> (string, 'a, 'state) t -> 'a
 
+    (* CAUTION: If you add a format flag, don't forget to add its infixity! *)
+    val fd : (int -> 'a, 'b, 'state) t * string -> ('a, 'b, 'state) t
     val fs : (string -> 'a, 'b, 'state) t * string -> ('a, 'b, 'state) t
     val fi : (Symbol.symbol -> 'a, 'b, 'state) t * string -> ('a, 'b, 'state) t
     val fli : (Symbol.symbol list -> 'a, 'b, 'state) t * string -> ('a, 'b, 'state) t
@@ -59,6 +61,7 @@ structure Printf : PRINTF =
 
     fun lightblue s = TC.foreground TC.lightblue ^ s ^ TC.reset
 
+    val fd = fn acc => newFormat (promote (fn i => Int.toString i)) acc
     val fs = fn acc => newFormat (promote (fn s => s)) acc
     val fi = fn acc => newFormat (promote (lightblue o Symbol.toValue)) acc
     val fli = fn acc => newFormat (promote (lightblue o longid_to_str)) acc

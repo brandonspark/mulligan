@@ -62,6 +62,21 @@ fun parse_commands_file cmd_file =
   |> List.map DirectiveParser.parse_opt
   |> opt_all
 
+fun diff_strings s1 s2 =
+  Common.with_file "diff1.txt" s1 (fn fd1 =>
+    Common.with_file "diff2.txt" s2 (fn fd2 =>
+      let
+        val () = redirect_to_file "diff_output.txt" (fn () =>
+          OS.Process.system "diff diff1.txt diff2.txt"
+        )
+
+        val instream = TextIO.openIn "diff_output.txt"
+      in
+        TextIO.inputAll instream
+      end
+    )
+  )
+
 (*****************************************************************************)
 (* Implementation *)
 (*****************************************************************************)
@@ -114,14 +129,17 @@ structure Snapshots =
                   )
 
                 val new_trace_contents = String.concat (IO.cat trace_file)
+
+                val diff = diff_strings trace_contents new_trace_contents
               in
                 if trace_contents = new_trace_contents then
                   ()
                 else
                   TF.assert_failure
-                  <| spf (`"Trace contents have changed -- was:\n"fs"\nnow:\n"fs"")
+                  <| spf (`"Trace contents have changed -- was:\n"fs"\nnow:\n"fs"\ndiff:\n"fs"")
                     trace_contents
                     new_trace_contents
+                    diff
               end
       in
         TF.mk_test (OS.Path.file cmd_file, test_fn)
