@@ -22,8 +22,8 @@ val _ = (SOME (1 + f (4 - 1))) handle Div => NONE
 - ==> 
 val _ =
     ( SOME
-        ( 1 + ( fn t12 =>
-                  case t12 of
+        ( 1 + ( fn t0 =>
+                  case t0 of
                     0 => 1 div 0
                   | n =>
                     1 + f (n - 1)
@@ -44,8 +44,8 @@ val _ = (SOME (1 + 1 + f (3 - 1))) handle Div => NONE
 - ==> 
 val _ =
     ( SOME
-        ( 1 + 1 + ( fn t12 =>
-                      case t12 of
+        ( 1 + 1 + ( fn t0 =>
+                      case t0 of
                         0 => 1 div 0
                       | n =>
                         1 + f (n - 1)
@@ -72,8 +72,8 @@ val _ = (SOME (1 + 1 + 1 + f (2 - 1))) handle Div => NONE
 - ==> 
 val _ =
     ( SOME
-        ( 1 + 1 + 1 + ( fn t12 =>
-                          case t12 of
+        ( 1 + 1 + 1 + ( fn t0 =>
+                          case t0 of
                             0 => 1 div 0
                           | n =>
                             1 + f (n - 1)
@@ -102,8 +102,8 @@ val _ =
 - ==> 
 val _ =
     ( SOME
-        ( 1 + 1 + 1 + 1 + ( fn t12 =>
-                              case t12 of
+        ( 1 + 1 + 1 + 1 + ( fn t0 =>
+                              case t0 of
                                 0 => 1 div 0
                               | n =>
                                 1 + f (n - 1)
@@ -144,8 +144,8 @@ val _ = (SOME (1 + g (4 - 1))) handle Div => NONE
 - ==> 
 val _ =
     ( SOME
-        ( 1 + ( fn t13 =>
-                  case t13 of
+        ( 1 + ( fn t1 =>
+                  case t1 of
                     0 => 1 mod 0
                   | n =>
                     1 + g (n - 1)
@@ -166,8 +166,8 @@ val _ = (SOME (1 + 1 + g (3 - 1))) handle Div => NONE
 - ==> 
 val _ =
     ( SOME
-        ( 1 + 1 + ( fn t13 =>
-                      case t13 of
+        ( 1 + 1 + ( fn t1 =>
+                      case t1 of
                         0 => 1 mod 0
                       | n =>
                         1 + g (n - 1)
@@ -194,8 +194,8 @@ val _ = (SOME (1 + 1 + 1 + g (2 - 1))) handle Div => NONE
 - ==> 
 val _ =
     ( SOME
-        ( 1 + 1 + 1 + ( fn t13 =>
-                          case t13 of
+        ( 1 + 1 + 1 + ( fn t1 =>
+                          case t1 of
                             0 => 1 mod 0
                           | n =>
                             1 + g (n - 1)
@@ -224,8 +224,8 @@ val _ =
 - ==> 
 val _ =
     ( SOME
-        ( 1 + 1 + 1 + 1 + ( fn t13 =>
-                              case t13 of
+        ( 1 + 1 + 1 + 1 + ( fn t1 =>
+                              case t1 of
                                 0 => 1 mod 0
                               | n =>
                                 1 + g (n - 1)

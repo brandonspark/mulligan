@@ -104,6 +104,9 @@ structure Snapshots =
               <| spf (`"Failed to parse command file "fs"") (OS.Path.file cmd_file)
           | SOME commands =>
               let
+                (* reset state between tests! *)
+                val () = FreshSym.reset ()
+
                 val config =
                   { test_mode = true
                   , skipping = false
