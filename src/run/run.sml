@@ -149,7 +149,7 @@ val store : ( Context.t
 val skipping : bool ref = ref false
 
 (* All of the identifiers that we should break on, if we bind
-  * to them. *)
+ * to them. *)
 val breaks : SMLSyntax.symbol option ref list ref = ref []
 
 (* The last command executed. *)
@@ -321,18 +321,41 @@ fun test_handler (ctx, _, _, store) exn =
 (* Core logic *)
 (*****************************************************************************)
 
+fun parse_command () =
+  case !commands of
+    cmd::rest =>
+      ( commands := rest
+      ; SOME cmd
+      )
+  | [] =>
+      let
+        val input = TextIO.input TextIO.stdIn
+      in
+        case input of
+          (* An empty input repeats the previous command.
+          *)
+          "\n" => !last_command
+        | _ =>
+          case DirectiveParser.parse_opt input of
+            NONE => NONE
+          | SOME cmd =>
+              ( last_command := SOME cmd
+              ; SOME cmd
+              )
+      end
+
 (* The step function is responsible for doing the stepping.
-  * There are only two actions `step` can take -- either it:
-  * - chooses to recurse and evaluate a sub-expression, or
-  * - it is finished evaluating an exp, and throws to a cont
-  *
-  * If the evaluation of that expression ever signals that it
-  * is at a "significant redex", it raises Perform, and we enter
-  * back into `start_loop` immediately.
-  *)
+ * There are only two actions `step` can take -- either it:
+ * - chooses to recurse and evaluate a sub-expression, or
+ * - it is finished evaluating an exp, and throws to a cont
+ *
+ * If the evaluation of that expression ever signals that it
+ * is at a "significant redex", it raises Perform, and we enter
+ * back into `start_loop` immediately.
+ *)
 fun step (ctx, location, focus) evaluate =
   let
-    val _ = push (Frame (ctx, location, focus)) store
+    val () = push (Frame (ctx, location, focus)) store
 
     (* if we finish evaluating the currently focused expression with
       * `evaluate`, we need to set the run flag back to stepping
@@ -355,8 +378,8 @@ fun step (ctx, location, focus) evaluate =
               val _ = set ()
 
               (* This ensures that once we throw back to this
-                * continuation, we continue stepping.
-                *)
+               * continuation, we continue stepping.
+               *)
               val new_cont =
                 Cont.do_after cont
                   (fn x =>
@@ -431,10 +454,10 @@ and execute_prev info num_opt =
 
 and start_loop info =
   (* If we're not running, then block for input.
-    * Otherwise, allow stepping to happen.
-    * In a sense, this means that if we are in `Running`,
-    * we implicitly do `step` automatically.
-    *)
+   * Otherwise, allow stepping to happen.
+   * In a sense, this means that if we are in `Running`,
+   * we implicitly do `step` automatically.
+   *)
   (if !skipping then
     step info false
   else
@@ -442,34 +465,11 @@ and start_loop info =
   )
 
 (* The main loop is responsible for accepting user input and controlling
-* what is done by the program.
-*)
+ * what is done by the program.
+ *)
 and main_loop (info as (ctx, location, focus)) =
   let
     fun recur _ = start_loop info
-
-    fun parse_command () =
-      case !commands of
-        cmd::rest =>
-          ( commands := rest
-          ; SOME cmd
-          )
-      | [] =>
-          let
-            val input = TextIO.input TextIO.stdIn
-          in
-            case input of
-              (* An empty input repeats the previous command.
-              *)
-              "\n" => !last_command
-            | _ =>
-              case DirectiveParser.parse_opt input of
-                NONE => NONE
-              | SOME cmd =>
-                  ( last_command := SOME cmd
-                  ; SOME cmd
-                  )
-          end
   in
   ( TextIO.output (TextIO.stdOut, "- ")
   ; TextIO.flushOut TextIO.stdOut
@@ -483,13 +483,11 @@ and main_loop (info as (ctx, location, focus)) =
     | SOME (Directive.Reveal i') =>
         let
           val print_dec = #print_dec (Context.get_settings ctx)
-          val old_setting = !print_dec
         in
-          ( print_dec := false
-          ; print' ("Revealing:\n"
+          Common.with_refval print_dec false (fn () =>
+            print' ("Revealing:\n"
                   ^ show_focus ctx location focus i'
                   ^ "\n")
-          ; print_dec := old_setting
           )
           |> recur
         end
