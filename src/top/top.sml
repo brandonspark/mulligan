@@ -143,8 +143,8 @@ structure Top =
         val no_color = CommandLineArgs.parseBool "no-color" false
 
         val config =
-          { step_handler = Run.interactive_handler
-          , running = false
+          { test_mode = false
+          , skipping = false
           , print_flag = true
           , colored_output = not no_color
           , commands = [] : Directive.t list

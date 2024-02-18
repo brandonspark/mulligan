@@ -30,6 +30,7 @@ local
   ref.sml
   test_framework.sml
   error.sml
+  common.sml
 in
   structure ListUtils
   structure PrettySimpleDoc
@@ -51,4 +52,6 @@ in
   structure Ref
   structure TestFramework
   structure Error
+
+  structure Common
 end

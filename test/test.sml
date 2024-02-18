@@ -36,8 +36,8 @@ fun mk_record fields =
   *)
 val run_test =
   Run.run
-    { step_handler = Run.test_handler
-    , running = true
+    { test_mode = true
+    , skipping = true
     , print_flag = false
     , colored_output = false
     , commands = []

@@ -90,8 +90,8 @@ structure Snapshots =
           | SOME commands =>
               let
                 val config =
-                  { step_handler = Run.interactive_handler
-                  , running = false
+                  { test_mode = true
+                  , skipping = false
                   , print_flag = true
                   (* Snapshot output should be uncolored, so that the trace
                   * files are actually human-readable.
