@@ -17,6 +17,8 @@
 signature FRESHSYM =
   sig
     val new : unit -> Symbol.symbol
+
+    val reset : unit -> unit
   end
 
 (*****************************************************************************)
@@ -34,4 +36,6 @@ structure FreshSym : FRESHSYM =
         counter := !counter + 1;
         Symbol.fromValue ("t" ^ Int.toString cur)
       end
+
+    fun reset () = counter := 0
   end
