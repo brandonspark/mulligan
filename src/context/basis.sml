@@ -5,8 +5,28 @@
   *)
 
 structure SH = SMLSyntaxHelpers
+open SMLSyntax
+open Error
 
-structure Basis :
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* An implementation of the Standard ML basis library.
+ *
+ * The debugger works by expanding definitions of identifiers and carrying out
+ * simple evaluation rules on the AST directly, but for certain built-in functions,
+ * there is no simpler way to express what the evaluation of a function does.
+ * For instance, in the case of most arithmetic operators.
+ *
+ * Thus, we are forced to implement some of the more "base" SML functions. This
+ * is where we make mulligan aware of these built-ins.
+ *)
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
+signature BASIS =
   sig
     val initial : unit -> SMLSyntax.context
 
@@ -28,185 +48,205 @@ structure Basis :
     val cons : SMLSyntax.value
 
     exception Cont of SMLSyntax.value
-  end =
-  struct
-    open SMLSyntax
-    open Error
+  end
 
-    val sym = Symbol.fromValue
+(*****************************************************************************)
+(* Helpers *)
+(*****************************************************************************)
 
-    infix |>
-    fun x |> f = f x
+val sym = Symbol.fromValue
 
-    val sym_true = sym "true"
-    val sym_false = sym "false"
+val sym_true = sym "true"
+val sym_false = sym "false"
 
-    val true_val = Vconstr { id = [sym_true], arg = NONE }
-    val false_val = Vconstr { id = [sym_false], arg = NONE }
-    fun lift_v f x = if f x then true_val else false_val
+val true_val = Vconstr { id = [sym_true], arg = NONE }
+val false_val = Vconstr { id = [sym_false], arg = NONE }
 
-    val alpha = TVtyvar (sym "'a")
-    val beta = TVtyvar (sym "'b")
+fun lift_v f x = if f x then true_val else false_val
 
-    fun nullary tyid = TVapp ([], tyid)
+val alpha = TVtyvar (sym "'a")
+val beta = TVtyvar (sym "'b")
 
-    fun forall_none_tyval tyval =
-      ( 0
-      , fn [] => tyval
-       | _ =>
-          prog_err "incorrect arity for tycon"
-      )
-    fun forall_none tyid =
-      ( 0
-      , fn [] => nullary tyid
-       | _ =>
-          prog_err "incorrect arity for tycon"
-      )
+fun nullary tyid = TVapp ([], tyid)
 
+fun forall_none_tyval tyval =
+  ( 0
+  , fn [] => tyval
+    | _ =>
+      prog_err "incorrect arity for tycon"
+  )
+fun forall_none tyid =
+  ( 0
+  , fn [] => nullary tyid
+    | _ =>
+      prog_err "incorrect arity for tycon"
+  )
 
-    fun forall_single f =
-      ( 1
-      , fn tyvals =>
-        case tyvals of
-          [x] => f x
-        | _ => prog_err "incorrect arity to instantiate tycon"
-      )
+fun forall_single f =
+  ( 1
+  , fn tyvals =>
+    case tyvals of
+      [x] => f x
+    | _ => prog_err "incorrect arity to instantiate tycon"
+  )
 
-    fun dict_from_list l =
-      List.foldl
-        (fn ((key, elem), dict) =>
-          SymDict.insert dict key elem
-        )
-        SymDict.empty
-        l
+fun dict_from_list l =
+  List.foldl
+    (fn ((key, elem), dict) =>
+      SymDict.insert dict key elem
+    )
+    SymDict.empty
+    l
 
-    fun tyid_dict_from_list l =
-      List.foldl
-        (fn ((key, elem), dict) =>
-          TyIdDict.insert dict key elem
-        )
-        TyIdDict.empty
-        l
+fun tyid_dict_from_list l =
+  List.foldl
+    (fn ((key, elem), dict) =>
+      TyIdDict.insert dict key elem
+    )
+    TyIdDict.empty
+    l
 
-    fun convert b =
-      if b then
-        Vconstr {id = [sym_true], arg = NONE}
-      else
-        Vconstr {id = [sym_false], arg = NONE}
+fun convert b =
+  if b then
+    Vconstr {id = [sym_true], arg = NONE}
+  else
+    Vconstr {id = [sym_false], arg = NONE}
 
-    fun poly_eq v1 v2 =
-      case (v1, v2) of
-        (Vnumber (Int i1), Vnumber (Int i2)) => i1 = i2
-      | (Vnumber (Word w1), Vnumber (Word w2)) => w1 = w2
-      | (Vstring s1, Vstring s2) => Symbol.eq (s1, s2)
-      | (Vchar c1, Vchar c2) => c1 = c2
-      | (Vrecord fields1, Vrecord fields2) =>
-          let
-            fun subset fields1 fields2 =
-              List.foldl
-                (fn ({lab, value}, acc) =>
-                  acc andalso
-                  (case List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields2 of
-                    NONE => false
-                  | SOME {value = value', lab = _} => poly_eq value value'
-                  )
-                )
-                true
-                fields1
-          in
-            subset fields1 fields2 andalso subset fields2 fields1
-          end
-      | (Vunit, Vunit) => true
-      | (Vconstr {id, arg}, Vconstr {id = id', arg = arg'}) =>
-          SH.longid_eq (id, id') andalso
-          (case (arg, arg') of
-            (NONE, NONE) => true
-          | (SOME v, SOME v') => poly_eq v v'
-          | _ => false
-          )
-      | (Vselect sym, Vselect sym') => Symbol.eq (sym, sym')
-      | (Vtuple vs1, Vtuple vs2) =>
-          ListPair.allEq (fn (v, v') => poly_eq v v') (vs1, vs2)
-      | (Vlist vs1, Vlist vs2) =>
-          ListPair.allEq (fn (v, v') => poly_eq v v') (vs1, vs2)
-      | (Vinfix {left, id, right}, Vinfix {left=left', id=id', right=right'}) =>
-          poly_eq left left' andalso poly_eq right right' andalso Symbol.eq (id, id')
-      | (Vfn _, _) => prog_err "= called on function value"
-      | (_, Vfn _) => prog_err "= called on function value"
-      | (Vbasis _, _) => prog_err "= called on basis function value"
-      | (_, Vbasis _) => prog_err "= called on basis function value"
+fun some x = SOME (Symbol.fromValue x)
+
+(*****************************************************************************)
+(* Basis types *)
+(*****************************************************************************)
+
+val int_tyid = TyId.new (some "int")
+val int_ty = nullary int_tyid
+val string_tyid = TyId.new (some "string")
+val string_ty = nullary string_tyid
+val char_tyid = TyId.new (some "char")
+val char_ty = nullary char_tyid
+val real_tyid = TyId.new (some "real")
+val real_ty = nullary real_tyid
+val unit_tyid =TyId.new (some "unit")
+val unit_ty = nullary unit_tyid
+
+val exn_tyid = TyId.new (some "exn")
+
+val option_info as (option_tyid, _, option_cons) =
+  let
+    val self_tyid = TyId.new (some "option")
+  in
+    ( self_tyid
+    , 1
+    , [ ("SOME", forall_single (fn var => TVarrow (var, TVapp ([var],self_tyid))))
+      , ("NONE", forall_single (fn var => TVapp ([var], self_tyid)))
+      ]
+    )
+  end
+val order_info as (order_tyid, _, order_cons) =
+  let
+    val self_tyid = TyId.new (some "order")
+  in
+    ( self_tyid
+    , 0
+    , [ ("LESS", forall_none self_tyid)
+      , ("EQUAL", forall_none self_tyid)
+      , ("GREATER", forall_none self_tyid)
+      ]
+    )
+  end
+
+val list_info as (list_tyid, _, list_cons) =
+  let
+    val self_tyid = TyId.new (some "list")
+    fun listof var = TVapp ([var], self_tyid)
+  in
+    ( self_tyid
+    , 1
+    , [ ("::", forall_single (fn var => TVarrow (TVprod [var, listof var], listof var)))
+      , ("nil", forall_single listof)
+      ]
+    )
+  end
+
+fun mk_list_ty tyval = TVapp ([tyval], list_tyid)
+
+val bool_info as (bool_tyid, _, bool_cons) =
+  let
+    val self_tyid = TyId.new (some "bool")
+  in
+    ( self_tyid
+    , 0
+    , [ ("true", forall_none self_tyid)
+      , ("false", forall_none self_tyid)
+      ]
+    )
+  end
+
+val bool_ty = nullary bool_tyid
+val exn_ty = nullary exn_tyid
+
+(*****************************************************************************)
+(* Polymorphic equality *)
+(*****************************************************************************)
+
+fun poly_eq v1 v2 =
+  case (v1, v2) of
+    (Vnumber (Int i1), Vnumber (Int i2)) => i1 = i2
+  | (Vnumber (Word w1), Vnumber (Word w2)) => w1 = w2
+  | (Vstring s1, Vstring s2) => Symbol.eq (s1, s2)
+  | (Vchar c1, Vchar c2) => c1 = c2
+  | (Vrecord fields1, Vrecord fields2) =>
+      let
+        fun field_eq ({lab, value}, {lab = lab', value = value'}) =
+          Symbol.eq (lab, lab') andalso poly_eq value value'
+      in
+        Common.subset fields1 fields2 field_eq
+        andalso Common.subset fields2 fields1 field_eq
+      end
+  | (Vunit, Vunit) => true
+  | (Vconstr {id, arg}, Vconstr {id = id', arg = arg'}) =>
+      SH.longid_eq (id, id') andalso
+      (case (arg, arg') of
+        (NONE, NONE) => true
+      | (SOME v, SOME v') => poly_eq v v'
       | _ => false
+      )
+  | (Vselect sym, Vselect sym') => Symbol.eq (sym, sym')
+  | (Vtuple vs1, Vtuple vs2) =>
+      ListPair.allEq (fn (v, v') => poly_eq v v') (vs1, vs2)
+  | (Vlist vs1, Vlist vs2) =>
+      ListPair.allEq (fn (v, v') => poly_eq v v') (vs1, vs2)
+  | (Vinfix {left, id, right}, Vinfix {left=left', id=id', right=right'}) =>
+      poly_eq left left' andalso poly_eq right right' andalso Symbol.eq (id, id')
+  | (Vfn _, _) => prog_err "= called on function value"
+  | (_, Vfn _) => prog_err "= called on function value"
+  | (Vbasis _, _) => prog_err "= called on basis function value"
+  | (_, Vbasis _) => prog_err "= called on basis function value"
+  | _ => false
 
-    val not_poly_eq = fn v1 => fn v2 => convert (not (poly_eq v1 v2))
-    val poly_eq = fn v1 => fn v2 => convert (poly_eq v1 v2)
+val not_poly_eq = fn v1 => fn v2 => convert (not (poly_eq v1 v2))
+val poly_eq = fn v1 => fn v2 => convert (poly_eq v1 v2)
 
-    (* Types *)
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
 
-    fun some x = SOME (Symbol.fromValue x)
+structure Basis : BASIS =
+  struct
+    val bool_ty = bool_ty
+    val int_ty = int_ty
+    val string_ty = string_ty
+    val real_ty = real_ty
+    val char_ty = char_ty
+    val unit_ty = unit_ty
+    val exn_ty = exn_ty
+    val exn_tyid = exn_tyid
+    val list_tyid = list_tyid
+    val option_tyid = option_tyid
 
-    val int_tyid = TyId.new (some "int")
-    val int_ty = nullary int_tyid
-    val string_tyid = TyId.new (some "string")
-    val string_ty = nullary string_tyid
-    val char_tyid = TyId.new (some "char")
-    val char_ty = nullary char_tyid
-    val real_tyid = TyId.new (some "real")
-    val real_ty = nullary real_tyid
-    val unit_tyid =TyId.new (some "unit")
-    val unit_ty = nullary unit_tyid
-
-    val exn_tyid = TyId.new (some "exn")
-
-    val option_info as (option_tyid, _, option_cons) =
-      let
-        val self_tyid = TyId.new (some "option")
-      in
-        ( self_tyid
-        , 1
-        , [ ("SOME", forall_single (fn var => TVarrow (var, TVapp ([var],self_tyid))))
-          , ("NONE", forall_single (fn var => TVapp ([var], self_tyid)))
-          ]
-        )
-      end
-    val order_info as (order_tyid, _, order_cons) =
-      let
-        val self_tyid = TyId.new (some "order")
-      in
-        ( self_tyid
-        , 0
-        , [ ("LESS", forall_none self_tyid)
-          , ("EQUAL", forall_none self_tyid)
-          , ("GREATER", forall_none self_tyid)
-          ]
-        )
-      end
-    val list_info as (list_tyid, _, list_cons) =
-      let
-        val self_tyid = TyId.new (some "list")
-        fun listof var = TVapp ([var], self_tyid)
-      in
-        ( self_tyid
-        , 1
-        , [ ("::", forall_single (fn var => TVarrow (TVprod [var, listof var], listof var)))
-          , ("nil", forall_single (fn var => listof var))
-          ]
-        )
-      end
-    fun mk_list_ty tyval = TVapp ([tyval], list_tyid)
-    val bool_info as (bool_tyid, _, bool_cons) =
-      let
-        val self_tyid = TyId.new (some "bool")
-      in
-        ( self_tyid
-        , 0
-        , [ ("true", forall_none self_tyid)
-          , ("false", forall_none self_tyid)
-          ]
-        )
-      end
-
-    val bool_ty = nullary bool_tyid
-    val exn_ty = nullary exn_tyid
+    (****************************)
+    (*          TYPES           *)
+    (****************************)
 
     val initial_tynames =
       [ ("int", Scheme (forall_none int_tyid))
@@ -248,7 +288,9 @@ structure Basis :
 
     val (initial_cons, initial_cons_tys) = ListPair.unzip initial_cons_pair
 
-    (* Exceptions *)
+    (****************************)
+    (*        EXCEPTIONS        *)
+    (****************************)
 
     fun mk_exn name opt =
       case opt of
@@ -281,7 +323,9 @@ structure Basis :
            )
       |> ListPair.unzip
 
-    (* Values *)
+    (****************************)
+    (*          VALUES          *)
+    (****************************)
 
     val cons =
       { function =
@@ -292,8 +336,7 @@ structure Basis :
       , is_infix = true
       } |> Vbasis
 
-    (* TODO: word stuff *)
-    val (initial_values, initial_values_tys) =
+    val monomorphic_values : ((symbol * id_info) * (symbol * (sign * type_scheme))) list =
       [ ( "+"
         , (fn Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 + i2))
           | Vtuple [Vnumber (Real r1), Vnumber (Real r2)] => Vnumber (Real (r1 + r2))
@@ -319,9 +362,9 @@ structure Basis :
         , TVarrow (TVprod [int_ty, int_ty], int_ty)
         )
       , ( "div"
-        , (fn Vtuple [Vnumber (Int _), Vnumber (Int 0)] => 
+        , (fn Vtuple [Vnumber (Int _), Vnumber (Int 0)] =>
               raise Context.Raise ([sym div_name], div_exnid, NONE)
-          | Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 div i2)) 
+          | Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 div i2))
           | _ => eval_err "invalid args to div"
           )
         , true
@@ -356,7 +399,7 @@ structure Basis :
         , TVarrow (TVprod [int_ty, int_ty], bool_ty)
         )
       , ( "mod"
-        , (fn Vtuple [Vnumber (Int _), Vnumber (Int 0)] => 
+        , (fn Vtuple [Vnumber (Int _), Vnumber (Int 0)] =>
               raise Context.Raise ([sym div_name], div_exnid, NONE)
           | Vtuple [Vnumber (Int i1), Vnumber (Int i2)] => Vnumber (Int (i1 mod i2))
           | _ => eval_err "invalid args to div"
@@ -474,52 +517,56 @@ structure Basis :
              , (sym name, (Vsign, forall_none_tyval tyval))
              )
            )
-      |> (fn l =>
-          ( [ ( "="
-              , (fn Vtuple [left, right] => poly_eq left right
-                | _ => eval_err "invalid arg to `=`"
-                )
-              , true
-              , ( Vsign
-                , SH.guard_tyscheme
-                  (1, fn [tyval] => TVarrow (TVprod [tyval, tyval], bool_ty)
-                     | _ => raise Fail "impossible")
-                )
-              ),
-              ( "<>"
-              , (fn Vtuple [left, right] => not_poly_eq left right
-                | _ => eval_err "invalid arg to `=`"
-                )
-              , true
-              , ( Vsign
-                , SH.guard_tyscheme
-                  (1, fn [tyval] => TVarrow (TVprod [tyval, tyval], bool_ty)
-                     | _ => raise Fail "impossible")
+
+    val polymorphic_values =
+        [ ( "="
+          , (fn Vtuple [left, right] => poly_eq left right
+            | _ => eval_err "invalid arg to `=`"
+            )
+          , true
+          , ( Vsign
+            , SH.guard_tyscheme
+              (1, fn [tyval] => TVarrow (TVprod [tyval, tyval], bool_ty)
+                  | _ => raise Fail "impossible")
+            )
+          ),
+          ( "<>"
+          , (fn Vtuple [left, right] => not_poly_eq left right
+            | _ => eval_err "invalid arg to `=`"
+            )
+          , true
+          , ( Vsign
+            , SH.guard_tyscheme
+              (1, fn [tyval] => TVarrow (TVprod [tyval, tyval], bool_ty)
+                  | _ => raise Fail "impossible")
+            )
+          )
+          (* TODO: equality types *)
+          , ( "@"
+            , (fn Vtuple [Vlist l1, Vlist l2] => Vlist (l1 @ l2)
+              | _ => eval_err "invalid arg to `@`"
+              )
+            , true
+            , ( Vsign
+              , SH.guard_tyscheme
+                (1, fn [tyval] => TVarrow (TVprod [mk_list_ty tyval, mk_list_ty tyval], mk_list_ty tyval)
+                  | _ => raise Fail "impossible")
+              )
+            )
+        ] |> List.map
+              (fn (name, value, is_infix, tyinfo) =>
+                ( (sym name, V (Vbasis {name = sym name, function = value, is_infix = is_infix}))
+                , (sym name, tyinfo)
                 )
               )
-              (* TODO: equality types *)
-              , ( "@"
-                , (fn Vtuple [Vlist l1, Vlist l2] => Vlist (l1 @ l2)  
-                  | _ => eval_err "invalid arg to `@`"
-                  )
-                , true 
-                , ( Vsign
-                  , SH.guard_tyscheme
-                    (1, fn [tyval] => TVarrow (TVprod [mk_list_ty tyval, mk_list_ty tyval], mk_list_ty tyval)
-                      | _ => raise Fail "impossible")
-                  )
-                )
-            ] |> List.map
-                   (fn (name, value, is_infix, tyinfo) =>
-                     ( (sym name, V (Vbasis {name = sym name, function = value, is_infix = is_infix}))
-                     , (sym name, tyinfo)
-                     )
-                   )
-          ) @ l
-        )
-      |> ListPair.unzip
 
-    (* Modules *)
+    (* TODO: word stuff *)
+    val (initial_values, initial_values_tys) =
+      ListPair.unzip (polymorphic_values @ monomorphic_values)
+
+    (****************************)
+    (*         MODULES          *)
+    (****************************)
 
     exception Cont of SMLSyntax.value
 
@@ -535,7 +582,7 @@ structure Basis :
             )
           , ( "throw"
             , (fn Vbasis {function, name, is_infix} =>
-                Vbasis { function = fn x => function x
+                Vbasis { function = function
                        , name = sym ("throw[" ^ Symbol.toValue name ^ "]")
                        , is_infix = is_infix
                        }
@@ -574,6 +621,10 @@ structure Basis :
       ]
       |> List.map (fn (x, y) => (sym x, y))
 
+    (****************************)
+    (*        FIXITIES          *)
+    (****************************)
+
     val initial_infix =
       [ ( "div", (LEFT, 7) )
       , ( "mod", (LEFT, 7) )
@@ -601,13 +652,9 @@ structure Basis :
       ]
       |> List.map (fn (x, y) => (sym x, y))
 
-    fun sym_from_list l =
-      List.foldl
-        (fn (x, acc) =>
-          SymSet.insert acc x
-        )
-        SymSet.empty
-        l
+    (****************************)
+    (*       ALL TOGETHER       *)
+    (****************************)
 
     val initial_scope =
       Scope
@@ -633,7 +680,7 @@ structure Basis :
       , settings =
           { break_assigns = ref SymSet.empty
           , substitute = ref true
-          , print_all = ref false 
+          , print_all = ref false
           , print_dec = ref true
           , print_depth = ref 1
           , pause_currying = ref false
