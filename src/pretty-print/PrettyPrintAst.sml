@@ -1258,7 +1258,8 @@ struct
       | Dopen longids =>
           let
             val bound_ids =
-              Binding.open_bound_ids ctx longids
+              union_sets
+                (List.map (Binding.bound_ids_of_modname ctx) longids)
           in
             text_syntax "open" +-+ p_list p_open " " longids
             |> inject bound_ids
@@ -1673,7 +1674,7 @@ struct
           let
             val (topdec_doc, bound_ids) = p_topdec' ctx topdec
           in
-            ( case acc of 
+            ( case acc of
                 NONE => SOME (topdec_doc)
               | SOME acc => SOME (acc $$ topdec_doc)
             , Binding.remove_bound_ids ctx bound_ids
@@ -1683,7 +1684,7 @@ struct
         )
         (NONE, ctx, empty_set)
         ast
-      |> (fn (doc, _, boundids) => 
+      |> (fn (doc, _, boundids) =>
             case doc of
               NONE => (text_syntax "", boundids)
             | SOME doc => (doc, boundids))
@@ -2047,13 +2048,10 @@ struct
         )
         ^ "}"
 
-      fun show_scope (Scope {identdict, ...}) =
-        "< valdict: " ^ show_dict (show_id_info ctx) identdict ^ ">"
-      (* ^ "  condict: " ^ set_toString Symbol.toValue condict ^ "\n"
-      ^ "  exndict: " ^ set_toString Symbol.toValue exndict ^ "\n"
-      ^ "  moddict: " ^ dict_toString scope_toString moddict ^ "\n"
-      ^ "  infixdict:
-       *)
+      fun show_scope (Scope {identdict, moddict, ...}) =
+        "< identdict: " ^ show_dict (show_id_info ctx) identdict ^ ">"
+        ^ "  moddict: " ^ show_dict (show_scope) moddict ^ "\n"
+        ^ "  infixdict: "
     in
       String.concatWith "\n" (List.map show_scope (scope :: outer_scopes))
     end

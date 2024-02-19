@@ -48,6 +48,7 @@ structure Context :
     val get_functorval_opt : t -> S.symbol -> S.functorval option
     val get_ident_ty : t -> S.longid -> S.sign * S.type_scheme
     val get_module : t -> S.longid -> scope
+    val get_module_opt : t -> S.longid -> scope option
     val get_sig : t -> S.symbol -> S.sigval
     val get_functor : t -> S.symbol -> S.functorval
     val get_dtydict : t -> S.dtydict
@@ -403,6 +404,8 @@ structure Context :
           )
           handle Return scope => scope
         end
+    fun get_module_opt (ctx : SMLSyntax.context) id =
+      SOME (get_module ctx id) handle CouldNotFind => NONE
 
     fun get_base f orig_ctx id =
       let

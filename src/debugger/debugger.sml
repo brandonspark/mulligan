@@ -1082,8 +1082,8 @@ structure Debugger : DEBUGGER =
            * the same context.
            *)
           List.foldr
-            (fn (sigbind, acc) =>
-              Binding.generate_sigbinding ctx sigbind :: acc
+            (fn ({id, signat}, acc) =>
+              (id, Value.evaluate_signat ctx signat) :: acc
             )
             []
             sigdec

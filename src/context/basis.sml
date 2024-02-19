@@ -54,13 +54,10 @@ signature BASIS =
 (* Helpers *)
 (*****************************************************************************)
 
-val sym = Symbol.fromValue
+val sym = SH.sym
 
-val sym_true = sym "true"
-val sym_false = sym "false"
-
-val true_val = Vconstr { id = [sym_true], arg = NONE }
-val false_val = Vconstr { id = [sym_false], arg = NONE }
+val true_val = Vconstr { id = [SH.sym_true], arg = NONE }
+val false_val = Vconstr { id = [SH.sym_false], arg = NONE }
 
 fun lift_v f x = if f x then true_val else false_val
 
@@ -108,9 +105,9 @@ fun tyid_dict_from_list l =
 
 fun convert b =
   if b then
-    Vconstr {id = [sym_true], arg = NONE}
+    Vconstr {id = [SH.sym_true], arg = NONE}
   else
-    Vconstr {id = [sym_false], arg = NONE}
+    Vconstr {id = [SH.sym_false], arg = NONE}
 
 fun some x = SOME (Symbol.fromValue x)
 
@@ -142,6 +139,7 @@ val option_info as (option_tyid, _, option_cons) =
       ]
     )
   end
+
 val order_info as (order_tyid, _, order_cons) =
   let
     val self_tyid = TyId.new (some "order")
@@ -416,10 +414,10 @@ structure Basis : BASIS =
         )
       , ( "not"
         , (fn Vconstr {id = [x], arg = NONE} =>
-            if Symbol.eq (x, sym_true) then
-              Vconstr {id = [sym_false], arg = NONE}
-            else if Symbol.eq (x, sym_false) then
-              Vconstr {id = [sym_true], arg = NONE}
+            if Symbol.eq (x, SH.sym_true) then
+              Vconstr {id = [SH.sym_false], arg = NONE}
+            else if Symbol.eq (x, SH.sym_false) then
+              Vconstr {id = [SH.sym_true], arg = NONE}
             else
               eval_err "invalid arg to `not`"
           | _ => eval_err "invalid arg to `not`"

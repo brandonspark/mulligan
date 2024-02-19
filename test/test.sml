@@ -96,7 +96,7 @@ fun evaluate test_name text =
         , text = text
         }
   in
-    ( case Context.get_val_opt (run_test source (Basis.initial ())) [Symbol.fromValue "res"] of
+    ( case Context.get_val_opt (run_test source (Basis.initial ())) [sym "res"] of
         (* If we didn't bind `res`, say that it's some random unlikely value.
          *)
         NONE => RES (Vselect (sym "terminated but res unbound"))
@@ -673,6 +673,23 @@ structure Test :
         ()
       end
 
+    fun test_mod ctx =
+      let
+        val test_name = TestFramework.get_test_name ctx
+
+        val is_tests =
+          (* This shouldn't err, when we go and look up the contents
+             of A in the pretty printer.
+           *)
+          [ ( "structure A = struct val x = 1 end             \
+              \structure B = struct open A end                "
+            )
+          ]
+          |> List.app (assert_evaluates test_name)
+      in
+        ()
+      end
+
     infix >::
     infix >:::
 
@@ -690,6 +707,7 @@ structure Test :
             , "scoping"    >:: test_scoping
             , "abstract"   >:: test_abstract
             , "cont"       >:: test_cont
+            , "mod"        >:: test_mod
             ]
         )
   end

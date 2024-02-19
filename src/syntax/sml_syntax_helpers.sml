@@ -25,6 +25,11 @@ signature SMLSYNTAXHELPERS =
     val guard_tyscheme : type_scheme -> type_scheme
     val concrete_tyscheme : tyval -> type_scheme
     val number_eq : number * number -> bool
+
+    val sym : string -> symbol
+
+    val sym_true : symbol
+    val sym_false : symbol
   end
 
 (*****************************************************************************)
@@ -66,6 +71,11 @@ structure SMLSyntaxHelpers =
       | (Real _, Real _) => raise Fail "comparing reals for equality"
       | (Word w1, Word w2) => w1 = w2
       | _ => false
+
+    val sym = Symbol.fromValue
+
+    val sym_true = sym "true"
+    val sym_false = sym "false"
 
     (*
     fun make_maps f_exp f_dec =

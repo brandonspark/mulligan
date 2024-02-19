@@ -5,24 +5,54 @@
   *)
 
 structure SH = SMLSyntaxHelpers
+open PrettyPrintContext
+open Context
+open SMLSyntax
+open Error
 
-structure Binding :
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* This file deals with "bindings", which are the bindings present in the context
+ * at the time of pretty-printing the AST.
+ *
+ * The basic problem has to do with the fact that the pretty-printer is contextual.
+ * If you wanted to print out the following program:
+ *
+ * val _ = x + x
+ * val x = 2
+ * val y = 3 + x
+ *
+ * with an environment of { x -> 1 }
+ *
+ * you would want to print out `val _ = 1 + 1`, but NOT `val y = 3 + 1`.
+ * This is because the `x` mentioned in the second case is actually a different
+ * `x` than the one in our environment!
+ *
+ * To deal with this, we have some logic which removes identifiers from our context
+ * based on when we crawl forward or backward in the AST.
+ *
+ * Essentially, we are doing naming here, but in a dictionary instead of within
+ * the AST nodes themselves.
+ *)
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
+signature BINDING =
   sig
     type t = SMLSyntax.context
-    type sigval = SMLSyntax.sigval
+    type bindings = PrettyPrintContext.MarkerSet.set
 
-    val get_pat_bindings : t -> SMLSyntax.pat -> PrettyPrintContext.MarkerSet.set
+    val get_pat_bindings : t -> SMLSyntax.pat -> bindings
     val get_pat_ids : t -> SMLSyntax.pat -> SMLSyntax.symbol list
     val get_fname_args_bindings :
-      t -> SMLSyntax.fname_args -> PrettyPrintContext.MarkerSet.set
-    val remove_bound_ids : t -> PrettyPrintContext.MarkerSet.set -> t
-    val open_bound_ids : t -> (SMLSyntax.symbol list) list -> PrettyPrintContext.MarkerSet.set
-    val get_funarg_bound_ids : t -> SMLSyntax.funarg -> PrettyPrintContext.MarkerSet.set
+      t -> SMLSyntax.fname_args -> bindings
 
-    val generate_sigbinding :
-         t
-      -> {id : SMLSyntax.symbol, signat : SMLSyntax.signat}
-      -> SMLSyntax.symbol * sigval
+    val remove_bound_ids : t -> bindings -> t
+    val bound_ids_of_modname : t -> SMLSyntax.longid -> bindings
+    val get_funarg_bound_ids : t -> SMLSyntax.funarg -> bindings
 
     val add_sigbindings :
          t
@@ -30,23 +60,28 @@ structure Binding :
       -> t
 
     val add_funbind : t -> SMLSyntax.funbind -> t
-  end =
+  end
+
+(*****************************************************************************)
+(* Helpers *)
+(*****************************************************************************)
+
+fun marker_set_of_list l =
+  List.foldl
+    (fn (x, acc) =>
+      MarkerSet.insert acc x
+    )
+    MarkerSet.empty
+    l
+
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
+
+structure Binding : BINDING =
   struct
-    open PrettyPrintContext
-    open Context
-    open SMLSyntax
-    open Error
-
-    infix |>
-    fun x |> f = f x
-
-    fun marker_set_of_list l =
-      List.foldl
-        (fn (x, acc) =>
-          MarkerSet.insert acc x
-        )
-        MarkerSet.empty
-        l
+    type t = SMLSyntax.context
+    type bindings = PrettyPrintContext.MarkerSet.set
 
     fun get_patrow_bindings ctx patrow =
       case patrow of
@@ -229,13 +264,12 @@ structure Binding :
         Normal {id, ...} => MarkerSet.singleton (MOD id)
       | Sugar spec => get_spec_bound_ids ctx spec
 
-    (* We only care about killed value bindings.
-     * So disregard if it's not.
-     *)
-    fun open_bound_id ctx longid =
+    fun bound_ids_of_modname ctx longid =
       let
-        val identdict = scope_identdict (get_module ctx longid)
-        val moddict = scope_moddict (get_module ctx longid)
+        val (identdict, moddict) =
+          case (get_module_opt ctx longid) of
+            NONE => (SymDict.empty, SymDict.empty)
+          | SOME scope => (scope_identdict scope, scope_moddict scope)
       in
         ( SymDict.foldl
             (fn (id, elem, acc) =>
@@ -250,13 +284,6 @@ structure Binding :
         )
         |> marker_set_of_list
       end
-
-    fun open_bound_ids ctx longids =
-      union_sets
-        (List.map (open_bound_id ctx) longids)
-
-    fun generate_sigbinding ctx {id, signat} =
-      (id, Value.evaluate_signat ctx signat)
 
     fun add_sigbindings {scope, outer_scopes, dtydict, sigdict, functordict,
     tyvars, hole_print_fn, settings, abstys} sigbindings =
