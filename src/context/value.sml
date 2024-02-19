@@ -313,19 +313,11 @@ structure Value : VALUE =
       | (Vchar c, Vchar c') => c = c'
       | (Vrecord fields, Vrecord fields') =>
           let
-            fun field_subset fields1 fields2 =
-              List.foldl
-                (fn ({lab, value}, acc) =>
-                  case List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields2 of
-                    NONE => false
-                  | SOME {value = value', lab = _} =>
-                      value_eq (value, value') andalso acc
-                )
-                true
-                fields1
+            fun field_eq ({lab, value}, {lab = lab', value = value'}) =
+              Symbol.eq (lab, lab') andalso value_eq (value, value')
           in
-            field_subset fields fields'
-            andalso field_subset fields' fields
+            Common.subset fields fields' field_eq
+            andalso Common.subset fields' fields field_eq
           end
       | (Vunit, Vunit) => true
       | (Vconstr {id, arg = NONE}, Vconstr {id = id', arg = NONE}) =>

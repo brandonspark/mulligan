@@ -40,4 +40,14 @@ structure Common =
         res
       end
 
+    fun subset l1 l2 eq =
+      List.foldl
+        (fn (x, acc) =>
+          acc andalso
+          List.exists (fn y =>
+            eq (x, y)
+          ) l2
+        )
+        true
+        l1
   end

@@ -359,24 +359,21 @@ structure Statics : STATICS =
     and norm ctx exp = Context.norm_tyval ctx (synth ctx exp)
 
     and fields_subset ctx fields1 fields2 =
-      ( List.foldl
-          (fn ({lab, tyval}, ()) =>
-            ( case
-                List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields2
-              of
-                NONE =>
-                  spf
-                    (`"Failed to unify record types, found unshared label "fi".")
-                    lab
-                  |> type_err
-              | SOME {tyval = tyval', ...} => unify ctx tyval tyval'
-            ; ()
-            )
+      List.app
+        (fn ({lab, tyval}) =>
+          ( case
+              List.find (fn {lab = lab', ...} => Symbol.eq (lab, lab')) fields2
+            of
+              NONE =>
+                spf
+                  (`"Failed to unify record types, found unshared label "fi".")
+                  lab
+                |> type_err
+            | SOME {tyval = tyval', ...} => unify ctx tyval tyval'
+          ; ()
           )
-          ()
-          fields1
-      ; ()
-      )
+        )
+        fields1
 
     and void_unify ctx t1 t2 = ( unify ctx t1 t2; () )
 
@@ -2045,8 +2042,8 @@ structure Statics : STATICS =
                      * has gotta be real low.
                      *)
                     fun subset cons1 cons2 =
-                      List.foldl
-                        (fn ({id, tyscheme}, ()) =>
+                      List.app
+                        (fn {id, tyscheme} =>
                           case List.find (fn {id = id', ...} => Symbol.eq (id, id')) cons2 of
                             NONE =>
                               spf
@@ -2059,7 +2056,6 @@ structure Statics : STATICS =
                               ; ()
                               )
                         )
-                        ()
                         cons1
 
                     val cons_to_add =
