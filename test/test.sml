@@ -96,11 +96,11 @@ fun evaluate test_name text =
         , text = text
         }
   in
-    ( case Context.get_val_opt (run_test source (Basis.initial ())) [sym "res"] of
+    ( case Context.get_ident_opt (run_test source (Basis.initial ())) [sym "res"] of
         (* If we didn't bind `res`, say that it's some random unlikely value.
          *)
-        NONE => RES (Vselect (sym "terminated but res unbound"))
-      | SOME value => RES value
+        SOME (V value) => RES value
+      | _ => RES (Vselect (sym "terminated but res unbound"))
     )
     handle exn =>
       run_handler test_name exn

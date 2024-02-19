@@ -243,10 +243,12 @@ structure Value : VALUE =
       | Eselect sym => SOME (Vselect sym)
       | Eunit => SOME Vunit
       | Eident {id, ...} =>
-          if Context.is_con ctx id then
-            SOME (Vconstr {id = id, arg = NONE})
-          else
-            SOME (Context.get_val ctx id)
+          (case Context.get_ident_opt ctx id of
+            (SOME (E _) | SOME (C _)) =>
+              SOME (Vconstr {id = id, arg = NONE})
+          | SOME (V v) => SOME v
+          | NONE => raise Fail "exp to value on unbound ident"
+          )
       | Efn (_, SOME _) => raise Fail "should probably not happen"
       | Efn (matches, NONE) =>
           (* The only reason to do an exp to value on a verbatim Efn is if it

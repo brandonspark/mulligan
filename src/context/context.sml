@@ -6,10 +6,31 @@
 
 structure SH = SMLSyntaxHelpers
 structure S = SMLSyntax
+open PrettyPrintContext
+open SMLSyntax
+open Error
+open Printf
 
-structure Context :
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* A context is all the scoping information at a particular point in a program.
+ *
+ * It is necessary for most machinery in the debugger. Statics, pretty-printing,
+ * and evaluation all depend on this value.
+ *
+ * Unfortunately, the interface for getting information out of a context is
+ * pretty broad. A context is essentially a nested N-ary tree (which
+ * is facilitated through dictionaries), and contains many kinds of information,
+ * which necessitates many different getters and setters.
+ *)
+
+(*****************************************************************************)
+(* Signature *)
+(*****************************************************************************)
+
+signature CONTEXT =
   sig
-
     (* The outer scopes are a list, in order of ascending outwardness.
      * Each scope maps to the stuff in it, and all things in scope are within
      * the current value of outer_scopes.
@@ -29,6 +50,9 @@ structure Context :
 
     val scope_empty : scope
     val merge_scope : t -> scope -> t
+    (* An implementation of the Rec function from the Definition.
+       Essentially permits
+     *)
     val ctx_rec : scope -> scope
 
     val scope_identdict : scope -> identdict
@@ -37,39 +61,36 @@ structure Context :
     val scope_set_identdict : scope -> identdict -> scope
     val scope_set_moddict : scope -> scope SymDict.dict -> scope
 
-    val get_ident_opt : t -> S.longid -> S.id_info option
-    val get_val : t -> S.longid -> value
-    val get_val_opt : t -> S.longid -> value option
-    val get_con_opt : t -> S.longid -> TyId.t option
-    val get_exn_opt : t -> S.longid -> ExnId.t option
+    (* getters *)
+    val get_ident_opt    : t -> S.longid -> S.id_info option
+    val get_val          : t -> S.longid -> value
     val get_ident_ty_opt : t -> S.longid -> (S.sign * S.type_scheme) option
     val get_type_synonym : t -> S.longid -> S.synonym
-    val get_sigval_opt : t -> S.symbol -> S.sigval option
-    val get_functorval_opt : t -> S.symbol -> S.functorval option
-    val get_ident_ty : t -> S.longid -> S.sign * S.type_scheme
-    val get_module : t -> S.longid -> scope
-    val get_module_opt : t -> S.longid -> scope option
-    val get_sig : t -> S.symbol -> S.sigval
-    val get_functor : t -> S.symbol -> S.functorval
-    val get_dtydict : t -> S.dtydict
+    val get_sigval_opt   : t -> S.symbol -> S.sigval option
+    val get_ident_ty     : t -> S.longid -> S.sign * S.type_scheme
+    val get_module_opt   : t -> S.longid -> scope option
+    val get_sig          : t -> S.symbol -> S.sigval
+    val get_functor      : t -> S.symbol -> S.functorval
+    val get_dtydict      : t -> S.dtydict
     val get_datatype_with_longid : t -> S.longid -> S.dtyinfo
-    val get_infixity : t -> S.symbol -> S.infixity * int
+    val get_infixity     : t -> S.symbol -> S.infixity * int
 
     val is_con : t -> S.longid -> bool
     val is_exn : t -> S.longid -> bool
 
+    (* adders *)
     val add_exn : t -> ExnId.t -> S.symbol * S.type_scheme -> t
     val add_type_synonym : t -> S.symbol -> S.synonym -> t
     val add_val_ty_bindings : t -> (S.symbol * S.type_scheme) list -> t
     val add_unquantified_val_ty_bindings :
       t -> (S.symbol * S.tyval) list -> t
-    (*val add_con : t -> S.symbol -> t *)
     val add_infix : t -> (S.symbol * S.infixity * int) -> t
     val add_module : t -> S.symbol -> scope -> t
     val add_sig : t -> S.symbol -> S.sigval -> t
-    val add_functor : t -> S.symbol -> S.functorval -> t
     val add_abstys : t -> S.type_scheme AbsIdDict.dict -> t
     val add_scoped_tyvars : t -> SymSet.set -> t
+    val add_hole_print_fn : t -> (unit -> PrettySimpleDoc.t) -> t
+    val get_hole_print_fn : t -> (unit -> PrettySimpleDoc.t)
 
     (* cm_export path init_ctx after_ctx exports =>* restricted_ctx
      * where `restricted_ctx` is the result of adding just the
@@ -82,8 +103,6 @@ structure Context :
                 , functors : S.symbol list
                 } -> t
 
-    val add_hole_print_fn : t -> (unit -> PrettySimpleDoc.t) -> t
-    val get_hole_print_fn : t -> (unit -> PrettySimpleDoc.t)
     val get_break_assigns : t -> SymSet.set ref
     val set_substitute : t -> bool -> unit
     val is_substitute : t -> bool
@@ -101,14 +120,13 @@ structure Context :
     val exit_local : t -> t
 
     val open_scope : t -> scope -> t
-    val open_path : t -> S.symbol list -> t
+    val open_path : t -> S.longid -> t
 
     val add_val_bindings : t -> (S.symbol * value) list -> t
     val add_val_rec_bindings : t -> (S.symbol * value) list -> t
     val add_val_bindings_combined : t -> (S.symbol * value * S.tyval) list -> t
 
     (* Type stuff. *)
-
     val synth_ty :
          (S.symbol * S.tyval list -> S.tyval option)
       -> (S.symbol -> S.tyval option)
@@ -126,7 +144,7 @@ structure Context :
       -> t
       -> S.type_scheme
 
-    val replicate_datatype : t -> S.symbol * S.symbol list -> t
+    val replicate_datatype : t -> S.symbol * S.longid -> t
 
     val get_current_tyvars : (S.tyval -> S.tyvar list) -> t -> S.tyvar list
 
@@ -135,14 +153,14 @@ structure Context :
      -> t
      -> TyId.t * S.datbind
      -> t
+  end
 
-  end =
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
+
+structure Context : CONTEXT =
   struct
-    open PrettyPrintContext
-    open SMLSyntax
-    open Error
-    open Printf
-
     type value = SMLSyntax.value
     type scope = SMLSyntax.scope
     type identdict = SMLSyntax.identdict
@@ -430,47 +448,27 @@ structure Context :
           | SOME ans => ans
           )
 
-    fun get_con_opt ctx id =
+    fun get_ident_opt ctx id =
       SOME ( case id of
           [x] =>
             iter_scopes
               (fn scope =>
                 case (SymDict.find (scope_identdict scope) x) of
-                  SOME (C tyid) => SOME tyid
+                  SOME ans => SOME ans
                 | _ => NONE)
               (ctx_scopes ctx)
         | _ =>
             get_base (fn (id, scope) =>
                        case SymDict.find (scope_identdict scope) id of
-                         SOME (C tyid) => tyid
+                         SOME ans => ans
                        | _ => raise CouldNotFind) ctx id
       ) handle CouldNotFind => NONE
 
-    fun get_con ctx id =
-      case get_con_opt ctx id of
-        NONE =>
-          prog_err ("Nonexistent constructor " ^ lightblue (SH.longid_to_str id))
-      | SOME ans => ans
+    fun is_con ctx id =
+      case get_ident_opt ctx id of SOME (C _) => true | _ => false
 
-    fun is_con ctx id = case get_con_opt ctx id of NONE => false | _ => true
-
-    fun get_exn_opt ctx id =
-      SOME ( case id of
-          [x] =>
-            iter_scopes
-              (fn scope =>
-                case (SymDict.find (scope_identdict scope) x) of
-                  SOME (E exnid) => SOME exnid
-                | _ => NONE)
-              (ctx_scopes ctx)
-        | _ =>
-            get_base (fn (id, scope) =>
-                       case SymDict.find (scope_identdict scope) id of
-                         SOME (E exnid) => exnid
-                       | _ => raise CouldNotFind) ctx id
-      ) handle CouldNotFind => NONE
-
-    fun is_exn ctx id = case get_exn_opt ctx id of NONE => false | _ => true
+    fun is_exn ctx id =
+      case get_ident_opt ctx id of SOME (E _) => true | _ => false
 
     (* Exceptions are also cons.
      *)
@@ -492,44 +490,11 @@ structure Context :
       | C _ => Vconstr { id = id, arg = NONE }
       | E exnid => Vexn { name = id, exnid = exnid, arg = NONE }
 
-    fun get_val_opt ctx id =
-      SOME ( case id of
-          [x] =>
-            iter_scopes
-              (fn scope =>
-                case (SymDict.find (scope_identdict scope) x) of
-                  SOME id_info => SOME (id_info_to_value id id_info)
-                | _ => NONE)
-              (ctx_scopes ctx)
-        | _ =>
-            get_base (fn (id, scope) =>
-                       case SymDict.find (scope_identdict scope) id of
-                         SOME id_info => id_info_to_value [id] id_info
-                       | _ => raise CouldNotFind) ctx id
-      ) handle CouldNotFind => NONE
-
     fun get_val ctx id =
-      case get_val_opt ctx id of
-        NONE =>
+      case get_ident_opt ctx id of
+        SOME (V ans) => ans
+      | _ =>
           prog_err ("Nonexistent value binding to identifier " ^ lightblue (SH.longid_to_str id))
-      | SOME ans => ans
-
-    fun get_ident_opt ctx id =
-      SOME ( case id of
-          [x] =>
-            iter_scopes
-              (fn scope =>
-                case (SymDict.find (scope_identdict scope) x) of
-                  SOME ans => SOME ans
-                | _ => NONE)
-              (ctx_scopes ctx)
-        | _ =>
-            get_base (fn (id, scope) =>
-                       case SymDict.find (scope_identdict scope) id of
-                         SOME ans => ans
-                       | _ => raise CouldNotFind) ctx id
-      ) handle CouldNotFind => NONE
-
 
     fun get_ident_ty_opt ctx id =
       SOME ( case id of
@@ -729,7 +694,7 @@ structure Context :
       , abstys = abstys
       }
 
-    fun add_functor {scope, outer_scopes, dtydict, sigdict, functordict, tyvars, hole_print_fn,
+    fun add_functorval {scope, outer_scopes, dtydict, sigdict, functordict, tyvars, hole_print_fn,
     settings, abstys} id functorval =
       { scope = scope
       , outer_scopes = outer_scopes
@@ -835,7 +800,7 @@ structure Context :
 
         val add_modules = fn ctx => add_things add_module ctx modules
         val add_sigs = fn ctx => add_things add_sig ctx sigs
-        val add_functors = fn ctx => add_things add_functor ctx functors
+        val add_functors = fn ctx => add_things add_functorval ctx functors
       in
         ctx
         |> add_modules
@@ -938,8 +903,8 @@ structure Context :
 
           val rec_identdict =
             bindings
-            |> List.foldl (fn ((id, value), identdict) =>
-                 SymDict.insert identdict id (V value)
+            |> List.foldl (fn ((id, value), acc) =>
+                 SymDict.insert acc id (V value)
                )
                SymDict.empty
             |> scope_set_identdict scope
@@ -1024,9 +989,8 @@ structure Context :
                 user_err ("Trying to break/clear nonexistent function " ^ name)
             )
         | _ =>
-          case get_val_opt ctx id of
-            NONE => user_err ("Breaking/clearing nonexistent function " ^ name )
-          | SOME (Vfn info) =>
+          case get_ident_opt ctx id of
+            SOME (V (Vfn info)) =>
               new_vfn info (fn vfn =>
                 ( map_module
                     (fn scope =>
@@ -1052,6 +1016,19 @@ structure Context :
      * synth_ty.
      *)
 
+    (* NOTE(datatype-fn): What is datatype-fn? It's a hack.
+       The actual inference rule for datatypes says that you should
+       produce the same type env which is used as input for type-checking
+       the datbind.
+       This is an ontological circularity. It's not clear how you get that
+       TyEnv at all.
+       Because we don't yet have the types for all the constructors, we can't
+       add them to the context for type-checking the other constructors.
+       So, we carry a function which can potentially recognize identifiers of
+       types mentioned within the datatype we are currently type-checking. If
+       we find something which is in that definition, we will just handle its
+       type
+     *)
     fun synth_ty datatype_fn tyvar_fn ctx ty =
       let
         val synth_ty = fn ctx => fn ty => synth_ty datatype_fn tyvar_fn ctx ty
@@ -1161,12 +1138,9 @@ structure Context :
       end
 
     fun add_datbind datatype_fn (ctx : SMLSyntax.context) (tyid, {tyvars, tycon, conbinds}) =
-      lift (fn (scope, rest) =>
+      lift (fn (scope as (Scope {identdict, valtydict, tynamedict, ...}), rest) =>
         let
           val dtydict = ! (#dtydict ctx)
-          val tynamedict = scope_tynamedict scope
-          val identdict = scope_identdict scope
-          val valtydict = scope_valtydict scope
 
           val arity = List.length tyvars
           val cons =

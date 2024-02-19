@@ -668,14 +668,14 @@ struct
           else
             let
               fun p_val_ident id =
-                (case Context.get_val_opt ctx id of
-                  NONE => p_longid id
+                (case Context.get_ident_opt ctx id of
+                  (NONE | SOME (E _) | SOME (C _)) => p_longid id
                   (* If it's a recursive function, don't substitute its definition
                    * in.
                    *)
-                | SOME (Vfn {rec_env = SOME _, ...}) =>
+                | SOME (V (Vfn {rec_env = SOME _, ...})) =>
                     p_longid id
-                | SOME value => p_atvalue ctx value
+                | SOME (V value) => p_atvalue ctx value
                 )
             in
               if opp then
@@ -707,8 +707,8 @@ struct
       | Eapp {left = left as Eapp _, right} =>
           p_exp left \\ p_atexp right
       | Eapp {left = left as Eident {id, ...}, right = right as Etuple [e1, e2]} =>
-          (case Context.get_val_opt ctx id of
-            SOME (Vbasis {is_infix = true, name, function = _}) =>
+          (case Context.get_ident_opt ctx id of
+            SOME (V (Vbasis {is_infix = true, name, function = _})) =>
               p_exp (Einfix {left = e1, id = name, right = e2})
           | _ =>
             p_exp left \\ p_atexp right
@@ -860,16 +860,16 @@ struct
           else
             let
               fun p_val_ident id =
-                (case Context.get_val_opt ctx id of
-                  NONE => p_longid id
+                (case Context.get_ident_opt ctx id of
                   (* If it's a recursive function, don't substitute its definition
                    * in.
                    * TODO: we probably do want to be able to print this,
                    * but only the "one-level unrolling"
                    *)
-                | SOME (Vfn {rec_env = SOME _, ...}) =>
+                  SOME (V (Vfn {rec_env = SOME _, ...})) =>
                     p_longid id
-                | SOME value => p_atvalue ctx value
+                | SOME (V value) => p_atvalue ctx value
+                | (NONE | SOME (C _) | SOME (E _)) => p_longid id
                 )
             in
               p_val_ident id
@@ -1790,8 +1790,8 @@ struct
                  * in the basis, but that's OK.
                  *)
                 if (n >= 1 orelse !(#print_dec (Context.get_settings ctx))) andalso
-                  ( case Context.get_val_opt ctx [sym] of
-                      SOME (Vbasis {is_infix, ...}) => is_infix
+                  ( case Context.get_ident_opt ctx [sym] of
+                      SOME (V (Vbasis {is_infix, ...})) => is_infix
                     | _ => false
                   )
                 then

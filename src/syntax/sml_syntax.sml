@@ -100,6 +100,12 @@ structure SMLSyntax =
         Rows of {lab: symbol, tyval: tyval} list
       | Ty of tyval
 
+    (* A type scheme has an arity, which is the number of polymorphic
+       type variables it expects.
+       It then produces a function which can take in types (the same
+       number as the arity), and replaces those for wherever the type
+       variables would have appeared.
+     *)
     type type_scheme = int * (tyval list -> tyval)
 
     datatype synonym =

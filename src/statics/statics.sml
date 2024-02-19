@@ -1453,12 +1453,8 @@ structure Statics : STATICS =
                           SH.concrete_tyscheme (TVarrow (Context.synth_ty' ctx ty, Basis.exn_ty))
                     )
               | Xrepl {left_id, right_id, ...} =>
-                  ( case Context.get_exn_opt ctx right_id of
-                      NONE =>
-                        Printf.cprintf ctx (`"Replicating nonexistent exception "fli".")
-                                                                               right_id
-                        |> prog_err
-                    | SOME exn_id =>
+                  ( case Context.get_ident_opt ctx right_id of
+                      SOME (E exn_id) =>
                       Context.add_exn
                         new_ctx
                         exn_id
@@ -1470,6 +1466,10 @@ structure Statics : STATICS =
                                                                                       right_id
                             |> prog_err
                         )
+                    | _ =>
+                        Printf.cprintf ctx (`"Replicating nonexistent exception "fli".")
+                                                                               right_id
+                        |> prog_err
                   )
             )
             ctx
@@ -1698,7 +1698,7 @@ structure Statics : STATICS =
           , _
           , _
           ) =>
-          ( case (Context.get_ident_ty_opt ctx id, v, tyval, Context.get_exn_opt ctx id) of
+          ( case (Context.get_ident_ty_opt ctx id, v, tyval, Context.get_ident_opt ctx id) of
               ( SOME (Csign, tyscheme)
               , Vconstr {id = id', arg = SOME v}
               , TVapp (tyvals, tyid)
@@ -1722,7 +1722,7 @@ structure Statics : STATICS =
             | ( SOME (Esign, tyscheme)
               , Vexn {name = _, exnid, arg = SOME v}
               , TVapp ([], tyid)
-              , SOME exnid'
+              , SOME (E exnid')
               ) =>
                 if TyId.eq (Basis.exn_tyid, tyid) then
                   if ExnId.eq (exnid, exnid') then
@@ -1836,7 +1836,9 @@ structure Statics : STATICS =
       let
         val (bindings, ctx, exp) =
           match_against
-            (Context.merge_scope env (Context.ctx_rec (Option.getOpt (VE, Context.scope_empty))))
+            (Context.merge_scope env
+              (Context.ctx_rec (Option.getOpt (VE, Context.scope_empty)))
+            )
             matches
             value
             tyval
