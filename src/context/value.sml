@@ -355,16 +355,33 @@ structure Value : VALUE =
           spec
           (sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) =
       let
+        val ctx_with_tyspecs =
+          SymDict.foldl (fn (sym, {status, ...}, ctx) =>
+            let
+              val synonym =
+                case status of
+                  Abstract (_, id) => raise Fail "TODO"
+                | Concrete (i, ty_fn) => Scheme (i, ty_fn)
+            in
+              Context.add_type_synonym ctx sym synonym
+            end
+          ) ctx tyspecs
+
+        val augmented_ctx =
+          SymDict.foldl (fn (sym, {tyid, ...}, ctx) =>
+            Context.add_type_synonym ctx sym (Datatype tyid)
+          ) ctx_with_tyspecs dtyspecs
+
         (* We search in the original tyspec, because all of these are
          * "simultaneous" and don't see each other.
          *)
-        fun spec_datatype_fn (sym, tyvals) =
+        (* fun spec_datatype_fn (sym, tyvals) =
           case (SymDict.find tyspecs sym, SymDict.find dtyspecs sym) of
             (SOME _, SOME _) => prog_err "should be impossible"
           | (SOME { status = Abstract (_, id), ... }, _) => SOME (TVabs (tyvals, id))
           | (SOME { status = Concrete (_, ty_fn), ... }, _) => SOME (ty_fn tyvals)
           | (_, SOME {tyid, ...}) => SOME (TVapp (tyvals, tyid))
-          | (NONE, NONE) => NONE
+          | (NONE, NONE) => NONE *)
 
         (* This function is supposed to allow us to get the type scheme which
          * takes into account the abstract types and datatypes defined
@@ -372,10 +389,9 @@ structure Value : VALUE =
          *)
         fun get_type_scheme tyvars ty =
           Context.mk_type_scheme
-            spec_datatype_fn
             tyvars
             ty
-            ctx
+            augmented_ctx
 
         (* This code is kinda complicated because structure sharing allows
          * enclosed types to be concrete, but only if they do not overlap in
@@ -504,7 +520,7 @@ structure Value : VALUE =
                          *)
                         SymDict.insert tyspecs tycon
                           { equality = false
-                          , status = Concrete (mk_type_scheme spec_datatype_fn tyvars ty ctx)
+                          , status = Concrete (mk_type_scheme tyvars ty augmented_ctx)
                           }
                   )
                   tyspecs
@@ -540,21 +556,13 @@ structure Value : VALUE =
               val enum_datbinds =
                 List.map (fn datbind as {tycon, ...} => (datbind, TyId.new (SOME tycon))) datbinds
 
-              (* This function both can look through the previous typdescs, as
-               * well as any of the mutually recursive datatypes.
-               *)
-              fun datatype_fn (sym, tyvals) =
-                case
-                  ( spec_datatype_fn (sym, tyvals)
-                  , List.find
-                      (fn ({tycon, ...}, _) => Symbol.eq (sym, tycon))
-                      enum_datbinds
+              val augmented_ctx =
+                List.foldl
+                  (fn (({tycon, ...}, tyid), ctx) =>
+                  Context.add_type_synonym ctx tycon (Datatype tyid)
                   )
-                of
-                  (NONE, NONE) => NONE
-                | (SOME _, SOME _) => raise Fail "shouldn't be possible"
-                | (SOME ty, _) => SOME ty
-                | (_, SOME (_, tyid)) => SOME (TVapp (tyvals, tyid))
+                  ctx
+                  enum_datbinds
             in
               { valspecs = valspecs
               , tyspecs = tyspecs
@@ -577,13 +585,14 @@ structure Value : VALUE =
                                 case ty of
                                   NONE =>
                                     Context.mk_type_scheme
-                                      datatype_fn
                                       tyvars
                                       (Tapp (List.map Ttyvar tyvars, [tycon]))
-                                      ctx
+                                      augmented_ctx
                                 | SOME ty =>
-                                    Context.mk_type_scheme datatype_fn tyvars
-                                    (Tarrow (ty, Tident [tycon])) ctx
+                                    Context.mk_type_scheme
+                                      tyvars
+                                      (Tarrow (ty, Tident [tycon]))
+                                      augmented_ctx
                               }
                             )
                             condescs

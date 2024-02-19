@@ -676,7 +676,7 @@ structure Statics : STATICS =
           unify
             ctx
             (synth ctx exp) (* TODO: check these functions *)
-            (Context.synth_ty (fn _ => NONE) (fn _ => NONE) ctx ty)
+            (Context.synth_ty (fn _ => NONE) ctx ty)
       | ( Eandalso {left, right} | Eorelse {left, right} ) =>
           ( unify ctx (synth ctx left) B.bool_ty
           ; unify ctx (synth ctx right) B.bool_ty
@@ -1349,7 +1349,7 @@ structure Statics : STATICS =
           List.map
             (fn {tycon, tyvars, ty} =>
               ( tycon
-              , Scheme (Context.mk_type_scheme (fn _ => NONE) tyvars ty ctx)
+              , Scheme (Context.mk_type_scheme tyvars ty ctx)
               )
             )
             typbinds
@@ -1372,14 +1372,13 @@ structure Statics : STATICS =
                     let
                       val num = List.length tyvars
 
-                      (* This function takes in a datatype name, and checks
-                       * whether it is the same as the name of these datatypes.
-                       * If so, it extracts it into a tyval.
-                       *)
-                      val datatype_fn =
-                        fn (sym, tyvals) =>
-                          List.find (fn ({tycon, ...}, _) => Symbol.eq (tycon, sym)) enum_datbinds
-                          |> Option.map (fn (_, id) => TVapp (tyvals, id))
+                      val ctx =
+                        List.foldl
+                          (fn (({tycon, ...}, tyid), ctx) =>
+                          Context.add_type_synonym ctx tycon (Datatype tyid)
+                          )
+                          ctx
+                          enum_datbinds
 
                       fun mk_tyvar_fn tys =
                         let
@@ -1400,7 +1399,7 @@ structure Statics : STATICS =
                             (`"Arity mismatch when instantiating type scheme.")
                           |> type_err
                         else
-                          Context.synth_ty datatype_fn (mk_tyvar_fn tys) ctx ty
+                          Context.synth_ty (mk_tyvar_fn tys) ctx ty
                     in
                       (* The name of this type maps to the type scheme which
                        * abstracts over the number of type arguments to the type,
@@ -1420,16 +1419,25 @@ structure Statics : STATICS =
                 ctx
                 withtypee_bindings
 
+            (* We must add the datatypes into the tynamedict first,
+               so that they can see each other while type-checking the
+               datatypes.
+             *)
+            val ctx =
+              List.foldl
+                (fn (({tycon, ...}, tyid), ctx) =>
+                Context.add_type_synonym ctx tycon (Datatype tyid)
+                )
+                ctx
+                enum_datbinds
+
             (* add_datbind is responsible for adding the constructors to the
              * identdict and valtydict.
              *)
             val ctx =
               List.foldl
                 (fn ((datbind, tyid), ctx) =>
-                  Context.add_datbind (fn (sym, tyvals) =>
-                    List.find (fn ({tycon, ...}, _) => Symbol.eq (tycon, sym)) enum_datbinds
-                    |> Option.map (fn (_, tyid) => TVapp (tyvals, tyid))
-                  ) ctx (tyid, datbind)
+                  Context.add_datbind ctx (tyid, datbind)
                 )
                 ctx
                 enum_datbinds

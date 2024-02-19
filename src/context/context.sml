@@ -128,8 +128,7 @@ signature CONTEXT =
 
     (* Type stuff. *)
     val synth_ty :
-         (S.symbol * S.tyval list -> S.tyval option)
-      -> (S.symbol -> S.tyval option)
+         (S.symbol -> S.tyval option)
       -> S.context
       -> S.ty
       -> S.tyval
@@ -138,8 +137,7 @@ signature CONTEXT =
     val norm_tyval : t -> S.tyval -> S.tyval
 
     val mk_type_scheme :
-         (S.symbol * S.tyval list -> S.tyval option)
-      -> S.symbol list
+         S.symbol list
       -> S.ty
       -> t
       -> S.type_scheme
@@ -148,11 +146,7 @@ signature CONTEXT =
 
     val get_current_tyvars : (S.tyval -> S.tyvar list) -> t -> S.tyvar list
 
-    val add_datbind :
-        (S.symbol * S.tyval list -> S.tyval option)
-     -> t
-     -> TyId.t * S.datbind
-     -> t
+    val add_datbind : t -> TyId.t * S.datbind -> t
   end
 
 (*****************************************************************************)
@@ -1029,9 +1023,9 @@ structure Context : CONTEXT =
        we find something which is in that definition, we will just handle its
        type
      *)
-    fun synth_ty datatype_fn tyvar_fn ctx ty =
+    fun synth_ty tyvar_fn ctx ty =
       let
-        val synth_ty = fn ctx => fn ty => synth_ty datatype_fn tyvar_fn ctx ty
+        val synth_ty = fn ctx => fn ty => synth_ty tyvar_fn ctx ty
 
         fun handle_type_synonym tyvals id =
           case get_type_synonym ctx id of
@@ -1043,25 +1037,15 @@ structure Context : CONTEXT =
                 f tyvals
       in
         case ty of
-          Tident [id] =>
-            (case datatype_fn (id, []) of
-              NONE => handle_type_synonym [] [id]
-            | SOME ty => ty
-            )
-        | Tident longid =>
+          Tident longid =>
             handle_type_synonym [] longid
+        | Tapp (tys, longid) =>
+            handle_type_synonym (List.map (synth_ty ctx) tys) longid
         | Ttyvar sym =>
             (case tyvar_fn sym of
               NONE => TVtyvar sym
             | SOME tyval => tyval
             )
-        | Tapp (tys, [id]) =>
-            (case datatype_fn (id, List.map (synth_ty ctx) tys) of
-              NONE => handle_type_synonym (List.map (synth_ty ctx) tys) [id]
-            | SOME ty => ty
-            )
-        | Tapp (tys, longid) =>
-            handle_type_synonym (List.map (synth_ty ctx) tys) longid
         | Tprod tys =>
             TVprod (List.map (synth_ty ctx) tys)
         | Tarrow (t1, t2) =>
@@ -1072,7 +1056,7 @@ structure Context : CONTEXT =
         | Tparens ty => synth_ty ctx ty
       end
 
-    fun synth_ty' ctx ty = synth_ty (fn _ => NONE) (fn _ => NONE) ctx ty
+    fun synth_ty' ctx ty = synth_ty (fn _ => NONE) ctx ty
 
     fun norm_tyval ctx tyval =
       case tyval of
@@ -1101,7 +1085,7 @@ structure Context : CONTEXT =
           TVarrow (norm_tyval ctx t1, norm_tyval ctx t2)
       | TVtyvar sym => TVtyvar sym
 
-    fun mk_type_scheme datatype_fn tyvars ty ctx =
+    fun mk_type_scheme tyvars ty ctx =
       let
         val arity = List.length tyvars
       in
@@ -1117,27 +1101,16 @@ structure Context : CONTEXT =
                 case List.find (fn (tyvar, _) => Symbol.eq (sym, tyvar)) paired of
                   NONE => NONE
                 | SOME (_, ty) => SOME ty
-
-            val default_datatype_fn =
-              fn (sym, tyvals) =>
-                case datatype_fn (sym, tyvals) of
-                  SOME ty => SOME ty
-                | _ =>
-                  case get_type_synonym_opt ctx [sym] of
-                    SOME (Datatype tyid) => SOME (TVapp (tyvals, tyid))
-                  | SOME (Scheme (_, f)) =>
-                      SOME (f tyvals)
-                  | NONE => NONE
           in
             if List.length tyvals <> arity then
               prog_err "invalid arity for instantiated type scheme"
             else
-              synth_ty default_datatype_fn tyvar_fn ctx ty
+              synth_ty tyvar_fn ctx ty
           end
         )
       end
 
-    fun add_datbind datatype_fn (ctx : SMLSyntax.context) (tyid, {tyvars, tycon, conbinds}) =
+    fun add_datbind (ctx : SMLSyntax.context) (tyid, {tyvars, tycon, conbinds}) =
       lift (fn (scope as (Scope {identdict, valtydict, tynamedict, ...}), rest) =>
         let
           val dtydict = ! (#dtydict ctx)
@@ -1151,13 +1124,11 @@ structure Context : CONTEXT =
                   case ty of
                     NONE =>
                       mk_type_scheme
-                        datatype_fn
                         tyvars
                         (Tapp (List.map Ttyvar tyvars, [tycon]))
                         ctx
                   | SOME ty =>
                       mk_type_scheme
-                        datatype_fn
                         tyvars
                         (Tarrow (ty, Tapp (List.map Ttyvar tyvars, [tycon])))
                         ctx
