@@ -45,21 +45,14 @@ signature BINDING =
     type t = SMLSyntax.context
     type bindings = PrettyPrintContext.MarkerSet.set
 
-    val get_pat_bindings : t -> SMLSyntax.pat -> bindings
-    val get_pat_ids : t -> SMLSyntax.pat -> SMLSyntax.symbol list
-    val get_fname_args_bindings :
+    val of_pat : t -> SMLSyntax.pat -> bindings
+    val ids_of_pat : t -> SMLSyntax.pat -> SMLSyntax.symbol list
+    val of_fname_args :
       t -> SMLSyntax.fname_args -> bindings
 
-    val remove_bound_ids : t -> bindings -> t
-    val bound_ids_of_modname : t -> SMLSyntax.longid -> bindings
-    val get_funarg_bound_ids : t -> SMLSyntax.funarg -> bindings
-
-    val add_sigbindings :
-         t
-      -> (SMLSyntax.symbol * sigval) list
-      -> t
-
-    val add_funbind : t -> SMLSyntax.funbind -> t
+    val remove_bindings : t -> bindings -> t
+    val of_modname : t -> SMLSyntax.longid -> bindings
+    val of_funarg : t -> SMLSyntax.funarg -> bindings
   end
 
 (*****************************************************************************)
@@ -86,16 +79,16 @@ structure Binding : BINDING =
     fun get_patrow_bindings ctx patrow =
       case patrow of
         PRellipsis => MarkerSet.empty
-      | PRlab {pat, ...} => get_pat_bindings ctx pat
+      | PRlab {pat, ...} => of_pat ctx pat
       | PRas {id, aspat, ...} =>
           MarkerSet.union
             (MarkerSet.singleton (VAL id))
             (case aspat of
               NONE => MarkerSet.empty
-            | SOME pat => get_pat_bindings ctx pat
+            | SOME pat => of_pat ctx pat
             )
 
-    and get_pat_bindings ctx pat =
+    and of_pat ctx pat =
       case pat of
         ( Pnumber _
         | Pword _
@@ -113,19 +106,19 @@ structure Binding : BINDING =
             TerminalColors.lightblue (SH.longid_to_str id))
             )
       | Precord patrows => List.map (get_patrow_bindings ctx) patrows |> union_sets
-      | Pparens pat => get_pat_bindings ctx pat
-      | Ptuple pats => List.map (get_pat_bindings ctx) pats |> union_sets
-      | Plist pats => List.map (get_pat_bindings ctx) pats |> union_sets
-      | Por pats => List.map (get_pat_bindings ctx) pats |> union_sets
+      | Pparens pat => of_pat ctx pat
+      | Ptuple pats => List.map (of_pat ctx) pats |> union_sets
+      | Plist pats => List.map (of_pat ctx) pats |> union_sets
+      | Por pats => List.map (of_pat ctx) pats |> union_sets
       | Papp {id, atpat, ...} =>
           if is_con ctx id then
-            get_pat_bindings ctx atpat
+            of_pat ctx atpat
           else
             (case id of
               [id] =>
                 MarkerSet.union
                   (MarkerSet.singleton (VAL id))
-                  (get_pat_bindings ctx atpat)
+                  (of_pat ctx atpat)
             | _ =>
               eval_err ("Cannot find constructor " ^ TerminalColors.text
               TerminalColors.lightblue (SH.longid_to_str id))
@@ -133,44 +126,44 @@ structure Binding : BINDING =
       | Pinfix {left, id, right} =>
           if is_con ctx [id] then
             MarkerSet.union
-              (get_pat_bindings ctx left)
-              (get_pat_bindings ctx right)
+              (of_pat ctx left)
+              (of_pat ctx right)
           else
             union_sets
               [ MarkerSet.singleton (VAL id)
-              , get_pat_bindings ctx left
-              , get_pat_bindings ctx right
+              , of_pat ctx left
+              , of_pat ctx right
               ]
-      | Ptyped {pat, ...} => get_pat_bindings ctx pat
+      | Ptyped {pat, ...} => of_pat ctx pat
       | Playered {id, aspat, ...} =>
           MarkerSet.union
             (MarkerSet.singleton (VAL id))
-            (get_pat_bindings ctx aspat)
+            (of_pat ctx aspat)
 
-    fun get_pat_ids ctx pat =
+    fun ids_of_pat ctx pat =
       List.map (fn VAL id => id | _ => raise Fail "shouldn't happen")
-      (MarkerSet.toList (get_pat_bindings ctx pat))
+      (MarkerSet.toList (of_pat ctx pat))
 
-    fun get_fname_args_bindings ctx fname_args =
+    fun of_fname_args ctx fname_args =
       case fname_args of
         Fprefix {id, args, ...} =>
           union_sets
             ( MarkerSet.singleton (VAL id)
-              :: List.map (get_pat_bindings ctx) args
+              :: List.map (of_pat ctx) args
             )
       | Finfix {left, id, right} =>
           union_sets
-            [ get_pat_bindings ctx left
+            [ of_pat ctx left
             , MarkerSet.singleton (VAL id)
-            , get_pat_bindings ctx right
+            , of_pat ctx right
             ]
       | Fcurried_infix {left, id, right, args} =>
           union_sets
-            ( [ get_pat_bindings ctx left
+            ( [ of_pat ctx left
               , MarkerSet.singleton (VAL id)
-              , get_pat_bindings ctx right
+              , of_pat ctx right
               ]
-              @ List.map (get_pat_bindings ctx) args
+              @ List.map (of_pat ctx) args
             )
 
     (* We should not be able to do this for a constructor or exception, because
@@ -214,7 +207,7 @@ structure Binding : BINDING =
         }
       end
 
-    fun remove_bound_ids ctx ids =
+    fun remove_bindings ctx ids =
       MarkerSet.foldl
         (fn (VAL id, ctx) =>
           remove_bound_id_base remove_val_scope_bound_id ctx id
@@ -224,20 +217,20 @@ structure Binding : BINDING =
         ctx
         ids
 
-    fun get_sigval_bound_ids (_ : SMLSyntax.context) (Sigval {valspecs, modspecs, ...})=
+    fun get_sigval_bindings (_ : SMLSyntax.context) (Sigval {valspecs, modspecs, ...})=
       marker_set_of_list
         ( List.map VAL (SymDict.domain valspecs)
         @ List.map MOD (SymDict.domain modspecs)
         )
 
-    and get_signat_bound_ids ctx signat =
+    and get_signat_bindings ctx signat =
       case signat of
-        Sspec spec => get_spec_bound_ids ctx spec
+        Sspec spec => get_spec_bindings ctx spec
       | Sident sym =>
-          get_sigval_bound_ids ctx (get_sig ctx sym)
-      | Swhere {signat, ...} => get_signat_bound_ids ctx signat
+          get_sigval_bindings ctx (get_sig ctx sym)
+      | Swhere {signat, ...} => get_signat_bindings ctx signat
 
-    and get_spec_bound_ids ctx spec =
+    and get_spec_bindings ctx spec =
       case spec of
         SPval valdescs =>
           List.map (VAL o #id) valdescs |> marker_set_of_list
@@ -249,22 +242,22 @@ structure Binding : BINDING =
       | SPmodule moddescs =>
           List.map (MOD o #id) moddescs |> marker_set_of_list
       | SPinclude signat =>
-          get_signat_bound_ids ctx signat
+          get_signat_bindings ctx signat
       | SPinclude_ids syms =>
-          List.map (get_signat_bound_ids ctx) (List.map Sident syms)
+          List.map (get_signat_bindings ctx) (List.map Sident syms)
           |> union_sets
-      | SPsharing_type {spec, ...} => get_spec_bound_ids ctx spec
-      | SPsharing {spec, ...} => get_spec_bound_ids ctx spec
+      | SPsharing_type {spec, ...} => get_spec_bindings ctx spec
+      | SPsharing {spec, ...} => get_spec_bindings ctx spec
       | SPseq specs =>
-          List.map (get_spec_bound_ids ctx) specs
+          List.map (get_spec_bindings ctx) specs
           |> union_sets
 
-    fun get_funarg_bound_ids ctx funarg =
+    fun of_funarg ctx funarg =
       case funarg of
         Normal {id, ...} => MarkerSet.singleton (MOD id)
-      | Sugar spec => get_spec_bound_ids ctx spec
+      | Sugar spec => get_spec_bindings ctx spec
 
-    fun bound_ids_of_modname ctx longid =
+    fun of_modname ctx longid =
       let
         val (identdict, moddict) =
           case (get_module_opt ctx longid) of
@@ -284,57 +277,4 @@ structure Binding : BINDING =
         )
         |> marker_set_of_list
       end
-
-    fun add_sigbindings {scope, outer_scopes, dtydict, sigdict, functordict,
-    tyvars, hole_print_fn, settings, abstys} sigbindings =
-      { scope = scope
-      , outer_scopes = outer_scopes
-      , dtydict = dtydict
-      , sigdict =
-            ( List.foldl
-                (fn ((id, sigval), sigdict) =>
-                  SymDict.insert sigdict id sigval
-                )
-                sigdict
-                sigbindings
-            )
-      , functordict = functordict
-      , tyvars = tyvars
-      , hole_print_fn = hole_print_fn
-      , settings = settings
-      , abstys = abstys
-      }
-
-    fun add_funbind (ctx as {scope, outer_scopes, dtydict, sigdict, functordict, tyvars
-    , hole_print_fn, settings, abstys})
-                    {id, funarg, seal, body} =
-      { scope = scope
-      , outer_scopes = outer_scopes
-      , dtydict = dtydict
-      , sigdict = sigdict
-      , functordict =
-          SymDict.insert
-            functordict
-            id
-            ( Functorval
-              { arg_seal =
-                  case funarg of
-                    Normal {id, signat} =>
-                      { id = SOME id, sigval = Value.evaluate_signat ctx signat }
-                  | Sugar spec =>
-                      { id = NONE, sigval = Value.evaluate_signat ctx (Sspec spec) }
-              , seal =
-                  Option.map
-                    (fn {signat, opacity} =>
-                      { opacity = opacity, sigval = Value.evaluate_signat ctx signat }
-                    )
-                    seal
-              , body = body
-              }
-            )
-      , tyvars = tyvars
-      , hole_print_fn = hole_print_fn
-      , settings = settings
-      , abstys = abstys
-      }
   end

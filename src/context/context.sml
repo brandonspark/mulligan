@@ -1298,5 +1298,4 @@ structure Context :
             []
         |> (fn valty_tyvars => valty_tyvars @ List.map Proper (SymSet.toList cur_tyvars))
     end
-
   end

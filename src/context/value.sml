@@ -112,7 +112,18 @@ signature VALUE =
 
     val value_eq : value * value -> bool
 
+    (* TODO: these don't _really_ fit here, but don't have a better
+       place to put it currently
+     *)
+
     val evaluate_signat : context -> signat -> sigval
+
+    val add_sigbindings :
+         Context.t
+      -> (SMLSyntax.symbol * SMLSyntax.sigval) list
+      -> Context.t
+
+    val add_funbind : Context.t -> SMLSyntax.funbind -> Context.t
   end
 
 (*****************************************************************************)
@@ -710,5 +721,57 @@ structure Value : VALUE =
           (* TODO: type stuff *)
           evaluate_signat ctx signat
 
+    fun add_sigbindings {scope, outer_scopes, dtydict, sigdict, functordict,
+    tyvars, hole_print_fn, settings, abstys} sigbindings =
+      { scope = scope
+      , outer_scopes = outer_scopes
+      , dtydict = dtydict
+      , sigdict =
+            ( List.foldl
+                (fn ((id, sigval), sigdict) =>
+                  SymDict.insert sigdict id sigval
+                )
+                sigdict
+                sigbindings
+            )
+      , functordict = functordict
+      , tyvars = tyvars
+      , hole_print_fn = hole_print_fn
+      , settings = settings
+      , abstys = abstys
+      }
+
+    fun add_funbind (ctx as {scope, outer_scopes, dtydict, sigdict, functordict, tyvars
+    , hole_print_fn, settings, abstys})
+                    {id, funarg, seal, body} =
+      { scope = scope
+      , outer_scopes = outer_scopes
+      , dtydict = dtydict
+      , sigdict = sigdict
+      , functordict =
+          SymDict.insert
+            functordict
+            id
+            ( Functorval
+              { arg_seal =
+                  case funarg of
+                    Normal {id, signat} =>
+                      { id = SOME id, sigval = evaluate_signat ctx signat }
+                  | Sugar spec =>
+                      { id = NONE, sigval = evaluate_signat ctx (Sspec spec) }
+              , seal =
+                  Option.map
+                    (fn {signat, opacity} =>
+                      { opacity = opacity, sigval = evaluate_signat ctx signat }
+                    )
+                    seal
+              , body = body
+              }
+            )
+      , tyvars = tyvars
+      , hole_print_fn = hole_print_fn
+      , settings = settings
+      , abstys = abstys
+      }
 
   end

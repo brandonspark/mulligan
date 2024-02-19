@@ -691,8 +691,8 @@ struct
           p_seq p_exp "(" ";" ")" exps
       | Elet {dec, exps} =>
           let
-            val (dec_doc, bound_ids) = p_dec' ctx dec
-            val new_ctx = Binding.remove_bound_ids ctx bound_ids
+            val (dec_doc, bindings) = p_dec' ctx dec
+            val new_ctx = Binding.remove_bindings ctx bindings
           in
             group (
               separateWithNewlines
@@ -980,8 +980,8 @@ struct
 
     and p_match ctx prefix {pat, exp} =
       let
-        val bound_ids = Binding.get_pat_bindings ctx pat
-        val new_ctx = Binding.remove_bound_ids ctx bound_ids
+        val bindings = Binding.of_pat ctx pat
+        val new_ctx = Binding.remove_bindings ctx bindings
       in
         group (
           ( case prefix of
@@ -998,8 +998,8 @@ struct
         val ctx =
           if recc then
             let
-              val binded_ids = Binding.get_pat_bindings ctx pat
-              val ctx = Binding.remove_bound_ids ctx binded_ids
+              val binded_ids = Binding.of_pat ctx pat
+              val ctx = Binding.remove_bindings ctx binded_ids
             in
               ctx
             end
@@ -1086,8 +1086,8 @@ struct
             [] => raise Fail "empty valbinds"
           | hd::tl =>
               let
-                val bound_ids =
-                  List.map (Binding.get_pat_bindings ctx o #pat) valbinds
+                val bindings =
+                  List.map (Binding.of_pat ctx o #pat) valbinds
                   |> union_sets
 
                 (* If any of them are `rec`, then the matches need to be
@@ -1098,7 +1098,7 @@ struct
                        false
                        (List.map #recc valbinds)
                   then
-                    Binding.remove_bound_ids ctx bound_ids
+                    Binding.remove_bindings ctx bindings
                   else
                     ctx
               in
@@ -1113,7 +1113,7 @@ struct
                       (fn match => text "and" +-+ p_rec_match_equal new_ctx match)
                       tl
                     )
-                , bound_ids
+                , bindings
                 )
               end
           )
@@ -1134,12 +1134,12 @@ struct
                 fvalbinds
               |> marker_set_of_list
 
-            val mutual_ctx = Binding.remove_bound_ids ctx func_names
+            val mutual_ctx = Binding.remove_bindings ctx func_names
 
             fun mk { fname_args, ty, exp } =
               let
-                val binded_ids = Binding.get_fname_args_bindings ctx fname_args
-                val new_ctx = Binding.remove_bound_ids mutual_ctx binded_ids
+                val binded_ids = Binding.of_fname_args ctx fname_args
+                val new_ctx = Binding.remove_bindings mutual_ctx binded_ids
               in
                 group (
                   separateWithSpaces
@@ -1205,7 +1205,7 @@ struct
             val typdecs =
               p_list_mk (p_datbind "abstype") datbinds
 
-            val (with_doc, with_bound_ids) =
+            val (with_doc, with_bindings) =
               p_dec' ctx withh
 
             val withh =
@@ -1229,7 +1229,7 @@ struct
                     withh
                   )
             )
-            |> inject with_bound_ids
+            |> inject with_bindings
           end
       | Dexception exbinds =>
           group (
@@ -1238,9 +1238,9 @@ struct
           |> inject empty_set
       | Dlocal {left_dec, right_dec} =>
           let
-            val (left_dec_doc, left_bound_ids) = p_dec' ctx left_dec
-            val ctx = Binding.remove_bound_ids ctx left_bound_ids
-            val (right_dec_doc, right_bound_ids) = p_dec' ctx right_dec
+            val (left_dec_doc, left_bindings) = p_dec' ctx left_dec
+            val ctx = Binding.remove_bindings ctx left_bindings
+            val (right_dec_doc, right_bindings) = p_dec' ctx right_dec
           in
             group (
               text_syntax "local"
@@ -1253,16 +1253,16 @@ struct
               $$
               text_syntax "end"
             )
-            |> inject right_bound_ids
+            |> inject right_bindings
           end
       | Dopen longids =>
           let
-            val bound_ids =
+            val bindings =
               union_sets
-                (List.map (Binding.bound_ids_of_modname ctx) longids)
+                (List.map (Binding.of_modname ctx) longids)
           in
             text_syntax "open" +-+ p_list p_open " " longids
-            |> inject bound_ids
+            |> inject bindings
           end
       | Dseq [] => raise Fail "empty dseq"
       | Dseq [x] => p_dec' ctx x
@@ -1270,11 +1270,11 @@ struct
           List.foldl
             (fn (dec, (acc, ctx, acc_boundids)) =>
               let
-                val (dec_doc, bound_ids) = p_dec' ctx dec
+                val (dec_doc, bindings) = p_dec' ctx dec
               in
                 ( (case acc of NONE => SOME dec_doc | SOME acc => SOME (acc $$ dec_doc))
-                , Binding.remove_bound_ids ctx bound_ids
-                , MarkerSet.union acc_boundids bound_ids
+                , Binding.remove_bindings ctx bindings
+                , MarkerSet.union acc_boundids bindings
                 )
               end
             )
@@ -1338,9 +1338,9 @@ struct
           end
       | DMlocal {left_dec, right_dec} =>
           let
-            val (left_dec_doc, left_bound_ids) = p_strdec' ctx left_dec
-            val ctx = Binding.remove_bound_ids ctx left_bound_ids
-            val (right_dec_doc, right_bound_ids) = p_strdec' ctx right_dec
+            val (left_dec_doc, left_bindings) = p_strdec' ctx left_dec
+            val ctx = Binding.remove_bindings ctx left_bindings
+            val (right_dec_doc, right_bindings) = p_strdec' ctx right_dec
           in
             group (
               separateWithNewlines
@@ -1351,23 +1351,23 @@ struct
                 , text_syntax "end"
                 ]
             )
-            |> inject right_bound_ids
+            |> inject right_bindings
           end
       | DMseq strdecs =>
           List.foldl
             (fn (strdec, (acc, ctx, acc_boundids)) =>
               let
-                val (strdec_doc, bound_ids) = p_strdec' ctx strdec
+                val (strdec_doc, bindings) = p_strdec' ctx strdec
               in
                 ( case acc of NONE => SOME strdec_doc | SOME acc => SOME (acc $$ strdec_doc)
-                , Binding.remove_bound_ids ctx bound_ids
-                , MarkerSet.union acc_boundids bound_ids
+                , Binding.remove_bindings ctx bindings
+                , MarkerSet.union acc_boundids bindings
                 )
               end
             )
             ( NONE, ctx, empty_set )
             strdecs
-          |> (fn (doc, _, bound_ids) => (Option.getOpt (doc, text_syntax ""), bound_ids))
+          |> (fn (doc, _, bindings) => (Option.getOpt (doc, text_syntax ""), bindings))
       | DMhole => ( Context.get_hole_print_fn ctx (), empty_set )
       end
 
@@ -1406,8 +1406,8 @@ struct
           )
       | Mlet {dec, module} =>
           let
-            val (strdec_doc, bound_ids) = p_strdec' ctx dec
-            val ctx = Binding.remove_bound_ids ctx bound_ids
+            val (strdec_doc, bindings) = p_strdec' ctx dec
+            val ctx = Binding.remove_bindings ctx bindings
           in
             group (
               separateWithNewlines
@@ -1624,8 +1624,8 @@ struct
 
       fun mk mark {id, funarg, seal, body} =
         let
-          val bound_ids = Binding.get_funarg_bound_ids ctx funarg
-          val new_ctx = Binding.remove_bound_ids ctx bound_ids
+          val bindings = Binding.of_funarg ctx funarg
+          val new_ctx = Binding.remove_bindings ctx bindings
         in
           group (
             separateWithSpaces
@@ -1672,13 +1672,13 @@ struct
       List.foldl
         (fn (topdec, (acc, ctx, acc_boundids)) =>
           let
-            val (topdec_doc, bound_ids) = p_topdec' ctx topdec
+            val (topdec_doc, bindings) = p_topdec' ctx topdec
           in
             ( case acc of
                 NONE => SOME (topdec_doc)
               | SOME acc => SOME (acc $$ topdec_doc)
-            , Binding.remove_bound_ids ctx bound_ids
-            , MarkerSet.union acc_boundids bound_ids
+            , Binding.remove_bindings ctx bindings
+            , MarkerSet.union acc_boundids bindings
             )
           end
         )
@@ -1737,7 +1737,7 @@ struct
         (* This new ctx contains the print function for the current doc.
          *)
         val ctx = Context.add_hole_print_fn ctx (fn () => flatten_doc doc)
-        val new_ctx = Binding.remove_bound_ids ctx acc_ids
+        val new_ctx = Binding.remove_bindings ctx acc_ids
 
         fun handle_exp n ctx exp_doc rest =
           ( case ((!(#print_dec (Context.get_settings ctx)))
@@ -1809,14 +1809,14 @@ struct
                 { recc = recc, pat = pat, exp = Ehole }
                 :: valbinds
 
-              val (doc', bound_ids) =
+              val (doc', bindings) =
                 p_dec' ctx (Dval { tyvars = tyvars, valbinds = valbinds })
             in
               case (Context.get_settings ctx, n) of
                 ({ print_all = ref true, ... }, _ ) =>
                   report
                     ctx
-                    bound_ids
+                    bindings
                     (DOC doc')
                     n
                     rest
@@ -1825,7 +1825,7 @@ struct
               | _ =>
                 report
                   ctx
-                  bound_ids
+                  bindings
                   (DOC doc')
                   (n - 1)
                   rest
@@ -1856,23 +1856,23 @@ struct
             let
               val dec = Dlocal {left_dec = Dseq (Dhole :: decs), right_dec = dec}
 
-              val (doc, bound_ids) =
+              val (doc, bindings) =
                 p_dec' new_ctx dec
             in
               report
                 ctx
-                bound_ids
+                bindings
                 (DOC doc)
                 (n - 1)
                 rest
             end
         | (n, DSEQ decs :: rest) =>
             let
-              val (doc, bound_ids) = p_dec' new_ctx (Dseq (Dhole :: decs))
+              val (doc, bindings) = p_dec' new_ctx (Dseq (Dhole :: decs))
             in
               report
                 ctx
-                (union acc_ids bound_ids)
+                (union acc_ids bindings)
                 (DOC doc)
                 (n - 1)
                 rest
@@ -1881,24 +1881,24 @@ struct
             let
               val strdec = DMlocal {left_dec = DMseq (DMhole :: strdecs), right_dec = strdec}
 
-              val (doc, bound_ids) =
+              val (doc, bindings) =
                 p_strdec' new_ctx strdec
             in
               report
                 ctx
-                bound_ids
+                bindings
                 (DOC doc)
                 (n - 1)
                 rest
             end
         | (n, DMSEQ strdecs :: rest) =>
             let
-              val (doc, bound_ids) =
+              val (doc, bindings) =
                 p_strdec' new_ctx (DMseq (DMhole :: strdecs))
             in
               report
                 ctx
-                (union acc_ids bound_ids)
+                (union acc_ids bindings)
                 (DOC doc)
                 (n - 1)
                 rest
@@ -1953,19 +1953,19 @@ struct
                     , module = Mhole
                     } :: modules
                   )
-              val (doc, bound_ids) =
+              val (doc, bindings) =
                 p_strdec' ctx strdec
             in
-              report new_ctx bound_ids (DOC doc) (n - 1) rest
+              report new_ctx bindings (DOC doc) (n - 1) rest
             end
         | (n, FBODY _ :: rest) => (* TODO? *) report ctx empty_set doc n rest
         | (n, [PROG topdecs]) =>
           let
-            val (doc, bound_ids) = p_ast ctx (Thole :: topdecs)
+            val (doc, bindings) = p_ast ctx (Thole :: topdecs)
           in
             report
               ctx
-              bound_ids
+              bindings
               (DOC doc)
               (n - 1)
               []

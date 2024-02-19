@@ -758,7 +758,7 @@ structure Debugger : DEBUGGER =
                         SymSet.member break_assigns id orelse acc
                       )
                       false
-                      (Binding.get_pat_ids ctx pat)
+                      (Binding.ids_of_pat ctx pat)
                     |> (fn b => if b then Cont.callcc (fn cont => raise Perform
                     (Break (false, cont))) else ())
 
@@ -1087,11 +1087,11 @@ structure Debugger : DEBUGGER =
             )
             []
             sigdec
-          |> Binding.add_sigbindings ctx
+          |> Value.add_sigbindings ctx
 
       | Fundec fundec =>
           List.foldl
-            (fn (funbind, ctx) => Binding.add_funbind ctx funbind)
+            (fn (funbind, ctx) => Value.add_funbind ctx funbind)
             ctx
             fundec
       | Thole => raise Fail "shouldn't eval thole"
