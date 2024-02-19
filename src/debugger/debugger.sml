@@ -32,19 +32,19 @@ structure SH = SMLSyntaxHelpers
 type susp_value = unit -> Context.value
 
 (* A focus represents what the debugger is currently looking at.
-  *
-  * In the VAL and EXP cases, it also contains a first-class continuation to
-  * be used to jump back into the evaluation of the program.
-  *)
+ *
+ * In the VAL and EXP cases, it also contains a first-class continuation to
+ * be used to jump back into the evaluation of the program.
+ *)
 datatype focus =
     VAL of SMLSyntax.exp * unit Cont.t
   | EXP of SMLSyntax.exp * susp_value Cont.t
   | PROG of SMLSyntax.ast
 
 (* Using the idea of algebraic effects, the debugger performs certain
-  * actions, which allow it to briefly dip into the interactive loop, before
-  * resuming computation of the debugger again.
-  *)
+ * actions, which allow it to briefly dip into the interactive loop, before
+ * resuming computation of the debugger again.
+ *)
 datatype perform =
     Step of
       { context : Context.t
@@ -54,11 +54,15 @@ datatype perform =
       }
   | Break of bool * unit Cont.t
 
+type env = {
+  location : Location.location list,
+  exp : SMLSyntax.exp,
+  ctx : Context.t
+}
+
 (*****************************************************************************)
 (* Helpers *)
 (*****************************************************************************)
-
-fun suspend x = fn () => x
 
 val sym_true = Symbol.fromValue "true"
 val sym_false = Symbol.fromValue "false"
@@ -208,7 +212,7 @@ structure Debugger : DEBUGGER =
           if Location.is_val_dec location then
             redex_value location value ctx cont
           else
-            Cont.throw cont (suspend value)
+            Cont.throw cont (Common.suspend value)
       in
         case exp of
           Enumber num => throw (Vnumber num)
@@ -326,21 +330,21 @@ structure Debugger : DEBUGGER =
                         case left of
                           Vfn { matches = [ {pat = _, exp = Efn (_, _)}], break = _, rec_env = _, abstys = _, env = _ } =>
                             (* We might be interested in an expression which looks like
-                            * v1 v2
-                            * If `v1` is a curried function, then we might not be interested
-                            * in displaying to the debugger that we passed it a curried
-                            * argument. This produces traces like:
-                            *
-                            * foldr (op^) "" ["h", "i"]
-                            * => (fn t1 => fn t2 => case (^, t1, t2) of ...) "" ["h", "i"]
-                            * => (fn t2 => case (^, "", t2) of ...) ["h", "i"]
-                            *
-                            * We'd prefer to see:
-                            * foldr (op^) "" ["h", "i"]
-                            * => case (^, "", ["h", "i"]) of ...
-                            *
-                            * So let's avoid doing that.
-                            *)
+                             * v1 v2
+                             * If `v1` is a curried function, then we might not be interested
+                             * in displaying to the debugger that we passed it a curried
+                             * argument. This produces traces like:
+                             *
+                             * foldr (op^) "" ["h", "i"]
+                             * => (fn t1 => fn t2 => case (^, t1, t2) of ...) "" ["h", "i"]
+                             * => (fn t2 => case (^, "", t2) of ...) ["h", "i"]
+                             *
+                             * We'd prefer to see:
+                             * foldr (op^) "" ["h", "i"]
+                             * => case (^, "", ["h", "i"]) of ...
+                             *
+                             * So let's avoid doing that.
+                             *)
                             if !(#pause_currying (Context.get_settings ctx)) then
                               redex (CLOSURE ctx :: location) new_exp new_ctx cont
                             else
@@ -694,7 +698,7 @@ structure Debugger : DEBUGGER =
      * This will cause a checkpoint, which will trigger a pause.
      *)
     and redex location exp ctx cont =
-      Cont.throw cont (suspend (checkpoint location exp ctx false))
+      Cont.throw cont (Common.suspend (checkpoint location exp ctx false))
 
     (* This function is used on the expression resulting from evaluating a redex
      * into a value.
@@ -719,7 +723,7 @@ structure Debugger : DEBUGGER =
                          }
                   )
             );
-        Cont.throw cont (suspend value)
+        Cont.throw cont (Common.suspend value)
       end
 
     (* After the statics are finished, we only have a couple things we need to

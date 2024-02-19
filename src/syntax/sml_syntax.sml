@@ -544,7 +544,7 @@ structure SMLSyntax =
 
     and scope =
       Scope of
-          (* TODO: combine these two `identdict` and `valtydict` *)
+        (* TODO: combine these two `identdict` and `valtydict` *)
         { identdict : identdict (* identifiers -> values *)
         , valtydict : valtydict (* val identifiers -> types *)
         , moddict : moddict (* maps to module scopes *)

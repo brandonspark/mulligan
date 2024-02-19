@@ -32,16 +32,16 @@ open PrettyPrintAst
 (*****************************************************************************)
 
 (* This is so we can facilitate a little bit of code reuse between the
-  * statics and the debugger.
-  *
-  * The debugger needs to do pretty much the exact same stuff as the statics
-  * for a dec, plus a little bit more. This only happens in four cases
-  * though, so instead the statics will do all the statics stuff, then
-  * provide a value of this type, which the debugger will dispatch on to do
-  * all the real-time stuff.
-  *
-  * THINK: I'm no longer convinced `DEC_CONT` is necessary.
-  *)
+ * statics and the debugger.
+ *
+ * The debugger needs to do pretty much the exact same stuff as the statics
+ * for a dec, plus a little bit more. This only happens in four cases
+ * though, so instead the statics will do all the statics stuff, then
+ * provide a value of this type, which the debugger will dispatch on to do
+ * all the real-time stuff.
+ *
+ * THINK: I'm no longer convinced `DEC_CONT` is necessary.
+ *)
 datatype dec_status =
     DEC_VAL of Context.t * Context.t * {tyvars : SMLSyntax.symbol list, valbinds : SMLSyntax.valbinds}
   | DEC_FUN of Context.t * {tyvars : SMLSyntax.symbol list, fvalbinds : SMLSyntax.fvalbinds}
@@ -130,9 +130,9 @@ fun instantiate_tyscheme (ctx : context) ((arity, ty_fn) : type_scheme) : tyval 
   Context.norm_tyval ctx (ty_fn (List.tabulate (arity, fn _ => new ())))
 
 (* Unification of types requires checking that unification variables do not
-  * occur in the type to be unified with (circularity). This function
-  * facilitates that.
-  *)
+ * occur in the type to be unified with (circularity). This function
+ * facilitates that.
+ *)
 fun occurs_check (r : restrict option ref) (tyval : tyval) : bool =
   case tyval of
     TVtyvar _ => false
@@ -172,8 +172,8 @@ fun occurs_check (r : restrict option ref) (tyval : tyval) : bool =
       occurs_check r t1 orelse occurs_check r t2
 
 (* Get the essential information from each fname_args.
-  * We need the function name, pat bindings, and types of the patterns.
-  *)
+ * We need the function name, pat bindings, and types of the patterns.
+ *)
 fun get_fname_args_info synth_pat fname_args ctx =
   let
     fun bindings_and_tys_of_pats ctx pats =
@@ -239,11 +239,11 @@ fun tyvars_difference l1 l2 =
     l2
 
 (* This is big quadratic complexity, but we're not using sets because
-  * we want the tyvars to be numbered in a "sensible" ordering. This
-  * means that we want the order.
-  *
-  * There shouldn't be that many tyvars anyways. So it should be fine.
-  *)
+ * we want the tyvars to be numbered in a "sensible" ordering. This
+ * means that we want the order.
+ *
+ * There shouldn't be that many tyvars anyways. So it should be fine.
+ *)
 fun tyvars_dedup l =
   case l of
     [] => []
@@ -253,11 +253,11 @@ fun tyvars_dedup l =
 (* Non-expansivity *)
 (*****************************************************************************)
 (* Non-expansive expressions refer to those expressions which are syntactic
-  * values, i.e. do not evaluate significantly when being bound to an
-  * identifier. Only non-expansive expressions may have their types
-  * generalized at a binding site (due to unsafety with polymorphic references,
-  * exceptions, and continuations), so this function just checks for that.
-  *)
+ * values, i.e. do not evaluate significantly when being bound to an
+ * identifier. Only non-expansive expressions may have their types
+ * generalized at a binding site (due to unsafety with polymorphic references,
+ * exceptions, and continuations), so this function just checks for that.
+ *)
 fun nexpansive_left_app ctx exp =
   case exp of
     ( Eparens exp
@@ -2093,9 +2093,9 @@ structure Statics : STATICS =
                      * If so, then we want to add this identifier with a value
                      * tag to the identdict and valtydict.
                      *)
-                     (* TODO: Equality is too strong of a condition.
-                      * We want that they can unify to each other.
-                      *)
+                    (* TODO: Equality is too strong of a condition.
+                     * We want that they can unify to each other.
+                     *)
                     ( unify_tyschemes mod_tyscheme sig_tyscheme
                     ; ( SymDict.insert
                           acc_valtydict
