@@ -249,6 +249,40 @@ fun tyvars_dedup l =
     [] => []
   | x::xs => x :: tyvars_dedup (tyvars_remove xs x)
 
+(* Need to replace tyvars with their substituted counterparts.
+  *)
+fun subst_tyvars_in_tyval tyvar_subst ctx ty =
+  let
+    val subst_tyvars_in_tyval = fn ctx => fn ty => subst_tyvars_in_tyval tyvar_subst ctx ty
+  in
+    case (Context.norm_tyval ctx ty) of
+      TVtyvar sym =>
+        (case tyvar_subst (Proper sym) of
+          NONE => TVtyvar sym
+        | SOME tyval => tyval
+        )
+    | TVapp (tys, tyid) =>
+        TVapp (List.map (subst_tyvars_in_tyval ctx) tys, tyid)
+    | TVabs (tyvals, absid) =>
+        TVabs (List.map (subst_tyvars_in_tyval ctx) tyvals, absid)
+    | TVprod tys =>
+        TVprod (List.map (subst_tyvars_in_tyval ctx) tys)
+    | TVarrow (t1, t2) =>
+        TVarrow (subst_tyvars_in_tyval ctx t1, subst_tyvars_in_tyval ctx t2)
+    | TVrecord fields =>
+        TVrecord
+          (List.map (fn {lab, tyval} =>
+            { lab = lab
+            , tyval = subst_tyvars_in_tyval ctx tyval
+            }) fields
+          )
+    | TVvar r =>
+        (case tyvar_subst (Unconstrained r) of
+          NONE => TVvar r
+        | SOME tyval => tyval
+        )
+  end
+
 (*****************************************************************************)
 (* Non-expansivity *)
 (*****************************************************************************)
@@ -321,42 +355,7 @@ structure Statics : STATICS =
   struct
     datatype dec_status = datatype dec_status
 
-    (* Need to replace tyvars with their substituted counterparts.
-     *)
-    fun quantify_tyval tyvar_fn ctx ty =
-      let
-        val quantify_tyval = fn ctx => fn ty => quantify_tyval tyvar_fn ctx ty
-      in
-        case (Context.norm_tyval ctx ty) of
-          TVtyvar sym =>
-            (case tyvar_fn (Proper sym) of
-              NONE => TVtyvar sym
-            | SOME tyval => tyval
-            )
-        | TVapp (tys, tyid) =>
-            TVapp (List.map (quantify_tyval ctx) tys, tyid)
-        | TVabs (tyvals, absid) =>
-            TVabs (List.map (quantify_tyval ctx) tyvals, absid)
-        | TVprod tys =>
-            TVprod (List.map (quantify_tyval ctx) tys)
-        | TVarrow (t1, t2) =>
-            TVarrow (quantify_tyval ctx t1, quantify_tyval ctx t2)
-        | TVrecord fields =>
-            TVrecord
-              (List.map (fn {lab, tyval} =>
-                { lab = lab
-                , tyval = quantify_tyval ctx tyval
-                }) fields
-              )
-        | TVvar r =>
-            (case tyvar_fn (Unconstrained r) of
-              NONE => TVvar r
-            | SOME tyval => tyval
-            )
-      end
-
-
-    and norm ctx exp = Context.norm_tyval ctx (synth ctx exp)
+    fun norm ctx exp = Context.norm_tyval ctx (synth ctx exp)
 
     and fields_subset ctx fields1 fields2 =
       List.app
@@ -375,8 +374,12 @@ structure Statics : STATICS =
         )
         fields1
 
-    and void_unify ctx t1 t2 = ( unify ctx t1 t2; () )
-
+    (* Unify two types! This is the bread and butter of type-checking.
+     * !!Side-effecting!!
+     * This function occasionally causes state change via setting the
+     * tyvals bound to unification variables (as well as the constraints
+     * upon rows of record types).
+     *)
     and unify ctx t1 t2 =
       ( case (Context.norm_tyval ctx t1, Context.norm_tyval ctx t2) of
         (TVvar (_, r as ref NONE), TVvar (_, r' as ref NONE)) =>
@@ -404,36 +407,38 @@ structure Statics : STATICS =
           unify ctx t1 t2
       | (_, TVvar (_, ref (SOME (Ty t2)))) =>
           unify ctx t1 t2
-      | ( TVvar (_, r1 as ref (SOME (Rows fields1)))
-        , TVvar (_, r2 as ref (SOME (Rows fields2)))
-        ) =>
-          let
-            val res =
-              List.foldl
-                (fn ({lab, tyval}, acc) =>
-                  SymDict.insertMerge acc lab tyval (fn tyval' => unify ctx tyval tyval')
-                )
-                SymDict.empty
-                (fields1 @ fields2)
-              |> SymDict.toList
-              |> List.map (fn (lab, tyval) => {lab=lab, tyval=tyval})
-              |> TVrecord
-          in
-            ( r1 := SOME (Ty res)
-            ; r2 := SOME (Ty res)
-            ; res
+      (* Row typing! *)
+        | ( TVvar (_, r1 as ref (SOME (Rows fields1)))
+          , TVvar (_, r2 as ref (SOME (Rows fields2)))
+          ) =>
+            let
+              val res =
+                List.foldl
+                  (fn ({lab, tyval}, acc) =>
+                    SymDict.insertMerge acc lab tyval (fn tyval' => unify ctx tyval tyval')
+                  )
+                  SymDict.empty
+                  (fields1 @ fields2)
+                |> SymDict.toList
+                |> List.map (fn (lab, tyval) => {lab=lab, tyval=tyval})
+                |> TVrecord
+            in
+              ( r1 := SOME (Ty res)
+              ; r2 := SOME (Ty res)
+              ; res
+              )
+            end
+        | (TVvar (_, r as ref (SOME (Rows rows_fields))), TVrecord record_fields) =>
+            ( fields_subset ctx rows_fields record_fields
+            ; r := SOME (Ty t2)
+            ; t2
             )
-          end
-      | (TVvar (_, r as ref (SOME (Rows rows_fields))), TVrecord record_fields) =>
-          ( fields_subset ctx rows_fields record_fields
-          ; r := SOME (Ty t2)
-          ; t2
-          )
-      | (TVrecord record_fields, TVvar (_, r as ref (SOME (Rows rows_fields)))) =>
-          ( fields_subset ctx rows_fields record_fields
-          ; r := SOME (Ty t1)
-          ; t1
-          )
+        | (TVrecord record_fields, TVvar (_, r as ref (SOME (Rows rows_fields)))) =>
+            ( fields_subset ctx rows_fields record_fields
+            ; r := SOME (Ty t1)
+            ; t1
+            )
+      (* /Row typing! *)
       | (TVrecord fields1, TVrecord fields2) =>
           ( fields_subset ctx fields1 fields2
           ; fields_subset ctx fields2 fields1
@@ -830,15 +835,15 @@ structure Statics : STATICS =
               val paired_tys =
                 ListPair.zipEq (quantified_tyvars, tys)
 
-              (* This search function, given a tyvar to replace, finds the
+              (* This substitution function, given a tyvar to replace, finds the
                * tyvar that replaces it.
                *)
-              val search_fn =
+              val tyvar_subst =
                 fn tyvar =>
                   List.find (fn (tyvar', _) => SH.tyvar_eq (tyvar, tyvar')) paired_tys
                   |> Option.map snd
             in
-              quantify_tyval search_fn ctx tyval
+              subst_tyvars_in_tyval tyvar_subst ctx tyval
             end
         in
           (id, (num_quantifiers, type_scheme))
@@ -990,10 +995,11 @@ structure Statics : STATICS =
                   case tyopt of
                     NONE => ()
                   | SOME ty =>
-                      void_unify
+                      unify
                         ctx
                         out_ty
                         (Context.synth_ty' ctx ty)
+                      |> ignore
               in
                 (* For each fvalbind, we unify the return types among clauses,
                  * and unify the types of the arguments. We also verify that
@@ -1080,10 +1086,11 @@ structure Statics : STATICS =
                 val new_ctx =
                   Context.add_unquantified_val_ty_bindings new_ctx clause_bindings
               in
-                void_unify
+                unify
                   ctx
                   (synth new_ctx clause_exp)
                   out_ty
+                |> ignore
               end
             )
           )
@@ -1850,6 +1857,26 @@ structure Statics : STATICS =
 
     (* TODO: add a wrapper around this that says what module and signature it
      * failed to ascribe
+     *
+     * Ascription takes in a module's contents (modeled as a scope) and tries to
+     * ascribe it to a given sigval.
+     *
+     * There are a couple of hard problems here:
+     * 1) A sigval may contain abstract types which need to be instantiated with
+     *    their real counterparts in the structure. For instance, if we have
+     *    struct type t = int val x = (2, 2) :
+     *    sig
+     *      type t
+     *      val x : t * t
+     *    end
+     *    then we must type-check `x` against `int * int`.
+     * 2) Datatypes.
+     *    We process types into a tyval type, which replaces datatypes with unique
+     *    TyId.t identifiers. This is so we can make datatype generativity work.
+     *    When we process types from the signature, we turn them into tyvals.
+     *    These have no conception of reuse, though, so we end up generating new
+     *    datatype IDs! When comparing the types for unification, we need to make
+     *    sure the signature tyids are compatible with the real structure tyids.
      *)
     fun ascribe ctx (scope as Scope {identdict, valtydict, moddict, infixdict = _, tynamedict}) seal =
       case seal of

@@ -35,6 +35,8 @@ fun snd (_, y) = y
 infixr 0 <|
 fun f <| x = f x
 
+fun ignore _ = ()
+
 (* a unit test!!!! *)
 val _ : string = (fn _ => "") <| 2 |> (fn _ => 4)
 
