@@ -1,0 +1,11 @@
+TODO:
+- make `value` and `context` types somehow no longer mutually recursive with
+  other main SMLSyntax types
+  * split most types in SMLSyntax into a `semantics` folder, such as tyval,
+    type_scheme, sigval, etc
+- fix Ehole by coming up with a better, less hacky solution
+  * potentially duplicate `exp` type for purely location purposes
+- reduce interface bloat of Context module
+- move to CM instead of MLton?
+  * but, lose fixity across files? pervasives.sml?
+- update parse-sml version
