@@ -4,6 +4,32 @@
   * See the file LICENSE for details.
   *)
 
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* A location is how the debugger knows to pretty-print the AST while we are
+ * evaluating it.
+ * Because we use algebraic effects to carry out the evaluation of the AST,
+ * we are never actually holding a value which corresponds to the in-progress
+ * state of the AST during a given big step.
+
+ * Because we want to print this intermediate state anyways, we store a stack
+ * which contains the closest "layers" of the AST, from inside-out, which lets
+ * us iterate over it while traversing our way to the outside of the program
+ * in order to print the correct AST.
+
+ * This does mean that we need to provide "holes" which signify where we
+ * currently are in the AST, so we know where our current text fits into the
+ * larger context.
+
+ * Hence, the location type below, which re-lists some of the structures of
+ * the AST, but in a one-hole context.
+ *)
+
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
+
 structure Location =
   struct
     datatype location =

@@ -15,6 +15,8 @@ structure S = SMLSyntax
 (* Prelude *)
 (*****************************************************************************)
 (* Functionality related to values.
+ * Unfortunately, since the `value` type is mutually recursive with the rest of
+ * the SMLSyntax types, we cannot put the type definition here.
  *)
 
 (*****************************************************************************)

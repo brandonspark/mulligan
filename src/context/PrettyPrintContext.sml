@@ -4,6 +4,25 @@
   * See the file LICENSE for details.
   *)
 
+(*****************************************************************************)
+(* Prelude *)
+(*****************************************************************************)
+(* The pretty-printer is contextual, meaning that it contains a lot of
+ * identifiers which are populated by equipping our print functions
+ * with a context of bindings.
+ *
+ * We call these "markers", which is a simple type which separates these
+ * bindings by their namespaces (modules, values, etc).
+ *
+ * This is important because we need to know, when traveling out of the debugger's
+ * specific one-hole context, which bindings start being and cease being valid.
+ * We store that information in a data structure called a MarkerSet.
+ *)
+
+(*****************************************************************************)
+(* Implementation *)
+(*****************************************************************************)
+
 structure PrettyPrintContext =
   struct
     type symbol = SMLSyntax.symbol

@@ -162,31 +162,6 @@ structure Context : CONTEXT =
 
     fun lightblue s = TerminalColors.text TerminalColors.lightblue s
 
-    val sym_true = Symbol.fromValue "true"
-    val sym_false = Symbol.fromValue "false"
-
-    val empty_set = MarkerSet.empty
-
-    (* Helpers *)
-
-    infix |>
-    fun x |> f = f x
-    fun enum l =
-       List.foldl
-         (fn (elem, (i, acc)) =>
-           (i + 1, (i, elem) :: acc)
-         )
-         (0, [])
-         l
-       |> (fn (_, l) => List.rev l)
-
-    fun concatMap f = List.concat o List.map f
-
-    fun snoc l =
-      ( List.take (l, List.length l - 1)
-      , List.nth (l, List.length l - 1)
-      )
-
     (* Some types *)
 
     fun lift f {scope, outer_scopes, dtydict, sigdict, functordict, tyvars, hole_print_fn,
@@ -421,7 +396,7 @@ structure Context : CONTEXT =
 
     fun get_base f orig_ctx id =
       let
-        val (xs, x) = snoc id
+        val (xs, x) = ListUtils.snoc id
       in
         (f (x, get_module orig_ctx xs))
         handle SymDict.Absent => raise CouldNotFind
@@ -944,7 +919,7 @@ structure Context : CONTEXT =
       let
         val name = lightblue (SH.longid_to_str id)
         val res : symbol option ref option ref = ref NONE
-        val (xs, x) = snoc id
+        val (xs, x) = ListUtils.snoc id
         val setting =
           if do_break then SOME x
           else NONE
