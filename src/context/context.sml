@@ -1030,6 +1030,7 @@ structure Context : CONTEXT =
         fun handle_type_synonym tyvals id =
           case get_type_synonym ctx id of
             Datatype tyid => TVapp (tyvals, tyid)
+          | Abs absid => TVabs (tyvals, absid)
           | Scheme (n, f) =>
               if List.length tyvals <> n then
                 prog_err "invalid arity for type synonym"

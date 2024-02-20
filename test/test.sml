@@ -714,8 +714,7 @@ structure Test :
             , "datatypes"  >:: test_datatypes
             , "poly"       >:: test_poly
             , "scoping"    >:: test_scoping
-            (* XFAIL: *)
-            (* , "abstract"   >:: test_abstract *)
+            , "abstract"   >:: test_abstract
             , "cont"       >:: test_cont
             , "mod"        >:: test_mod
             ]

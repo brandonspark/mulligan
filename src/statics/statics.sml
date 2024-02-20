@@ -1363,6 +1363,18 @@ structure Statics : STATICS =
             val enum_datbinds =
               List.map (fn datbind as {tycon, ...} => (datbind, TyId.new (SOME tycon))) datbinds
 
+            (* We must add the datatypes into the tynamedict first,
+               so that they can see each other while type-checking the
+               datatypes.
+             *)
+            val ctx =
+              List.foldl
+                (fn (({tycon, ...}, tyid), ctx) =>
+                Context.add_type_synonym ctx tycon (Datatype tyid)
+                )
+                ctx
+                enum_datbinds
+
             val withtypee_bindings =
               case withtypee of
                 NONE => []
@@ -1371,14 +1383,6 @@ structure Statics : STATICS =
                   (fn {tyvars, tycon, ty} =>
                     let
                       val num = List.length tyvars
-
-                      val ctx =
-                        List.foldl
-                          (fn (({tycon, ...}, tyid), ctx) =>
-                          Context.add_type_synonym ctx tycon (Datatype tyid)
-                          )
-                          ctx
-                          enum_datbinds
 
                       fun mk_tyvar_fn tys =
                         let
@@ -1418,18 +1422,6 @@ structure Statics : STATICS =
                 )
                 ctx
                 withtypee_bindings
-
-            (* We must add the datatypes into the tynamedict first,
-               so that they can see each other while type-checking the
-               datatypes.
-             *)
-            val ctx =
-              List.foldl
-                (fn (({tycon, ...}, tyid), ctx) =>
-                Context.add_type_synonym ctx tycon (Datatype tyid)
-                )
-                ctx
-                enum_datbinds
 
             (* add_datbind is responsible for adding the constructors to the
              * identdict and valtydict.
@@ -1884,24 +1876,13 @@ structure Statics : STATICS =
                               \ during signature matching.")
                             tyname
                           |> prog_err
-                      | SOME (Scheme (n', ty_fn)) =>
-                          if n <> n' then
-                            spf
-                              (`"Arity mismatch in type definition for abstract type "fi"\
-                                \ during signature matching.")
-                              tyname
-                            |> type_err
-                          else
-                            AbsIdDict.insert abstydict absid (n', ty_fn)
-                      | SOME (Datatype tyid) =>
-                          if n <> #arity (TyIdDict.lookup dtydict tyid) then
-                            spf
-                              (`"Arity mismatch in type definition for abstract type "fi"\
-                                \ during signature matching.")
-                              tyname
-                            |> type_err
-                          else
-                            AbsIdDict.insert abstydict absid (n, fn tyvals => TVapp (tyvals, tyid))
+                      | SOME synonym =>
+                          AbsIdDict.insert
+                            abstydict
+                            absid
+                            (n, fn tyvals =>
+                              SH.tyval_of_instantiated_synonym tyvals synonym
+                            )
                 )
                 AbsIdDict.empty
                 tyspecs
@@ -1925,6 +1906,16 @@ structure Statics : STATICS =
                           \ during signature matching.")
                         dtyname
                       |> type_err
+                  (* Pretty sure this is correct.
+                     This case would arise if you did something like
+                     (A : sig type t end) : sig datatype t = <stuff> end
+                   *)
+                  | SOME (Abs _) =>
+                      spf
+                        (`"Found abstract type instead of datatype for "fi"\
+                          \ during signature matching.")
+                        dtyname
+                      |> type_err
                 )
                 TyIdDict.empty
                 dtyspecs
@@ -1934,6 +1925,12 @@ structure Statics : STATICS =
              * Essentially, we need to replace abstract types with their
              * definitions, and signature-defined datatypes with their
              * implementations.
+
+             * For instance, consider:
+             * structure A : sig type t val x : t end =
+                 struct
+                   type
+                 end
              *)
             fun verify_tyval tyval =
               case Context.norm_tyval ctx tyval of
@@ -1996,28 +1993,15 @@ structure Statics : STATICS =
                    * datatypes with these datatypes.
                    *)
                   case (status, SymDict.find tynamedict tyname) of
-                    (Concrete (n, ty_fn), SOME (old as Datatype tyid)) =>
+                    (Concrete (n, ty_fn), SOME synonym) =>
                       let
                         val tyvars = List.tabulate (n, fn _ => new ())
+                        val tyval = SH.tyval_of_instantiated_synonym tyvars synonym
                       in
-                        ( unify ctx (verify_tyval (ty_fn tyvars)) (TVapp (tyvars, tyid))
-                        ; SymDict.insert new_tynamedict tyname old
+                        ( unify ctx (verify_tyval (ty_fn tyvars)) tyval
+                        ; SymDict.insert new_tynamedict tyname synonym
                         )
                       end
-                  | (Concrete (n, ty_fn), SOME (old as Scheme (n', ty_fn'))) =>
-                      if n <> n' then
-                        spf
-                          (`"Arity mismatch when comparing type schemes \
-                            \ during signature matching.")
-                        |> type_err
-                      else
-                        let
-                          val tyvars = List.tabulate (n, fn _ => new ())
-                        in
-                          ( unify ctx (verify_tyval (ty_fn tyvars)) (ty_fn' tyvars)
-                          ; SymDict.insert new_tynamedict tyname old
-                          )
-                        end
                   | (Abstract (n, absid), SOME _) =>
                       SymDict.insert new_tynamedict tyname
                         (Scheme (SH.guard_tyscheme (n, fn tyvals => TVabs (tyvals, absid))))

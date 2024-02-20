@@ -110,6 +110,7 @@ structure SMLSyntax =
 
     datatype synonym =
         Datatype of TyId.t
+      | Abs of AbsId.t
       | Scheme of type_scheme
 
     (* These are the type variables which the type inference algorithm has so

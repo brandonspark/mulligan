@@ -30,6 +30,10 @@ signature SMLSYNTAXHELPERS =
 
     val sym_true : symbol
     val sym_false : symbol
+    val tyval_of_instantiated_synonym :
+      SMLSyntax.tyval list
+      -> SMLSyntax.synonym
+      -> SMLSyntax.tyval
   end
 
 (*****************************************************************************)
@@ -76,6 +80,14 @@ structure SMLSyntaxHelpers =
 
     val sym_true = sym "true"
     val sym_false = sym "false"
+
+    fun tyval_of_instantiated_synonym tyvals synonym =
+      case synonym of
+        Datatype tyid =>
+          TVapp (tyvals, tyid)
+      | Abs absid =>
+          TVabs (tyvals, absid)
+      | Scheme (_, ty_fn) => ty_fn tyvals
 
     (*
     fun make_maps f_exp f_dec =

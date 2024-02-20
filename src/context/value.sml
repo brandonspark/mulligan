@@ -355,33 +355,27 @@ structure Value : VALUE =
           spec
           (sigval as Sigval {valspecs, tyspecs, dtyspecs, exnspecs, modspecs}) =
       let
-        val ctx_with_tyspecs =
-          SymDict.foldl (fn (sym, {status, ...}, ctx) =>
-            let
-              val synonym =
-                case status of
-                  Abstract (_, id) => raise Fail "TODO"
-                | Concrete (i, ty_fn) => Scheme (i, ty_fn)
-            in
-              Context.add_type_synonym ctx sym synonym
-            end
-          ) ctx tyspecs
-
-        val augmented_ctx =
-          SymDict.foldl (fn (sym, {tyid, ...}, ctx) =>
-            Context.add_type_synonym ctx sym (Datatype tyid)
-          ) ctx_with_tyspecs dtyspecs
-
-        (* We search in the original tyspec, because all of these are
-         * "simultaneous" and don't see each other.
-         *)
-        (* fun spec_datatype_fn (sym, tyvals) =
-          case (SymDict.find tyspecs sym, SymDict.find dtyspecs sym) of
-            (SOME _, SOME _) => prog_err "should be impossible"
-          | (SOME { status = Abstract (_, id), ... }, _) => SOME (TVabs (tyvals, id))
-          | (SOME { status = Concrete (_, ty_fn), ... }, _) => SOME (ty_fn tyvals)
-          | (_, SOME {tyid, ...}) => SOME (TVapp (tyvals, tyid))
-          | (NONE, NONE) => NONE *)
+        local
+          val ctx_with_tyspecs =
+            SymDict.foldl (fn (sym, {status, ...}, ctx) =>
+              let
+                val synonym =
+                  case status of
+                    Abstract (_, id) => Abs id
+                  | Concrete (i, ty_fn) => Scheme (i, ty_fn)
+              in
+                Context.add_type_synonym ctx sym synonym
+              end
+            ) ctx tyspecs
+        in
+          (* This augmented CTX is meant to be the ctx used with knowledge of
+             the types in the signature.
+           *)
+          val augmented_ctx =
+            SymDict.foldl (fn (sym, {tyid, ...}, ctx) =>
+              Context.add_type_synonym ctx sym (Datatype tyid)
+            ) ctx_with_tyspecs dtyspecs
+        end
 
         (* This function is supposed to allow us to get the type scheme which
          * takes into account the abstract types and datatypes defined
